@@ -13,7 +13,7 @@ ___INFO___
   "id": "cvt_temp_public_id",
   "version": 1,
   "securityGroups": [],
-  "displayName": "Sirdata | Google Consent Mode",
+  "displayName": "Sirdata CMP | Google Consent Mode",
   "categories": [
     "UTILITY",
     "TAG_MANAGEMENT",
@@ -1535,6 +1535,7 @@ const makeTableMap = require('makeTableMap');
 const setDefaultConsentState = require('setDefaultConsentState');
 const updateConsentState = require('updateConsentState');
 const injectScript = require('injectScript');
+const encodeUriComponent = require('encodeUriComponent');
 
 // generate object
 const generateConsentObject = (setting, tcData) => {
@@ -1598,11 +1599,11 @@ const registerTcfApiListener = () => {
 
 if (data.loadCmpScripts && data.partnerId && data.configId) {
   //stub
-  var url = 'https://cache.consentframework.com/js/pa/'+data.partnerId+'/c/'+data.configId+'/stub';
+  var url = 'https://cache.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/stub';
   injectScript(url, registerTcfApiListener, function(){});
   
   //script
-  url = 'https://choices.consentframework.com/js/pa/'+data.partnerId+'/c/'+data.configId+'/cmp';
+  url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/cmp';
   injectScript(url, function(){}, function(){data.gtmOnFailure();return;});
 }
 else {
