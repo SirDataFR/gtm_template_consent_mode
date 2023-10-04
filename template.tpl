@@ -1,12 +1,4 @@
-﻿___TERMS_OF_SERVICE___
-
-By creating or modifying this file you agree to Google Tag Manager's Community
-Template Gallery Developer Terms of Service available at
-https://developers.google.com/tag-manager/gallery-tos (or such other URL as
-Google may provide), as modified from time to time.
-
-
-___INFO___
+﻿___INFO___
 
 {
   "type": "TAG",
@@ -1540,8 +1532,12 @@ const encodeUriComponent = require('encodeUriComponent');
 // generate object
 const generateConsentObject = (setting, tcData) => {
   var consentObject = {};
+  //Implied for DMA
+  consentObject.ad_user_data = tcData ? ((!tcData.gdprApplies || tcData.vendor.consents[755]) ? 'granted' : 'denied') : 'denied';
   if (setting.ad_storage !== 'not used') {
     consentObject.ad_storage = tcData ? ((!tcData.gdprApplies || (tcData.purpose.consents[1] && tcData.purpose.consents[3])) ? 'granted' : 'denied') : setting.ad_storage;
+    //Implied for DMA
+    consentObject.ad_personalization = tcData ? ((!tcData.gdprApplies || tcData.vendor.consents[755]) ? consentObject.ad_storage : 'denied') : 'denied'; //consent for Google then same status than ad_storage (which already cookie & includes data control), and denied otherwise, not setting.ad_storage
   }
   if (setting.analytics_storage !== 'not used') {
     consentObject.analytics_storage = tcData ? ((!tcData.gdprApplies || (tcData.purpose.consents[1] && (tcData.purpose.consents[8] || tcData.purpose.legitimateInterests[8]))) ? 'granted' : 'denied') : setting.analytics_storage;
@@ -1584,7 +1580,7 @@ if (advancedSettingObject.url_passthrough || advancedSettingObject.ads_data_reda
 }
 
 const onUserChoice = (tcData, success) => {
-  if (!success || !tcData || typeof(tcData.eventStatus) == 'undefined' || typeof(tcData.gdprApplies) == 'undefined' || ((!tcData.eventStatus || !tcData.purpose || !tcData.publisher) && tcData.gdprApplies)) {
+  if (!success || !tcData || typeof(tcData.gdprApplies) == 'undefined' || ((!tcData.eventStatus || !tcData.purpose || !tcData.publisher) && tcData.gdprApplies)) {
     return;
   }
   data.settingsTable.forEach(setting => {
@@ -1885,6 +1881,68 @@ ___WEB_PERMISSIONS___
                   {
                     "type": 1,
                     "string": "security_storage"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "consentType"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "ad_user_data"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "consentType"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "ad_personalization"
                   },
                   {
                     "type": 8,
