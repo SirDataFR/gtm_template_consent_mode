@@ -2040,6 +2040,8 @@ scenarios:
       personalization_storage: 'granted',
       functionality_storage: 'granted',
       security_storage: 'granted',
+      ad_user_data: 'denied',
+      ad_personalization: 'denied',
     });
 
     assertApi('setDefaultConsentState').wasCalledWith({
@@ -2048,6 +2050,8 @@ scenarios:
       personalization_storage: 'denied',
       functionality_storage: 'denied',
       security_storage: 'denied',
+      ad_user_data: 'denied',
+      ad_personalization: 'denied',
       wait_for_update: 1000,
       region: ['FR']
     });
