@@ -11,9 +11,9 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_temp_public_id",
-  "version": 1,
+  "version": 1.2,
   "securityGroups": [],
-  "displayName": "Sirdata CMP | Google Consent Mode",
+  "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
     "UTILITY",
     "TAG_MANAGEMENT",
@@ -1536,9 +1536,10 @@ const setDefaultConsentState = require('setDefaultConsentState');
 const updateConsentState = require('updateConsentState');
 const injectScript = require('injectScript');
 const encodeUriComponent = require('encodeUriComponent');
+const makeInteger = require('makeInteger');
 
 // generate object
-const generateConsentObject = (setting, tcData) => {
+const generateConsentObject = (setting, tcData, isUpdate) => {
   var consentObject = {};
   //Implied for DMA
   consentObject.ad_user_data = tcData ? ((!tcData.gdprApplies || tcData.vendor.consents[755]) ? 'granted' : 'denied') : 'denied';
@@ -1559,8 +1560,8 @@ const generateConsentObject = (setting, tcData) => {
   if (setting.security_storage !== 'not used') {
     consentObject.security_storage = tcData ? (!tcData.gdprApplies || tcData.purpose.consents[1] ? 'granted' : 'denied') : setting.security_storage;
   }
-  if (setting.wait_for_update > 0) {
-    consentObject.wait_for_update = setting.wait_for_update;
+  if (setting.wait_for_update > 0 && !isUpdate) {
+    consentObject.wait_for_update = makeInteger(setting.wait_for_update);
   }
   if (setting.region !== 'ALL') {
     consentObject.region = [setting.region];
@@ -1571,7 +1572,7 @@ const generateConsentObject = (setting, tcData) => {
 // Process default consent state
 data.settingsTable.forEach(setting => {
   gtagSet('developer_id.dOWE1OT', true);
-  var consentModeState = generateConsentObject(setting, null);
+  var consentModeState = generateConsentObject(setting, null, false);
   setDefaultConsentState(consentModeState);
 });
 
@@ -1592,7 +1593,7 @@ const onUserChoice = (tcData, success) => {
     return;
   }
   data.settingsTable.forEach(setting => {
-    var consentModeState = generateConsentObject(setting, tcData);
+    var consentModeState = generateConsentObject(setting, tcData, true);
     updateConsentState(consentModeState);
   });
 };
