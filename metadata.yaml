@@ -15,5 +15,5 @@
 homepage: "https://cmp.sirdata.io/"
 documentation: "https://cmp.docs.sirdata.net/v/en/script-management/google-consent-mode"
 versions:
-  - sha: 240d9158f804b207011dfe0a70c8f4c0ed0fc817
-    changeNotes: fix wait_for_update
+  - sha: 806332dfcb54fb8c7cfab5a7eb7f0f6ed1dcf77b
+    changeNotes: small improvements & cookie deletion ready
