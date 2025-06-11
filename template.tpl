@@ -11,7 +11,7 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_temp_public_id",
-  "version": 1.3,
+  "version": 1.4,
   "securityGroups": [],
   "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
@@ -1726,6 +1726,8 @@ const encodeUriComponent = require('encodeUriComponent');
 const makeInteger = require('makeInteger');
 const getCookieValues = require('getCookieValues');
 const setCookie = require('setCookie');
+const copyFromWindow = require('copyFromWindow');
+const setInWindow = require('setInWindow');
 
 let exemptedCookiesNames = ['euconsent-v2'];
 let exemptedCookiesNamesBeginWith = [];
@@ -1916,9 +1918,6 @@ const loadCmp = () => {
     return;
   }
   let url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/cmp';
-  if (data.consentMode) {
-    url += '?gcm=false';
-  }
   injectScript(url, function(){data.gtmOnSuccess();}, function(){data.gtmOnFailure();return;});
 };
 
@@ -1931,10 +1930,12 @@ const loadStub = () => {
   if (!data.loadCmpScripts || !data.partnerId || !data.configId) {
     return;
   }
-  let url = 'https://cache.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/stub';
   if (data.consentMode) {
-    url += '?gcm=false';
+    const ABconsentCMP = copyFromWindow("ABconsentCMP") || {};
+    ABconsentCMP.disableConsentMode = true;
+    setInWindow("ABconsentCMP", ABconsentCMP, true);
   }
+  let url = 'https://cache.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/stub';
   injectScript(url, registerSdApiListener, loadCmp);
 };
 
@@ -2058,6 +2059,45 @@ ___WEB_PERMISSIONS___
                   {
                     "type": 8,
                     "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "ABconsentCMP"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
                   }
                 ]
               }
@@ -2556,4 +2596,3 @@ setup: |-
 ___NOTES___
 
 Created on 08/06/2023 20:46:14
-
