@@ -15,5 +15,5 @@
 homepage: "https://cmp.sirdata.io/"
 documentation: "https://cmp.docs.sirdata.net/v/en/script-management/google-consent-mode"
 versions:
-  - sha: 4f501e5473ecfc5b0b7daa02ed2d57cc6e689409
-    changeNotes: Allow Consent Mode to be set by CMP script
+  - sha: 0846c5bb2db6c826fbdb47e4e81a607a69086c7b
+    changeNotes: Allow Consent Mode to be set by CMP script through JS global var
