@@ -11,7 +11,7 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_temp_public_id",
-  "version": 1.5,
+  "version": 1.6,
   "securityGroups": [],
   "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
@@ -1733,7 +1733,7 @@ const JSON = require('JSON');
 
 const eventName = copyFromDataLayer("event");
 const ABconsentCMP = copyFromWindow("ABconsentCMP") || {};
-ABconsentCMP.gtmTemplateVersion = "1.5";
+ABconsentCMP.gtmTemplateVersion = "1.6";
 ABconsentCMP.gtmTemplateTrigger = eventName;
 if (data.consentMode) {
     ABconsentCMP.disableConsentMode = true;
@@ -1764,7 +1764,6 @@ if (data.handleCookiesDeletion && data.cookieNames) {
 
 const deleteCookie = (name, host) => {
   if (!host || !name || !getCookieValues(name)) { return; }
-  host = host.replace("www.","");
   setCookie(name, '', {'max-age': -1, 'domain': host});
   let parts = host.split('.');
   for (let i = parts.length - 2; i >= 0; i--) {
