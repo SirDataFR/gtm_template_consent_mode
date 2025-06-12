@@ -1754,6 +1754,7 @@ if (data.handleCookiesDeletion && data.cookieNames) {
 
 const deleteCookie = (name, host) => {
   if (!host || !name || !getCookieValues(name)) { return; }
+  host = host.replace("www.","");
   setCookie(name, '', {'max-age': -1, 'domain': host});
   let parts = host.split('.');
   for (let i = parts.length - 2; i >= 0; i--) {
@@ -1789,16 +1790,15 @@ const shouldPreserveCookie = function(name) {
   return false;
 };
 
-const deleteCookies = (host, cookiesList) => {
-  if (!data.handleCookiesDeletion || !host || !cookiesList) {
+const deleteCookies = (host, cookieList) => {
+  if (!data.handleCookiesDeletion || !host || !cookieList) {
     return;
   }
-  let cookies = cookiesList.split(',');
+  let cookies = cookieList.split(',');
   let deletedCount = 0;
   for (let i = 0; i < cookies.length; i++) {
     let name = cookies[i].trim();
     if (!shouldPreserveCookie(name)) {
-
       deleteCookie(name, host);
       deletedCount++;
     }
@@ -1908,8 +1908,8 @@ const onUserChoice = (tcData, success) => {
     var consentModeState = generateConsentObject(defaultConsent, tcData, true);
     updateConsentState(consentModeState);
   }
-  if (data.handleCookiesDeletion && tcData.eventStatus === "useractioncomplete" && !hasConsent(tcData, ['purpose', 'consents', 1]) && tcData.hostName && tcData.cookiesList) {
-    deleteCookies(tcData.hostName, tcData.cookiesList);
+  if (data.handleCookiesDeletion && tcData.eventStatus === "useractioncomplete" && !hasConsent(tcData, ['purpose', 'consents', 1]) && tcData.hostName && tcData.cookieList) {
+    deleteCookies(tcData.hostName, tcData.cookieList);
   }
 };
 
