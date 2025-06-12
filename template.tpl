@@ -11,7 +11,7 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_temp_public_id",
-  "version": 1.4,
+  "version": 1.5,
   "securityGroups": [],
   "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
@@ -1728,6 +1728,16 @@ const getCookieValues = require('getCookieValues');
 const setCookie = require('setCookie');
 const copyFromWindow = require('copyFromWindow');
 const setInWindow = require('setInWindow');
+const copyFromDataLayer = require('copyFromDataLayer');
+const JSON = require('JSON');
+
+const eventName = copyFromDataLayer("event");
+const ABconsentCMP = copyFromWindow("ABconsentCMP") || {};
+ABconsentCMP.gtmTemplateVersion = "1.5";
+ABconsentCMP.gtmTemplateTrigger = eventName;
+if (data.consentMode) {
+    ABconsentCMP.disableConsentMode = true;
+}
 
 let exemptedCookiesNames = ['euconsent-v2'];
 let exemptedCookiesNamesBeginWith = [];
@@ -1930,14 +1940,12 @@ const loadStub = () => {
   if (!data.loadCmpScripts || !data.partnerId || !data.configId) {
     return;
   }
-  if (data.consentMode) {
-    const ABconsentCMP = copyFromWindow("ABconsentCMP") || {};
-    ABconsentCMP.disableConsentMode = true;
-    setInWindow("ABconsentCMP", ABconsentCMP, true);
-  }
   let url = 'https://cache.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/stub';
   injectScript(url, registerSdApiListener, loadCmp);
 };
+
+ABconsentCMP.gtmTemplateDefaultConsent = JSON.stringify(defaultConsent);
+setInWindow("ABconsentCMP", ABconsentCMP, true);
 
 if (data.loadCmpScripts && data.partnerId && data.configId) {
   loadStub();
@@ -2530,6 +2538,39 @@ ___WEB_PERMISSIONS___
       "isEditedByUser": true
     },
     "isRequired": true
+  },
+  {
+    "instance": {
+      "key": {
+        "publicId": "read_data_layer",
+        "versionId": "1"
+      },
+      "param": [
+        {
+          "key": "allowedKeys",
+          "value": {
+            "type": 1,
+            "string": "specific"
+          }
+        },
+        {
+          "key": "keyPatterns",
+          "value": {
+            "type": 2,
+            "listItem": [
+              {
+                "type": 1,
+                "string": "event"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "clientAnnotations": {
+      "isEditedByUser": true
+    },
+    "isRequired": true
   }
 ]
 
@@ -2596,3 +2637,4 @@ setup: |-
 ___NOTES___
 
 Created on 08/06/2023 20:46:14
+
