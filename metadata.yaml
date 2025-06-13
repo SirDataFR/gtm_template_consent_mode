@@ -15,5 +15,5 @@
 homepage: "https://cmp.sirdata.io/"
 documentation: "https://cmp.docs.sirdata.net/v/en/script-management/google-consent-mode"
 versions:
-  - sha: 1038c4ef16a8443cbe181f6533be7f954d57a2a2
-    changeNotes: fix actual hostname
+  - sha: 7a19e4f9680c1a5a3d4c8b53973712027f9fbae1
+    changeNotes: remote Consent Mode Control
