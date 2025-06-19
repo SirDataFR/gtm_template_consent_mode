@@ -70,7 +70,7 @@ ___VENDOR_DETAILS___
     "WEB",
     "AMP"
   ],
-  "termsAndConditionsUrl": "https://preprod.abconsent.com/terms-of-sale",
+  "termsAndConditionsUrl": "https://www.abconsent.com/terms-of-sale",
   "defaultSettingsUrl": "https://cmp.docs.sirdata.net/en/install/quick-configuration"
 }
 
