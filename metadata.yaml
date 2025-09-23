@@ -15,5 +15,5 @@
 homepage: "https://cmp.sirdata.io/"
 documentation: "https://cmp.docs.sirdata.net/v/en/script-management/google-consent-mode"
 versions:
-  - sha: 77bddc9908a9f69e9c7e19bf5cbd6fd5550c54d8
-    changeNotes: Add cmpuishown
+  - sha: a98dfcd4a619057983074afe2918846ff85f9ca4
+    changeNotes: Add containerId and version to object
