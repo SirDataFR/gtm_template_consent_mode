@@ -11,7 +11,7 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_NGJ2P",
-  "version": 1.71,
+  "version": 1.72,
   "securityGroups": [],
   "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
@@ -1730,9 +1730,16 @@ const copyFromWindow = require('copyFromWindow');
 const setInWindow = require('setInWindow');
 const copyFromDataLayer = require('copyFromDataLayer');
 const JSON = require('JSON');
+const getContainerVersion = require('getContainerVersion');
 
 const eventName = copyFromDataLayer("event");
 const ABconsentCMP = copyFromWindow("ABconsentCMP") || {};
+const containerInfo = getContainerVersion() || {};
+if (containerInfo) {
+  ABconsentCMP.gtmTemplateContainerId = containerInfo.containerId;
+  ABconsentCMP.gtmTemplateContainerVersion = containerInfo.version;
+  ABconsentCMP.gtmTemplateContainerFirstPartyServing = containerInfo.firstPartyServing;
+}
 ABconsentCMP.gtmTemplateVersion = "1.71";
 ABconsentCMP.gtmTemplateTrigger = eventName;
 if (data.consentMode) {
@@ -2568,6 +2575,16 @@ ___WEB_PERMISSIONS___
     },
     "clientAnnotations": {
       "isEditedByUser": true
+    },
+    "isRequired": true
+  },
+  {
+    "instance": {
+      "key": {
+        "publicId": "read_container_data",
+        "versionId": "1"
+      },
+      "param": []
     },
     "isRequired": true
   }
