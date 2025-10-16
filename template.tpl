@@ -11,7 +11,7 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_NGJ2P",
-  "version": 1.72,
+  "version": 1.73,
   "securityGroups": [],
   "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
@@ -1536,11 +1536,11 @@ ___TEMPLATE_PARAMETERS___
             "alwaysInSummary": true
           },
           {
-            "help": "Check to redact ad click identifiers sent in network requests by Google Ads and Floodlight tags when ad_storage is denied.",
+            "help": "Check to redact ad click identifiers sent in network requests by Google Ads and Floodlight tags when ad_storage is denied. Warning: Enabling this option prevents automatic conversion linking in Google Ads, which impacts performance measurement and bid optimization. To continue tracking the origin of your conversions, you may use manual tagging with UTM parameters (utm_source, utm_campaign, etc.) in your ad URLs.",
             "defaultValue": false,
             "simpleValueType": true,
             "name": "ads_data_redaction",
-            "checkboxText": "Reduce attribution by redacting ad-related data when consent is not granted",
+            "checkboxText": "Reduce attribution by redacting ad-related data (e.g. "gclid") when consent is not granted",
             "type": "CHECKBOX",
             "enablingConditions": [
               {
