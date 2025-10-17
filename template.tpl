@@ -42,7 +42,7 @@ ___VENDOR_DETAILS___
   "vendorName": "ABconsent by Sirdata",
   "description": "Leverage our Gold-certified CMP to easily deploy a fully customizable consent banner. With automatic setup and built-in Consent Mode, ensure compliance with global privacy standards, including IAB TCF, Google, Microsoft, Shopify, WordPress, GDPR, and CCPA/CPRA.",
   "homepageUrl": "https://www.abconsent.com",
-  "freeTrial": "7-day trial, no credit card needed, cancel anytime.", 
+  "freeTrial": "7-day trial, no credit card needed, cancel anytime.",
   "freeTier": "Lifetime free plan",
   "price": "Free for sites with up to 500 page views/month.\u003cbr\u003ePremium plans start at €25/month and go up to €550/month + CPM, based on traffic volume.\u003cbr\u003e\u003cb\u003eGet an exclusive 10% discount when combined with our \u003ca href=\u0022https://sgtm.sirdata.io\u0022 target=\u0022_blank\u0022\u003eGTM Server-side service\u003c/a\u003e\u003c/b\u003e.",
   "countries": "All countries",
@@ -1540,7 +1540,7 @@ ___TEMPLATE_PARAMETERS___
             "defaultValue": false,
             "simpleValueType": true,
             "name": "ads_data_redaction",
-            "checkboxText": "Reduce attribution by redacting ad-related data (e.g. "gclid") when consent is not granted",
+            "checkboxText": "Reduce attribution by redacting ad-related data (e.g. \u0027gclid\u0027) when consent is not granted",
             "type": "CHECKBOX",
             "enablingConditions": [
               {
@@ -1802,7 +1802,7 @@ const shouldPreserveCookie = function(name) {
       return true;
     }
   }
-  
+
   return false;
 };
 
@@ -1839,7 +1839,7 @@ const generateConsentObject = function(setting, tcData, isUpdate) {
 
   consentObject.ad_user_data = tcData ? (hasConsent(tcData, ['vendor', 'consents', 755]) ? 'granted' : 'denied') : 'denied';
   consentObject.ad_personalization = tcData ? hasConsent(tcData, ['purpose', 'consents', 1]) && hasConsent(['purpose', 'consents', 3]) ? consentObject.ad_user_data : 'denied' : 'denied';
-  
+
   if (setting.ad_storage !== 'not used') {
     consentObject.ad_storage = tcData ? (hasConsent(tcData, ['purpose', 'consents', 1]) && hasConsent(['purpose', 'consents', 3]) ? 'granted' : 'denied') : setting.ad_storage;
     if (!isUpdate) {
@@ -1882,7 +1882,7 @@ const generateConsentObject = function(setting, tcData, isUpdate) {
   if (setting.region && setting.region !== 'ALL') {
     consentObject.region = [setting.region];
   }
-                            
+
   return consentObject;
 };
 
