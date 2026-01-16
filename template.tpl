@@ -11,7 +11,7 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_NGJ2P",
-  "version": 1.73,
+  "version": 1.74,
   "securityGroups": [],
   "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
@@ -1613,6 +1613,30 @@ ___TEMPLATE_PARAMETERS___
         "simpleValueType": true,
         "name": "configId",
         "type": "TEXT"
+      },
+      {
+        "alwaysInSummary": true,
+        "valueValidators": [
+          {
+            "type": "REGEX",
+            "args": [
+              "[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+(?\u003d[\\/\\s?#]|$)"
+            ]
+          }
+        ],
+        "enablingConditions": [
+          {
+            "paramName": "loadCmpScripts",
+            "type": "EQUALS",
+            "paramValue": true
+          }
+        ],
+        "displayName": "Optionnal : first party host",
+        "simpleValueType": true,
+        "name": "firstPartyHost",
+        "type": "TEXT",
+        "help": "This field is only available if the option is enabled in your account. Enter the first-party hostname declared in your ABConsent (Sirdata CMP) settings. Do not include \u0027http://\u0027 or \u0027https://\u0027. If unsure, leave it empty.",
+        "defaultValue": ""
       }
     ]
   },
@@ -1934,20 +1958,34 @@ const loadCmp = () => {
     return;
   }
   let url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/cmp';
-  injectScript(url, function(){data.gtmOnSuccess();}, function(){data.gtmOnFailure();return;});
+  injectScript(url, function(){data.gtmOnSuccess();}, function(){data.gtmOnFailure();});
 };
 
 const registerSdApiListener = () => {
   callInWindow('__sdcmpapi', 'addEventListener', 2, onUserChoice);
-  loadCmp();
+  if (!data.firstPartyHost) {
+    loadCmp();
+  }
+};
+
+const loadRegularStub = () => {
+  let url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/stub';
+  injectScript(url, registerSdApiListener, loadCmp);
 };
 
 const loadStub = () => {
   if (!data.loadCmpScripts || !data.partnerId || !data.configId) {
     return;
   }
-  let url = 'https://cache.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/stub';
-  injectScript(url, registerSdApiListener, loadCmp);
+  if (!data.firstPartyHost) {
+    loadRegularStub();
+  } else {
+    let sdCmpTemplateCallback = copyFromWindow("sdCmpTemplateCallback") || [];
+    sdCmpTemplateCallback.push(registerSdApiListener);
+    setInWindow('sdCmpTemplateCallback', sdCmpTemplateCallback);
+    let url = 'https://cdn.sirdata.eu/cmp_loader.js?p='+encodeUriComponent(data.partnerId)+'&c='+encodeUriComponent(data.configId)+'&h='+encodeUriComponent(data.firstPartyHost)+'&cb=sdCmpTemplateCallback';
+    injectScript(url, function(){data.gtmOnSuccess();}, function(){data.firstPartyHost = "";loadRegularStub();});
+  }
 };
 
 ABconsentCMP.gtmTemplateDefaultConsent = JSON.stringify(defaultConsent);
@@ -1956,8 +1994,8 @@ setInWindow("ABconsentCMP", ABconsentCMP, true);
 if (data.loadCmpScripts && data.partnerId && data.configId) {
   loadStub();
 } else {
-  //fallback TCF
-  callInWindow('__tcfapi', 'addEventListener', 2, onUserChoice);
+  //fallback
+  callInWindow('__sdcmpapi', 'addEventListener', 2, onUserChoice);
   data.gtmOnSuccess();
 }
 
@@ -2112,6 +2150,45 @@ ___WEB_PERMISSIONS___
                   {
                     "type": 8,
                     "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "sdCmpTemplateCallback"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
                   }
                 ]
               }
@@ -2444,6 +2521,10 @@ ___WEB_PERMISSIONS___
               {
                 "type": 1,
                 "string": "https://*.consentframework.com/*"
+              },
+              {
+                "type": 1,
+                "string": "https://cdn.sirdata.eu/*"
               }
             ]
           }
