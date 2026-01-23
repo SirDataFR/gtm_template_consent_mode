@@ -1941,7 +1941,7 @@ if (data.consentMode) {
 }
 
 const onUserChoice = (tcData, success) => {
-  if (!success || !tcData || typeof(tcData.gdprApplies) == 'undefined' || typeof(tcData.eventStatus) == 'undefined' || ((!tcData.purpose || !tcData.vendor) && tcData.gdprApplies)) {
+  if (!success || !tcData || typeof(tcData.gdprApplies) == 'undefined' || ((typeof(tcData.eventStatus) == 'undefined' || !tcData.purpose || !tcData.vendor) && tcData.gdprApplies)) {
     return;
   }
   if (data.consentMode) {
