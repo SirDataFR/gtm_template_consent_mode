@@ -1942,7 +1942,7 @@ if (data.consentMode) {
 
 const onUserChoice = (tcData, success) => {
   if (!success || !tcData || typeof(tcData.gdprApplies) == 'undefined' || ((typeof(tcData.eventStatus) == 'undefined' || !tcData.purpose || !tcData.vendor) && tcData.gdprApplies)) {
-    return;
+      return;
   }
   if (data.consentMode) {
     var consentModeState = generateConsentObject(defaultConsent, tcData, true);
