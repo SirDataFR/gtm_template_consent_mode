@@ -15,5 +15,5 @@
 homepage: "https://cmp.sirdata.io/"
 documentation: "https://cmp.docs.sirdata.net/v/en/script-management/google-consent-mode"
 versions:
-  - sha: eac5a077b2a032832d2a3210d4f60171584db8fe
-    changeNotes: fix TCF conflict CCPA/GDPR
+  - sha: e927e5d69810e1c1aa1b21e3294acfd1d4a8d7df
+    changeNotes: fix minor bug
