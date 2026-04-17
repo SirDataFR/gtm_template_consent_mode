@@ -11,7 +11,7 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_NGJ2P",
-  "version": 1.74,
+  "version": 1.75,
   "securityGroups": [],
   "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
@@ -1862,10 +1862,10 @@ const generateConsentObject = function(setting, tcData, isUpdate) {
   let consentObject = {};
 
   consentObject.ad_user_data = tcData ? (hasConsent(tcData, ['vendor', 'consents', 755]) ? 'granted' : 'denied') : 'denied';
-  consentObject.ad_personalization = tcData ? hasConsent(tcData, ['purpose', 'consents', 1]) && hasConsent(['purpose', 'consents', 3]) ? consentObject.ad_user_data : 'denied' : 'denied';
+  consentObject.ad_personalization = tcData ? hasConsent(tcData, ['purpose', 'consents', 1]) && hasConsent(tcData, ['purpose', 'consents', 3]) ? consentObject.ad_user_data : 'denied' : 'denied';
 
   if (setting.ad_storage !== 'not used') {
-    consentObject.ad_storage = tcData ? (hasConsent(tcData, ['purpose', 'consents', 1]) && hasConsent(['purpose', 'consents', 3]) ? 'granted' : 'denied') : setting.ad_storage;
+    consentObject.ad_storage = tcData ? (hasConsent(tcData, ['purpose', 'consents', 1]) && hasConsent(tcData, ['purpose', 'consents', 3]) ? 'granted' : 'denied') : setting.ad_storage;
     if (!isUpdate) {
       defaultConsent.ad_storage = 'denied';
     }
