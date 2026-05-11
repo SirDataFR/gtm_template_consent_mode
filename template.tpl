@@ -1,4 +1,4 @@
-﻿___TERMS_OF_SERVICE___
+___TERMS_OF_SERVICE___
 
 By creating or modifying this file you agree to Google Tag Manager's Community
 Template Gallery Developer Terms of Service available at
@@ -1739,6 +1739,8 @@ ___TEMPLATE_PARAMETERS___
 
 ___SANDBOXED_JS_FOR_WEB_TEMPLATE___
 
+const currentVersion = "1.76";
+
 const callInWindow = require('callInWindow');
 const gtagSet = require('gtagSet');
 const log = require('logToConsole');
@@ -1764,7 +1766,7 @@ if (containerInfo) {
   ABconsentCMP.gtmTemplateContainerVersion = containerInfo.version;
   ABconsentCMP.gtmTemplateContainerFirstPartyServing = containerInfo.firstPartyServing;
 }
-ABconsentCMP.gtmTemplateVersion = "1.71";
+ABconsentCMP.gtmTemplateVersion = currentVersion;
 ABconsentCMP.gtmTemplateTrigger = eventName;
 if (data.consentMode) {
     ABconsentCMP.enableConsentMode = false;
