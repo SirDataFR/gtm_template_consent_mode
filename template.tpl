@@ -11,7 +11,7 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_NGJ2P",
-  "version": 1.76,
+  "version": 1.77,
   "securityGroups": [],
   "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
@@ -1739,7 +1739,7 @@ ___TEMPLATE_PARAMETERS___
 
 ___SANDBOXED_JS_FOR_WEB_TEMPLATE___
 
-const currentVersion = "1.76";
+const currentVersion = '1.77';
 
 const callInWindow = require('callInWindow');
 const gtagSet = require('gtagSet');
@@ -1754,22 +1754,27 @@ const getCookieValues = require('getCookieValues');
 const setCookie = require('setCookie');
 const copyFromWindow = require('copyFromWindow');
 const setInWindow = require('setInWindow');
-const copyFromDataLayer = require('copyFromDataLayer');
-const JSON = require('JSON');
-const getContainerVersion = require('getContainerVersion');
 
-const eventName = copyFromDataLayer("event");
-const ABconsentCMP = copyFromWindow("ABconsentCMP") || {};
-const containerInfo = getContainerVersion() || {};
-if (containerInfo) {
-  ABconsentCMP.gtmTemplateContainerId = containerInfo.containerId;
-  ABconsentCMP.gtmTemplateContainerVersion = containerInfo.version;
-  ABconsentCMP.gtmTemplateContainerFirstPartyServing = containerInfo.firstPartyServing;
-}
-ABconsentCMP.gtmTemplateVersion = currentVersion;
-ABconsentCMP.gtmTemplateTrigger = eventName;
-if (data.consentMode) {
+const ABconsentCMP = copyFromWindow('ABconsentCMP') || {};
+var cmpLoaded = false;
+if (typeof (ABconsentCMP.enableConsentMode) == 'undefined') {
+  const copyFromDataLayer = require('copyFromDataLayer');
+  const eventName = copyFromDataLayer('event');
+  const getContainerVersion = require('getContainerVersion');
+  const containerInfo = getContainerVersion() || {};
+  if (containerInfo) {
+    ABconsentCMP.gtmTemplateContainerId = containerInfo.containerId;
+    ABconsentCMP.gtmTemplateContainerVersion = containerInfo.version;
+    ABconsentCMP.gtmTemplateContainerFirstPartyServing = containerInfo.firstPartyServing;
+  }
+  ABconsentCMP.gtmTemplateVersion = currentVersion;
+  ABconsentCMP.gtmTemplateTrigger = eventName;
+  if (data.consentMode) {
     ABconsentCMP.enableConsentMode = false;
+  }
+} else {
+  cmpLoaded = true;
+  log('CMP loaded already');
 }
 
 let exemptedCookiesNames = ['euconsent-v2'];
@@ -1920,7 +1925,7 @@ let defaultConsent = {
   'security_storage': 'not used'
 };
 
-if (data.consentMode) {
+if (data.consentMode && !ABconsentCMP.enableConsentMode) {
   gtagSet('developer_id.dOWE1OT', true);
 
   // Advanced settings
@@ -1946,7 +1951,7 @@ const onUserChoice = (tcData, success) => {
   if (!success || !tcData || typeof(tcData.gdprApplies) == 'undefined' || ((typeof(tcData.eventStatus) == 'undefined' || !tcData.purpose || !tcData.vendor) && tcData.gdprApplies)) {
       return;
   }
-  if (data.consentMode) {
+  if (data.consentMode && !ABconsentCMP.enableConsentMode) {
     var consentModeState = generateConsentObject(defaultConsent, tcData, true);
     updateConsentState(consentModeState);
   }
@@ -1982,18 +1987,18 @@ const loadStub = () => {
   if (!data.firstPartyHost) {
     loadRegularStub();
   } else {
-    let sdCmpTemplateCallback = copyFromWindow("sdCmpTemplateCallback") || [];
+    let sdCmpTemplateCallback = copyFromWindow('sdCmpTemplateCallback') || [];
     sdCmpTemplateCallback.push(registerSdApiListener);
     setInWindow('sdCmpTemplateCallback', sdCmpTemplateCallback);
     let url = 'https://cdn.sirdata.eu/cmp_loader.js?p='+encodeUriComponent(data.partnerId)+'&c='+encodeUriComponent(data.configId)+'&h='+encodeUriComponent(data.firstPartyHost)+'&cb=sdCmpTemplateCallback';
-    injectScript(url, function(){data.gtmOnSuccess();}, function(){data.firstPartyHost = "";loadRegularStub();});
+    injectScript(url, function(){data.gtmOnSuccess();}, function(){data.firstPartyHost = '';loadRegularStub();});
   }
 };
 
-ABconsentCMP.gtmTemplateDefaultConsent = JSON.stringify(defaultConsent);
-setInWindow("ABconsentCMP", ABconsentCMP, true);
-
-if (data.loadCmpScripts && data.partnerId && data.configId) {
+if (!cmpLoaded && data.loadCmpScripts && data.partnerId && data.configId) {
+  const JSON = require('JSON');
+  ABconsentCMP.gtmTemplateDefaultConsent = JSON.stringify(defaultConsent);
+  setInWindow('ABconsentCMP', ABconsentCMP, true);
   loadStub();
 } else {
   //fallback
