@@ -11,7 +11,7 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_NGJ2P",
-  "version": 1.77,
+  "version": 1.78,
   "securityGroups": [],
   "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
@@ -1739,7 +1739,7 @@ ___TEMPLATE_PARAMETERS___
 
 ___SANDBOXED_JS_FOR_WEB_TEMPLATE___
 
-const currentVersion = '1.77';
+const currentVersion = '1.78';
 
 const callInWindow = require('callInWindow');
 const gtagSet = require('gtagSet');
@@ -1950,6 +1950,20 @@ if (data.consentMode && !ABconsentCMP.enableConsentMode) {
 const onUserChoice = (tcData, success) => {
   if (!success || !tcData || typeof(tcData.gdprApplies) == 'undefined' || ((typeof(tcData.eventStatus) == 'undefined' || !tcData.purpose || !tcData.vendor) && tcData.gdprApplies)) {
       return;
+  }
+  //CCPA/CPRA override
+  if (!tcData.gdprApplies) {
+    const __uspapi = copyFromWindow('__uspapi') || null;
+    if (typeof(__uspapi) === 'function') {
+      const usprivacyCookie = getCookieValues("usprivacy");
+      if (usprivacyCookie && usprivacyCookie.length > 0) {
+        const usprivacyString = usprivacyCookie[0];
+        if (usprivacyString && usprivacyString.length > 3 && usprivacyString[2] == 'Y') {
+          //obect => force gdpr applies with "no consent" signal
+          tcData.gdprApplies = true;
+        }
+      }
+    }
   }
   if (data.consentMode && !ABconsentCMP.enableConsentMode) {
     var consentModeState = generateConsentObject(defaultConsent, tcData, true);
@@ -2184,6 +2198,45 @@ ___WEB_PERMISSIONS___
                   {
                     "type": 1,
                     "string": "sdCmpTemplateCallback"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "__uspapi"
                   },
                   {
                     "type": 8,
