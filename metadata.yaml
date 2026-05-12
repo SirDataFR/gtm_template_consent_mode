@@ -15,5 +15,80 @@
 homepage: "https://cmp.sirdata.io/"
 documentation: "https://cmp.docs.sirdata.net/v/en/script-management/google-consent-mode"
 versions:
+  - sha: 4a12bc38b7cc0f42b1b718e0352c7d416d80de12
+    changeNotes: avoid multiple loads
+
   - sha: 921d92f65fe225fa98dae022048372880c57f25e
     changeNotes: update version id
+
+  - sha: 3b5ca0173f1e2e18faa9dc33402fc3f939054224
+    changeNotes: fix version id
+
+  - sha: e927e5d69810e1c1aa1b21e3294acfd1d4a8d7df
+    changeNotes: fix minor bug
+
+  - sha: eac5a077b2a032832d2a3210d4f60171584db8fe
+    changeNotes: fix TCF conflict CCPA/GDPR
+
+  - sha: 2d8faaee915b6ad5f9bf9a89242b1aa8d24466c2
+    changeNotes: fix TCF conflict CCPA/GDPR
+
+  - sha: 12c84eb727041644d6ef4cd043dd80d4d4c6a6ec
+    changeNotes: Allow First-Party Host
+
+  - sha: c5e49dd1279ad2ab9677527b6e93c54df26ab088
+    changeNotes: Update attribution Info
+
+  - sha: 3857f7374a304ffae511bdc508a66ba21af6ec62
+    changeNotes: Update attribution Info
+
+  - sha: a98dfcd4a619057983074afe2918846ff85f9ca4
+    changeNotes: Add containerId and version to object
+
+  - sha: 77bddc9908a9f69e9c7e19bf5cbd6fd5550c54d8
+    changeNotes: Add cmpuishown
+
+  - sha: 39854ee3077a3912be837af6444cc8ef58b9b580
+    changeNotes: update id
+
+  - sha: bddd70ea052281437c23d0ffb01b5c3122125e7e
+    changeNotes: add path for cookie deletion
+
+  - sha: 7a19e4f9680c1a5a3d4c8b53973712027f9fbae1
+    changeNotes: remote Consent Mode Control
+
+  - sha: 1038c4ef16a8443cbe181f6533be7f954d57a2a2
+    changeNotes: fix actual hostname
+
+  - sha: e0194f179ff002bcf5eef88f34d70483458358db
+    changeNotes: add quality controls
+
+  - sha: ff9dee86681f138aa12f8139e5eae9021581317e
+    changeNotes: fix cookieList key name
+
+  - sha: 0846c5bb2db6c826fbdb47e4e81a607a69086c7b
+    changeNotes: Allow Consent Mode to be set by CMP script through JS global var
+
+  - sha: 4f501e5473ecfc5b0b7daa02ed2d57cc6e689409
+    changeNotes: Allow Consent Mode to be set by CMP script
+
+  - sha: 806332dfcb54fb8c7cfab5a7eb7f0f6ed1dcf77b
+    changeNotes: small improvements & cookie deletion ready
+
+  - sha: 240d9158f804b207011dfe0a70c8f4c0ed0fc817
+    changeNotes: fix wait_for_update
+
+  - sha: 58b62abf15139b51d14dae5bfcb0bc46a7f6ad46
+    changeNotes: v0.05
+
+  - sha: 7cb04cb2f9f617b29606d6bcc80b0e75636318b2
+    changeNotes: v0.04
+
+  - sha: 0532211e562a85efd3112bb42089c5c6208da5fa
+    changeNotes: v0.02
+
+  - sha: f4ac5d8a9b872122b4b309f5ad84ef75b2f65bd8
+    changeNotes: v0.02
+
+  - sha: 0fa4639fe40b31f699a75c527cc61143f9bc65f3
+    changeNotes: Initial Version
