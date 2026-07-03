@@ -15,6 +15,9 @@
 homepage: "https://cmp.sirdata.io/"
 documentation: "https://cmp.docs.sirdata.net/v/en/script-management/google-consent-mode"
 versions:
+  - sha: 29d6935ba30f7bb55965e46a4b87bb9a38a74fba
+    changeNotes: usprivacy cookie preserved
+
   - sha: cf345c0295507dc303d804f9af1c9ca94b7a0b71
     changeNotes: add US signal
 
