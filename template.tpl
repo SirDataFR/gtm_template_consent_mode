@@ -11,7 +11,7 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_NGJ2P",
-  "version": 1.78,
+  "version": 1.79,
   "securityGroups": [],
   "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
@@ -1719,8 +1719,8 @@ ___TEMPLATE_PARAMETERS___
                 "type": "EQUALS"
               }
             ],
-            "notSetText": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, core consent-related cookies (e.g. euconsent-v2) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically.",
-            "help": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, core consent-related cookies (e.g. euconsent-v2) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically.By default, core consent-related cookies (e.g. euconsent-v2) are preserved.\nTo exempt additional cookies, define exception rules using one or more of the following match types:\n\n    Exact name\n\n    Starts with\n\n    Ends with\n\n    Contains\n\nAny cookie not matching these rules may be removed automatically."
+            "notSetText": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, core consent-related cookies (e.g. euconsent-v2, usprivacy) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically.",
+            "help": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, core consent-related cookies (e.g. euconsent-v2, usprivacy) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically.By default, core consent-related cookies (e.g. euconsent-v2) are preserved.\nTo exempt additional cookies, define exception rules using one or more of the following match types:\n\n    Exact name\n\n    Starts with\n\n    Ends with\n\n    Contains\n\nAny cookie not matching these rules may be removed automatically."
           }
         ],
         "enablingConditions": [
@@ -1730,7 +1730,7 @@ ___TEMPLATE_PARAMETERS___
             "type": "EQUALS"
           }
         ],
-        "help": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, core consent-related cookies (e.g. euconsent-v2) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically."
+        "help": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, core consent-related cookies (e.g. euconsent-v2, usprivacy) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically."
       }
     ]
   }
@@ -1739,7 +1739,7 @@ ___TEMPLATE_PARAMETERS___
 
 ___SANDBOXED_JS_FOR_WEB_TEMPLATE___
 
-const currentVersion = '1.78';
+const currentVersion = '1.79';
 
 const callInWindow = require('callInWindow');
 const gtagSet = require('gtagSet');
@@ -1777,7 +1777,7 @@ if (typeof (ABconsentCMP.enableConsentMode) == 'undefined') {
   log('CMP loaded already');
 }
 
-let exemptedCookiesNames = ['euconsent-v2'];
+let exemptedCookiesNames = ['euconsent-v2', 'usprivacy'];
 let exemptedCookiesNamesBeginWith = [];
 let exemptedCookiesNamesEndWith = [];
 let exemptedCookiesNamesContain = [];
