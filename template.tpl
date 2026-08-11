@@ -1889,6 +1889,18 @@ const CONSENT_MODE_COOKIE_VERSION = '1';
 
 // Format d'échange avec sirdata-cmp-ui et le tag externe de sirdata-cmp-api. L'ordre est figé et
 // append-only : ne jamais réordonner ni retirer un signal — changer la version en tête.
+//
+// La position dans ce tableau EST la position du caractère dans le cookie, ce qui permet de lire
+// une valeur brute à la main :
+//
+//     __sdgcm = "1.1010000"
+//                │ ├┴┴┴┴┴┴─ bit 0..6, dans l'ordre ci-dessous
+//                │ └─ 1 = granted, 0 = denied
+//                └─ version du format
+//
+//     bit 0 analytics_storage   bit 1 functionality_storage   bit 2 security_storage
+//     bit 3 personalization_storage   bit 4 ad_storage   bit 5 ad_user_data
+//     bit 6 ad_personalization
 const CONSENT_MODE_SIGNALS = [
   'analytics_storage',
   'functionality_storage',
@@ -2145,6 +2157,19 @@ const onUserChoice = (tcData, success) => {
     const cookieMaxAge = resolveCookieMaxAge();
     if (cookieMaxAge > 0) {
       const truth = generateConsentObject(ALL_SIGNALS_USED, tcData, true);
+      // Attributs alignés sur ce qu'écrit le bundle (`buildCookie`, sirdata-cmp-ui) :
+      // `path=/`, `max-age`, `SameSite=Lax`, et AUCUN domaine — donc un cookie host-only, un
+      // seul, jamais deux que `getCookieValues` rendrait dans un tableau.
+      //
+      // Deux écarts assumés, et aucun ne porte à conséquence :
+      //  - la casse de la clé d'option (`'samesite'` ici, `SameSite` dans la chaîne du bundle)
+      //    est imposée par GTM, et les noms d'attributs de cookie sont insensibles à la casse ;
+      //  - le bundle ajoute `Secure` en https ; le faire ici demanderait la permission `get_url`
+      //    pour lire le protocole, soit un second diff de permissions pour une valeur qui n'est
+      //    pas un secret. La poser sans condition couperait la fonctionnalité sur les pages http.
+      //
+      // `encode: false` garde la valeur telle quelle : c'est ce que le tag externe relit, et il
+      // la valide caractère par caractère.
       setCookie(CONSENT_MODE_COOKIE_NAME, encodeConsentSignals(truth), {
         'path': '/',
         'max-age': cookieMaxAge,

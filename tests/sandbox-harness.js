@@ -68,12 +68,13 @@ const TC_ALL_GRANTED = {
     purpose: {consents: {1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true}, legitimateInterests: {}},
     vendor: {consents: {755: true}, legitimateInterests: {}}
 };
+// Seule la finalité 1 est accordée : ni la 8 (analytics), ni les 5/6 (personalization), ni le
+// vendor 755 (les trois ad_*). Sert à vérifier qu'un changement repousse bien un update.
 const TC_ONLY_P1 = {
-    gdprApplies: true, eventStatus: "useractouncomplete",
+    gdprApplies: true, eventStatus: "useractioncomplete",
     purpose: {consents: {1: true}, legitimateInterests: {}},
     vendor: {consents: {}, legitimateInterests: {}}
 };
-TC_ONLY_P1.eventStatus = "useractioncomplete";
 
 const SDDAN_LOCAL = {cmp: {scope: "LOCAL", cookieMaxAgeInDays: 390}};
 const SDDAN_GROUP = {cmp: {scope: "GROUP", cookieMaxAgeInDays: 390}};
