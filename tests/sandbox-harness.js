@@ -14,7 +14,35 @@ const path = require("path");
 const fs = require("fs");
 
 const TPL = fs.readFileSync(path.join(__dirname, "..", "template.tpl"), "utf8");
-const SRC = TPL.split("___SANDBOXED_JS_FOR_WEB_TEMPLATE___")[1].split("___WEB_PERMISSIONS___")[0];
+
+// L'extraction est le SEUL point où ce harnais peut mentir en silence : si un délimiteur changeait,
+// on rejouerait un fragment — voire du vide — et tous les contrôles passeraient au vert sans avoir
+// rien exercé. Un contrôle qui ne peut pas échouer ne contrôle rien, donc on vérifie que le
+// découpage a bien rendu le corps attendu et on jette bruyamment sinon.
+function extractSandboxedJs(tpl) {
+    const OPEN = "___SANDBOXED_JS_FOR_WEB_TEMPLATE___";
+    const CLOSE = "___WEB_PERMISSIONS___";
+    const parts = tpl.split(OPEN);
+    if (parts.length !== 2) {
+        throw new Error("delimiteur " + OPEN + " absent ou en double (" + parts.length + " morceaux)");
+    }
+    if (parts[1].indexOf(CLOSE) === -1) {
+        throw new Error("delimiteur " + CLOSE + " absent apres " + OPEN);
+    }
+    const src = parts[1].split(CLOSE)[0];
+    // Sentinelles : des symboles que le corps sandboxé DOIT porter. Leur absence signifie qu'on a
+    // découpé au mauvais endroit — pas que le template a un bug.
+    ["setDefaultConsentState", "updateConsentState", "CONSENT_MODE_SIGNALS", "onUserChoice"].forEach((s) => {
+        if (src.indexOf(s) === -1) {
+            throw new Error("corps sandboxe suspect : '" + s + "' introuvable");
+        }
+    });
+    if (src.length < 2000) {
+        throw new Error("corps sandboxe suspect : " + src.length + " octets");
+    }
+    return src;
+}
+const SRC = extractSandboxedJs(TPL);
 
 function run(opts) {
     const cookies = Object.assign({}, opts.cookies || {});
