@@ -239,5 +239,25 @@ console.log("\n11. Aucune ligne globale : on n'amorce rien");
     check("update poussé (rien d'amorcé)", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
 }
 
+console.log("\n12. 'not used' sur UNE ligne seulement : le signal non émis doit repartir");
+{
+    // La ligne globale marque ad_storage « not used », la ligne FR l'émet. Un visiteur HORS de FR
+    // n'a donc reçu aucun default pour ad_storage — alors que l'update, lui, l'émet (defaultConsent
+    // est un accumulateur global : une seule ligne qui l'utilise suffit à le poser à 'denied').
+    //
+    // Amorcer ad_storage depuis le cookie ferait croire que gtag le connaît déjà et supprimerait
+    // l'update. L'état gtag ne survit PAS d'une page vue à l'autre : ce visiteur n'aurait jamais
+    // reçu ad_storage, et ses tags resteraient éteints malgré un consentement accordé.
+    const r = run({
+        sddan: SDDAN_LOCAL,
+        data: {settingsTable: [row({ad_storage: "not used", region: "ALL"}), row({region: "FR"})]},
+        cookies: {"__sdgcm": "1.1111111", "euconsent-v2": "x"}
+    });
+    check("ad_storage absent du default global", r.calls.defaults[0].ad_storage === undefined, JSON.stringify(r.calls.defaults[0]));
+    check("mais présent sur la ligne FR", r.calls.defaults[1].ad_storage === "granted", JSON.stringify(r.calls.defaults[1]));
+    r.listener(TC_ALL_GRANTED, true);
+    check("update poussé (ad_storage jamais posé en default)", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
+}
+
 console.log(failures === 0 ? "\nTOUT VERT" : "\n" + failures + " ECHEC(S)");
 process.exit(failures === 0 ? 0 : 1);

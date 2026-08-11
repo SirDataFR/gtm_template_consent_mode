@@ -2068,15 +2068,15 @@ const storedConsentSignals = readStoredConsentSignals();
 // et ce qu'on vient d'écrire.
 //
 // Le `default` EST une poussée, au même titre qu'un `update` : la déduplication ne dépend donc pas
-// du cookie. Celui-ci n'est qu'une des ENTRÉES qui servent à calculer le default — il amorce les
-// sept signaux, y compris ceux que la table de réglages n'émet pas, pour qu'activer un signal plus
-// tard ne reparte pas d'un état vide.
+// du cookie, et c'est le default émis qui l'amorce (plus bas).
+//
+// Le cookie n'amorce RIEN, délibérément. L'état gtag ne survit pas d'une page vue à l'autre : le
+// cookie ne dit pas ce que gtag sait ICI, il dit ce que le visiteur avait choisi. Son rôle est
+// d'ENTRER dans le calcul du default (applyStoredSignals), pas d'attester d'une poussée. En amorcer
+// un signal que le default n'a pas émis reviendrait à affirmer que gtag connaît une valeur qu'on ne
+// lui a jamais dite — et l'update qui la porte serait supprimé, laissant les tags de ce visiteur
+// éteints sur un consentement pourtant accordé.
 let lastPushedSignals = {};
-if (storedConsentSignals) {
-  for (let s = 0; s < CONSENT_MODE_SIGNALS.length; s++) {
-    lastPushedSignals[CONSENT_MODE_SIGNALS[s]] = storedConsentSignals[CONSENT_MODE_SIGNALS[s]];
-  }
-}
 
 // Recueil de ce qui est réellement ÉMIS en default, pendant la boucle qui le pose — jamais
 // reconstitué après coup depuis la table de réglages.
@@ -2235,7 +2235,8 @@ const onUserChoice = (tcData, success) => {
         'path': '/',
         'max-age': cookieMaxAge,
         'samesite': 'Lax'
-      }, false);
+      }, false /* encode : la valeur est de l'ASCII sûr, et on la veut identique à l'octet près
+                  à ce qu'écrit le bundle */);
     }
   }
   if (data.handleCookiesDeletion && (tcData.eventStatus === 'useractioncomplete' || tcData.eventStatus === 'tcloaded') && !hasConsent(tcData, ['purpose', 'consents', 1]) && tcData.hostName && tcData.cookieList) {
