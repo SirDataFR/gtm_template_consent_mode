@@ -1911,13 +1911,17 @@ const CONSENT_MODE_SIGNALS = [
   'ad_personalization'
 ];
 
-// Passé à `generateConsentObject` pour obtenir la vérité des SEPT signaux, y compris ceux que la
-// table de réglages marque « not used ». Réutiliser la fonction plutôt que récrire ses
-// expressions est ce qui empêche les deux de diverger.
+// Fausse ligne de réglages où AUCUN des cinq signaux de stockage n'est « not used », passée à
+// `generateConsentObject` pour obtenir la vérité des sept signaux. Réutiliser la fonction plutôt
+// que récrire ses expressions est ce qui empêche les deux de diverger.
 //
-// Les valeurs valent 'denied' et non '' : `functionality_storage` et `security_storage`
-// retombent sur la valeur du réglage quand la finalité 1 n'est pas accordée.
-const ALL_SIGNALS_USED = {
+// Cinq entrées et non sept, délibérément : `ad_user_data` et `ad_personalization` ne sont pas
+// gouvernés par la table de réglages — `generateConsentObject` les calcule sans condition. Les
+// nommer ici laisserait croire le contraire.
+//
+// Les valeurs valent 'denied' et non '' : `functionality_storage` et `security_storage` retombent
+// sur la valeur du réglage quand la finalité 1 n'est pas accordée.
+const EVERY_STORAGE_SIGNAL_USED = {
   'ad_storage': 'denied',
   'analytics_storage': 'denied',
   'personalization_storage': 'denied',
@@ -2156,7 +2160,7 @@ const onUserChoice = (tcData, success) => {
     // reparte du vrai plutôt que d'un cookie vide. Écrit à chaque invocation, c'est idempotent.
     const cookieMaxAge = resolveCookieMaxAge();
     if (cookieMaxAge > 0) {
-      const truth = generateConsentObject(ALL_SIGNALS_USED, tcData, true);
+      const truth = generateConsentObject(EVERY_STORAGE_SIGNAL_USED, tcData, true);
       // Attributs alignés sur ce qu'écrit le bundle (`buildCookie`, sirdata-cmp-ui) :
       // `path=/`, `max-age`, `SameSite=Lax`, et AUCUN domaine — donc un cookie host-only, un
       // seul, jamais deux que `getCookieValues` rendrait dans un tableau.
@@ -3084,13 +3088,51 @@ scenarios:
       ad_user_data: 'denied',
       ad_personalization: 'denied',
     });
+- name: FRONT-1314 - the cookie is written in publisher scope
+  code: |-
+    // Positive counterpart of the scenario below, and the reason it is not decorative.
+    //
+    // setCookie is ONLY reachable from the __sdcmpapi listener, and the editor's test runner never
+    // fires it: a `wasNotCalled` assertion would therefore hold whatever the scope, for the wrong
+    // reason. Mocking callInWindow to call the listener back is what gives both scenarios teeth.
+    mock('copyFromWindow', (name) => {
+      if (name === 'SDDAN') return {cmp: {scope: 'LOCAL', cookieMaxAgeInDays: 390}};
+      return undefined;
+    });
+    mock('callInWindow', (name, method, version, callback) => {
+      if (name === '__sdcmpapi' && method === 'addEventListener') {
+        callback({
+          gdprApplies: true,
+          eventStatus: 'useractioncomplete',
+          purpose: {consents: {1: true, 8: true}, legitimateInterests: {}},
+          vendor: {consents: {}, legitimateInterests: {}}
+        }, true);
+      }
+    });
+
+    runCode(mockData);
+
+    assertApi('setCookie').wasCalled();
 - name: FRONT-1314 - nothing is persisted outside publisher scope
   code: |-
     // GROUP and PROVIDER keep the consent record on the Sirdata domain, where it can change from
     // another site without this one knowing — same rule as the CMP bundle.
+    //
+    // Same listener mock as above: only the scope differs between the two scenarios, so a failure
+    // here really does mean the scope guard is gone.
     mock('copyFromWindow', (name) => {
       if (name === 'SDDAN') return {cmp: {scope: 'GROUP', cookieMaxAgeInDays: 390}};
       return undefined;
+    });
+    mock('callInWindow', (name, method, version, callback) => {
+      if (name === '__sdcmpapi' && method === 'addEventListener') {
+        callback({
+          gdprApplies: true,
+          eventStatus: 'useractioncomplete',
+          purpose: {consents: {1: true, 8: true}, legitimateInterests: {}},
+          vendor: {consents: {}, legitimateInterests: {}}
+        }, true);
+      }
     });
 
     runCode(mockData);
