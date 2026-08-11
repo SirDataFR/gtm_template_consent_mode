@@ -76,6 +76,20 @@ const TC_ONLY_P1 = {
     vendor: {consents: {}, legitimateInterests: {}}
 };
 
+// Rien n'est accordé : l'objet émis vaut alors exactement le default tout-refusé de la table de
+// réglages. C'est le cas qui doit NE PAS repousser d'update.
+const TC_ALL_DENIED = {
+    gdprApplies: true, eventStatus: "useractioncomplete",
+    purpose: {consents: {}, legitimateInterests: {}},
+    vendor: {consents: {}, legitimateInterests: {}}
+};
+
+const ALL_DENIED_ROW = {
+    ad_storage: "denied", analytics_storage: "denied", personalization_storage: "denied",
+    functionality_storage: "denied", security_storage: "denied", wait_for_update: 1000
+};
+function row(over) { return Object.assign({}, ALL_DENIED_ROW, over); }
+
 const SDDAN_LOCAL = {cmp: {scope: "LOCAL", cookieMaxAgeInDays: 390}};
 const SDDAN_GROUP = {cmp: {scope: "GROUP", cookieMaxAgeInDays: 390}};
 
@@ -183,6 +197,46 @@ console.log("\n8. Signal 'not used' : absent du default et de l'update, present 
     check("analytics vient du cookie", r.calls.defaults[0].analytics_storage === "granted");
     r.listener(TC_ALL_GRANTED, true);
     check("cookie porte quand meme ad_storage vrai", r.calls.setCookies[0].value === "1.1111111", r.calls.setCookies[0].value);
+}
+
+console.log("\n9. SANS cookie, choix identique au default : aucun update");
+{
+    // Le default EST une poussée : un update qui le répète n'apprend rien à gtag. Avant le
+    // correctif, lastPushedSignals n'était amorcé que depuis le cookie, donc ce cas — de loin le
+    // plus fréquent, un visiteur qui refuse sur sa première page vue — repoussait un update
+    // identique à CHAQUE page vue.
+    const r = run({sddan: SDDAN_LOCAL});
+    check("default tout refusé", r.calls.defaults[0].ad_storage === "denied");
+    r.listener(TC_ALL_DENIED, true);
+    check("AUCUN update (identique au default)", r.calls.updates.length === 0, JSON.stringify(r.calls.updates));
+    check("mais le cookie est bien écrit", r.calls.setCookies.length === 1 && r.calls.setCookies[0].value === "1.0000000", JSON.stringify(r.calls.setCookies));
+    // La décision 2 reste indépendante de la décision 1 : le cookie s'écrit sans qu'un update parte.
+    r.listener(TC_ALL_GRANTED, true);
+    check("un vrai changement repousse un update", r.calls.updates.length === 1);
+}
+
+console.log("\n10. Lignes régionales divergentes : le signal ambigu repart en update");
+{
+    // gtag applique la ligne FR aux visiteurs FR et la ligne ALL aux autres — le template ne sait
+    // pas laquelle ce visiteur a reçue. Sauter l'update sur une supposition laisserait les tags
+    // tourner sous un état qu'il n'a pas choisi : l'ambigu doit donc repartir.
+    const r = run({
+        sddan: SDDAN_LOCAL,
+        data: {settingsTable: [row({region: "ALL"}), row({analytics_storage: "granted", region: "FR"})]}
+    });
+    check("deux defaults posés", r.calls.defaults.length === 2);
+    r.listener(TC_ALL_DENIED, true);
+    check("update poussé malgré l'égalité apparente", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
+}
+
+console.log("\n11. Aucune ligne globale : on n'amorce rien");
+{
+    // Une table qui n'a que des lignes régionales ne pose AUCUN default aux visiteurs hors de ces
+    // régions. On ne peut donc rien affirmer sur ce qu'ils ont reçu.
+    const r = run({sddan: SDDAN_LOCAL, data: {settingsTable: [row({region: "FR"})]}});
+    check("le default porte bien une région", r.calls.defaults[0].region[0] === "FR", JSON.stringify(r.calls.defaults[0]));
+    r.listener(TC_ALL_DENIED, true);
+    check("update poussé (rien d'amorcé)", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
 }
 
 console.log(failures === 0 ? "\nTOUT VERT" : "\n" + failures + " ECHEC(S)");

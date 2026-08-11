@@ -2063,21 +2063,74 @@ let defaultConsent = {
 // réécrit entre-temps.
 const storedConsentSignals = readStoredConsentSignals();
 
-// Ce qui a été réellement POUSSÉ — le `default` d'abord quand on a su le reconstituer, puis chaque
-// `update`. C'est la référence de comparaison, jamais le cookie : comparer au cookie rouvrirait
-// une course entre ce qu'on lit et ce qu'on vient d'écrire.
+// Ce qui a été réellement POUSSÉ — le `default` d'abord, puis chaque `update`. C'est la référence
+// de comparaison, jamais le cookie : comparer au cookie rouvrirait une course entre ce qu'on lit
+// et ce qu'on vient d'écrire.
 //
-// Amorcé SEULEMENT quand le cookie existe, et c'est délibéré. Sans lui, le `default` vient de la
-// table de réglages, dont plusieurs lignes peuvent porter des valeurs différentes PAR RÉGION : le
-// template ne sait pas laquelle s'applique à ce visiteur, donc il ne peut pas savoir ce qui a été
-// dit. Un état vide compte chaque signal comme une différence, donc le premier update part —
-// exactement comme avant ce ticket.
+// Le `default` EST une poussée, au même titre qu'un `update` : la déduplication ne dépend donc pas
+// du cookie. Celui-ci n'est qu'une des ENTRÉES qui servent à calculer le default — il amorce les
+// sept signaux, y compris ceux que la table de réglages n'émet pas, pour qu'activer un signal plus
+// tard ne reparte pas d'un état vide.
 let lastPushedSignals = {};
 if (storedConsentSignals) {
   for (let s = 0; s < CONSENT_MODE_SIGNALS.length; s++) {
     lastPushedSignals[CONSENT_MODE_SIGNALS[s]] = storedConsentSignals[CONSENT_MODE_SIGNALS[s]];
   }
 }
+
+// Recueil de ce qui est réellement ÉMIS en default, pendant la boucle qui le pose — jamais
+// reconstitué après coup depuis la table de réglages.
+//
+// Un signal n'est retenu que s'il vaut la MÊME chose pour TOUT visiteur. La table peut porter
+// plusieurs lignes, dont des lignes régionales qui n'écrasent la ligne globale que pour les
+// visiteurs concernés (`consentObject.region`, posé par generateConsentObject) : le template ne
+// sait pas laquelle gtag a appliquée. Sauter un update sur une supposition laisserait les tags
+// Google tourner sous un état que ce visiteur n'a pas choisi — on ne retient donc que l'unanime,
+// et l'ambigu repart en update, qui est le sens sûr.
+let emittedDefault = {};
+let emittedCount = {};
+let emittedRows = 0;
+let hasGlobalRow = false;
+
+const recordEmittedDefault = (consentObject) => {
+  emittedRows = emittedRows + 1;
+  if (!consentObject.region) {
+    hasGlobalRow = true;
+  }
+  for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
+    const name = CONSENT_MODE_SIGNALS[i];
+    const value = consentObject[name];
+    if (value !== undefined) {
+      if (emittedCount[name] === undefined) {
+        emittedDefault[name] = value;
+        emittedCount[name] = 1;
+      } else {
+        emittedCount[name] = emittedCount[name] + 1;
+        if (emittedDefault[name] !== value) {
+          // Divergence entre deux lignes : on ne saura pas laquelle s'applique. Sticky.
+          emittedDefault[name] = undefined;
+        }
+      }
+    }
+  }
+};
+
+// Trois conditions, et chacune écarte un cas où le visiteur n'a PAS reçu la valeur qu'on croirait :
+//  - une ligne globale doit exister, sans quoi un visiteur hors de toutes les régions n'a reçu
+//    aucun default du tout ;
+//  - toutes les lignes doivent émettre le signal (une ligne qui le marque « not used » ne le pose
+//    pas pour les visiteurs de sa région) ;
+//  - et elles doivent s'accorder sur la valeur.
+const seedFromEmittedDefaults = () => {
+  if (hasGlobalRow) {
+    for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
+      const name = CONSENT_MODE_SIGNALS[i];
+      if (emittedCount[name] === emittedRows && emittedDefault[name] !== undefined) {
+        lastPushedSignals[name] = emittedDefault[name];
+      }
+    }
+  }
+};
 
 // Comparaison signal par signal sur les clés PRÉSENTES, jamais par égalité d'objets : l'objet émis
 // ne porte pas toujours les mêmes clés (« not used »), et l'état gtag est cumulatif — un
@@ -2125,7 +2178,11 @@ if (data.consentMode && !ABconsentCMP.enableConsentMode) {
       consentModeState = applyStoredSignals(consentModeState, storedConsentSignals);
     }
     setDefaultConsentState(consentModeState);
+    recordEmittedDefault(consentModeState);
   });
+  // Le default qui vient d'être posé devient la référence : un update qui répète ce qu'il dit
+  // déjà n'a rien à apprendre à gtag.
+  seedFromEmittedDefaults();
 }
 
 const onUserChoice = (tcData, success) => {
