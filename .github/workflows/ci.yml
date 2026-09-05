@@ -1,0 +1,47 @@
+# Ce dépôt n'avait AUCUNE CI, et c'était son défaut le plus coûteux : la section `___TESTS___` du
+# template ne s'exécute que dans l'éditeur GTM, donc le seul contrôle mécanique du comportement —
+# `tests/sandbox-harness.js` — ne tournait que si quelqu'un pensait à le lancer à la main.
+#
+# Ce que cette CI vérifie, et rien de plus : le COMPORTEMENT du JS sandboxé, rejoué contre de faux
+# APIs GTM. Elle ne vérifie NI les permissions, NI les restrictions du sous-ensemble JS de Google —
+# ça n'est pas reproductible hors de l'éditeur de template, et ça reste donc une étape manuelle
+# avant toute publication en galerie.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    name: Sandbox harness (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Les deux versions vont au bout au lieu de s'arrêter à la première : sur un dépôt qui
+      # n'était vérifié par personne, découvrir toute la dette d'un coup vaut mieux qu'une
+      # version par run.
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # Aucune dépendance, aucun cache : le harnais ne demande que `node`, et le README en fait
+      # une promesse. Un `npm ci` ici signifierait qu'on l'a rompue.
+      #
+      # `node --version` est imprimé délibérément : sans lui, rien dans le log ne dit sur quelle
+      # version le harnais a réellement tourné, et la matrice n'est qu'une intention. Le runner
+      # force par ailleurs les ACTIONS elles-mêmes sur son propre Node — à ne pas confondre avec
+      # celui-ci, qui est le seul à exécuter le harnais.
+      - name: Run the sandbox harness
+        run: |
+          node --version
+          node tests/sandbox-harness.js
