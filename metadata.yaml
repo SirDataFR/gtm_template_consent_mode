@@ -15,6 +15,9 @@
 homepage: "https://cmp.sirdata.io/"
 documentation: "https://cmp.docs.sirdata.net/v/en/script-management/google-consent-mode"
 versions:
+  - sha: fb7a686c5b18edf5acfa2e74e44cfb87c3b63075
+    changeNotes: improved signals
+
   - sha: 2ad4818f6527039635b7be0c20307bf67f3f8559
     changeNotes: improved GCM "default" signal
 
