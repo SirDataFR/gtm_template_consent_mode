@@ -1782,27 +1782,20 @@ if (typeof (ABconsentCMP.enableConsentMode) == 'undefined') {
 // "what this setup writes, this setup does not delete"; a third-party cookie does not belong here.
 //
 // The deletion path opens precisely when purpose 1 is NOT granted -- that is, exactly when these
-// cookies carry the refusal that has to be remembered. Four of them were being deleted:
+// cookies carry the refusal that has to be remembered. What each one holds:
 //
-//  - `__sdgcm` was written and deleted within the SAME event, since the write precedes the
-//    deletion in `onUserChoice`. A visitor who refused was left with no cookie, so the next page
-//    view fell back to an all-denied default with a non-zero `wait_for_update` -- losing the
-//    whole point of a default that already carries the stored choice;
-//  - `__gpcactive` -- deleting it silently disables the GPC precedence below, and the deletion
-//    path is opened by the same condition that makes the marker meaningful;
-//  - `sdconsent-v2` -- the consent cookie of non-TCF configurations, the counterpart of
-//    `euconsent-v2` for a configuration without the TCF, yet only the latter was exempt;
-//  - `__sdusnat` -- the record of the detailed US choices. The four-character `usprivacy` string
-//    cannot carry them: its format is frozen by `__uspapi` and its third-party readers, so those
-//    choices live in a cookie of their own. It is written beside `usprivacy`, never instead of
-//    it -- but the deletion list is driven by every cookie present on the page, so the exemption
-//    is not optional. The exposure is narrow and real: the list is only supplied on the GDPR
-//    path, so what is at risk is a visitor who recorded US choices and is later served the
-//    European banner.
+//  - `euconsent-v2` and `sdconsent-v2` -- the consent record itself, for a configuration with
+//    and without the TCF respectively;
+//  - `usprivacy` -- the US Privacy string, whose format is frozen by `__uspapi` and its
+//    third-party readers;
+//  - `__sdusnat` -- the detailed US choices, which the four characters of `usprivacy` cannot
+//    carry. Written beside it, never instead of it;
+//  - `__sdgcm` -- the stored consent-mode signals this template reads for its default;
+//  - `__gpcactive` -- the marker that carries a GPC objection into that default.
 //
-// The list is the complete set this setup writes. Anything added to it there belongs here too:
-// the deletion sweep is name-based over every cookie on the page, so a new name is deleted by
-// default, silently, on the very page view where it matters most.
+// The list is the complete set this setup writes, and it has to stay complete: the deletion sweep
+// matches by NAME over every cookie present on the page, so a name missing from here is deleted
+// silently, on the very page view where it matters most.
 let exemptedCookiesNames = ['euconsent-v2', 'sdconsent-v2', 'usprivacy', '__sdgcm', '__gpcactive',
                             '__sdusnat'];
 let exemptedCookiesNamesBeginWith = [];
@@ -1893,9 +1886,9 @@ const hasConsent = function(tcData, path) {
 
 // ─── The default comes from `__sdgcm`; an update is only pushed when it differs ─────────────
 //
-// Without this, every page view set an all-denied default with `wait_for_update: 1000` -- Google
-// blind for up to a second -- followed by a corrective update, even for a visitor who had not
-// changed their mind.
+// The stored signals carry the visitor's last choice into the DEFAULT, so a returning visitor is
+// served their own state immediately, with `wait_for_update: 0` -- no blind window, and no
+// corrective update for someone who has not changed their mind.
 //
 // This template READS this cookie and never writes it. One producer, one consumer.
 //
@@ -1939,9 +1932,9 @@ const DIGITS = '0123456789';
 // readable by hand:
 //
 //     __sdgcm = "1.1010000"
-//                │ ├┴┴┴┴┴┴─ bit 0..6, dans l'ordre ci-dessous
+//                │ ├┴┴┴┴┴┴─ bits 0..6, in the order below
 //                │ └─ 1 = granted, 0 = denied
-//                └─ version du format
+//                └─ format version
 //
 //     bit 0 analytics_storage   bit 1 functionality_storage   bit 2 security_storage
 //     bit 3 personalization_storage   bit 4 ad_storage   bit 5 ad_user_data
@@ -1961,19 +1954,14 @@ const readFirstCookie = (name) => {
   return values && values.length > 0 ? values[0] : '';
 };
 
-// There is deliberately NO eligibility guard on the consent-mode cookie, and it must stay that
-// way. An earlier shape honoured it only when a consent record was found beside it -- one of
-// `euconsent-v2`, `sdconsent-v2`, `usprivacy`. The intent was sound: the cookie describes a
-// choice, so an entry outliving the record it describes would assert a consent that no longer
-// exists.
-//
-// What made it wrong is that the list can never be complete from here. Which record gets written
-// depends on the configuration -- which regulation applies, whether an API has been switched off
-// -- and the template cannot see that. Every combination this list does not name reads as "no
-// choice was ever made", so the cookie is ignored and the default falls back to all-denied with a
-// non-zero `wait_for_update`, on every page view. The mechanism is dead exactly where nobody
-// looks, and it fails silently. A guard whose false negatives are invisible and unbounded costs
-// more than the case it protects.
+// The consent-mode cookie is read with NO eligibility guard -- no consent record is required
+// beside it -- and it must stay that way. Requiring one is tempting, since the cookie describes a
+// choice; but which record gets written depends on the configuration -- which regulation applies,
+// whether an API has been switched off -- and the template cannot see that. Any list of records
+// to require here would therefore be incomplete, and every combination it failed to name would
+// read as "no choice was ever made": cookie ignored, default back to all-denied with a non-zero
+// `wait_for_update`, on every page view, with nothing to signal it. A guard whose false negatives
+// are invisible and unbounded costs more than the case it protects.
 //
 // What remains true, and is enforced elsewhere: an objection still wins. `__gpcactive` is applied
 // AFTER the stored signals (see the default below), so it denies the five signals an objection
@@ -2138,18 +2126,18 @@ const applyStoredSignals = (consentObject, stored) => {
       consentObject[name] = stored[name];
     }
   }
-  // Le choix est déjà connu au chargement : il n'y a plus rien à attendre.
+  // The choice is already known at load time, so there is nothing left to wait for.
   consentObject.wait_for_update = 0;
   return consentObject;
 };
 
-// Applique le refus GPC PAR-DESSUS ce qui précède — donc après `applyStoredSignals`, ce qui EST
-// la précédence : le GPC gagne sur `__sdgcm` pour les cinq signaux qu'il refuse, et ne dit rien
-// des deux autres, qui gardent donc la valeur du cookie ou de la table de réglages.
+// Applies the GPC denial ON TOP of what precedes it -- so after `applyStoredSignals`, and that
+// order IS the precedence: GPC wins over `__sdgcm` for the five signals it denies, and says
+// nothing about the other two, which keep the value from the cookie or the settings table.
 //
-// Le garde `!== undefined` est le même que celui d'`applyStoredSignals`, et pour la même raison :
-// un signal marqué « not used » reste ABSENT de l'objet. Le marqueur enregistre ce qui est VRAI,
-// la table de réglages décide de ce qui est DIT.
+// The `!== undefined` guard is the same as `applyStoredSignals`', for the same reason: a signal
+// marked "not used" stays ABSENT from the object. The marker records what is TRUE, the settings
+// table decides what is SAID.
 const applyGpcRefusal = (consentObject) => {
   for (let i = 0; i < GPC_DENIED_SIGNALS.length; i++) {
     const name = GPC_DENIED_SIGNALS[i];
@@ -2157,7 +2145,7 @@ const applyGpcRefusal = (consentObject) => {
       consentObject[name] = 'denied';
     }
   }
-  // Comme ci-dessus : une opposition déjà exprimée n'a rien à attendre d'un update.
+  // As above: an objection already expressed has nothing to wait for from an update.
   consentObject.wait_for_update = 0;
   return consentObject;
 };
@@ -2235,39 +2223,38 @@ let defaultConsent = {
   'security_storage': 'not used'
 };
 
-// Lu UNE fois, avant que le default ne soit posé : c'est le dernier instant où le cookie porte
-// encore ce que le visiteur avait choisi au chargement précédent, sans que ce template n'ait rien
-// réécrit entre-temps.
+// Read ONCE, before the default is set: this is the last moment at which the cookie still carries
+// what the visitor chose on the previous load, with nothing rewritten in between.
 const storedConsentSignals = readStoredConsentSignals();
 
-// Lu une seule fois lui aussi, et pour la même raison : deux lectures du même cookie à deux
-// instants différents finiraient par diverger.
+// Read once as well, and for the same reason: two reads of the same cookie at two different
+// moments would end up disagreeing.
 const gpcActive = isGpcActive();
 
-// Ce qui a été réellement POUSSÉ — le `default` d'abord, puis chaque `update`. C'est la référence
-// de comparaison, jamais le cookie : comparer au cookie rouvrirait une course entre ce qu'on lit
-// et ce qu'on vient d'écrire.
+// What was actually PUSHED -- the `default` first, then every `update`. This is the comparison
+// reference, never the cookie: comparing against the cookie would open a race between what is read
+// and what has just been written.
 //
-// Le `default` EST une poussée, au même titre qu'un `update` : la déduplication ne dépend donc pas
-// du cookie, et c'est le default émis qui l'amorce (plus bas).
+// The `default` IS a push, exactly like an `update`, so deduplication does not depend on the
+// cookie: it is the emitted default that seeds it (below).
 //
-// Le cookie n'amorce RIEN, délibérément. L'état gtag ne survit pas d'une page vue à l'autre : le
-// cookie ne dit pas ce que gtag sait ICI, il dit ce que le visiteur avait choisi. Son rôle est
-// d'ENTRER dans le calcul du default (applyStoredSignals), pas d'attester d'une poussée. En amorcer
-// un signal que le default n'a pas émis reviendrait à affirmer que gtag connaît une valeur qu'on ne
-// lui a jamais dite — et l'update qui la porte serait supprimé, laissant les tags de ce visiteur
-// éteints sur un consentement pourtant accordé.
+// The cookie seeds NOTHING, deliberately. gtag state does not survive from one page view to the
+// next: the cookie does not say what gtag knows HERE, it says what the visitor chose. Its role is
+// to ENTER the computation of the default (applyStoredSignals), not to attest to a push. Seeding
+// it with a signal the default did not emit would assert that gtag knows a value it was never
+// told -- and the update carrying that value would be dropped, leaving this visitor's tags off on
+// a consent that was in fact granted.
 let lastPushedSignals = {};
 
-// Recueil de ce qui est réellement ÉMIS en default, pendant la boucle qui le pose — jamais
-// reconstitué après coup depuis la table de réglages.
+// Collects what is actually EMITTED as the default, during the loop that sets it -- never
+// reconstructed afterwards from the settings table.
 //
-// Un signal n'est retenu que s'il vaut la MÊME chose pour TOUT visiteur. La table peut porter
-// plusieurs lignes, dont des lignes régionales qui n'écrasent la ligne globale que pour les
-// visiteurs concernés (`consentObject.region`, posé par generateConsentObject) : le template ne
-// sait pas laquelle gtag a appliquée. Sauter un update sur une supposition laisserait les tags
-// Google tourner sous un état que ce visiteur n'a pas choisi — on ne retient donc que l'unanime,
-// et l'ambigu repart en update, qui est le sens sûr.
+// A signal is kept only if it means the SAME thing for EVERY visitor. The table may carry several
+// rows, including regional rows that override the global row for their visitors only
+// (`consentObject.region`, set by generateConsentObject): the template does not know which one
+// gtag applied. Skipping an update on a guess would leave Google tags running under a state this
+// visitor never chose, so only the unanimous is kept, and the ambiguous is pushed as an update,
+// which is the safe direction.
 let emittedDefault = {};
 let emittedCount = {};
 let emittedRows = 0;
@@ -2288,7 +2275,7 @@ const recordEmittedDefault = (consentObject) => {
       } else {
         emittedCount[name] = emittedCount[name] + 1;
         if (emittedDefault[name] !== value) {
-          // Divergence entre deux lignes : on ne saura pas laquelle s'applique. Sticky.
+          // Two rows disagree: which one applies is unknowable here. Sticky.
           emittedDefault[name] = undefined;
         }
       }
@@ -2296,12 +2283,12 @@ const recordEmittedDefault = (consentObject) => {
   }
 };
 
-// Trois conditions, et chacune écarte un cas où le visiteur n'a PAS reçu la valeur qu'on croirait :
-//  - une ligne globale doit exister, sans quoi un visiteur hors de toutes les régions n'a reçu
-//    aucun default du tout ;
-//  - toutes les lignes doivent émettre le signal (une ligne qui le marque « not used » ne le pose
-//    pas pour les visiteurs de sa région) ;
-//  - et elles doivent s'accorder sur la valeur.
+// Three conditions, each ruling out a case where the visitor did NOT receive the value one would
+// assume:
+//  - a global row must exist, otherwise a visitor outside every region received no default at all;
+//  - every row must emit the signal (a row marking it "not used" does not set it for the visitors
+//    of its region);
+//  - and they must agree on the value.
 const seedFromEmittedDefaults = () => {
   if (hasGlobalRow) {
     for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
@@ -2313,9 +2300,9 @@ const seedFromEmittedDefaults = () => {
   }
 };
 
-// Comparaison signal par signal sur les clés PRÉSENTES, jamais par égalité d'objets : l'objet émis
-// ne porte pas toujours les mêmes clés (« not used »), et l'état gtag est cumulatif — un
-// sous-ensemble aux mêmes valeurs n'est pas une différence.
+// Compared signal by signal over the keys PRESENT, never by object equality: the emitted object
+// does not always carry the same keys ("not used"), and gtag state is cumulative -- a subset with
+// the same values is not a difference.
 const differsFromLastPushed = (signals) => {
   for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
     const name = CONSENT_MODE_SIGNALS[i];
@@ -2326,8 +2313,8 @@ const differsFromLastPushed = (signals) => {
   return false;
 };
 
-// MÉLANGE, ne remplace pas : la valeur dernièrement poussée pour un signal doit rester connue même
-// quand une poussée ultérieure ne le mentionne pas.
+// MERGES, does not replace: the last value pushed for a signal must stay known even when a later
+// push does not mention it.
 const rememberPushed = (signals) => {
   for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
     const name = CONSENT_MODE_SIGNALS[i];
@@ -2358,16 +2345,16 @@ if (data.consentMode && !ABconsentCMP.enableConsentMode) {
     if (storedConsentSignals) {
       consentModeState = applyStoredSignals(consentModeState, storedConsentSignals);
     }
-    // L'ORDRE des deux blocs EST la précédence : le GPC s'applique en dernier, donc il gagne.
-    // Les inverser ferait écraser le refus GPC par les bits du cookie.
+    // The ORDER of the two blocks IS the precedence: GPC is applied last, so it wins. Swapping
+    // them would let the cookie's bits overwrite the GPC denial.
     if (gpcActive) {
       consentModeState = applyGpcRefusal(consentModeState);
     }
     setDefaultConsentState(consentModeState);
     recordEmittedDefault(consentModeState);
   });
-  // Le default qui vient d'être posé devient la référence : un update qui répète ce qu'il dit
-  // déjà n'a rien à apprendre à gtag.
+  // The default just set becomes the reference: an update repeating what it already says teaches
+  // gtag nothing.
   seedFromEmittedDefaults();
 }
 
@@ -2375,14 +2362,13 @@ const onUserChoice = (tcData, success) => {
   if (!success || !tcData || typeof(tcData.gdprApplies) == 'undefined' || ((typeof(tcData.eventStatus) == 'undefined' || !tcData.purpose || !tcData.vendor) && tcData.gdprApplies)) {
       return;
   }
-  // US path -- the objection is READ, never simulated.
+  // US path -- the objection is READ, and stated as itself.
   //
-  // This used to force `tcData.gdprApplies = true`, which is not a statement about the GDPR: it
-  // was the only way to stop `hasConsent` short-circuiting to "granted" and get a "no consent"
-  // answer out of it. Two things were wrong with that. It mutated an object owned by the CMP.
-  // And it borrowed a second regulation's machinery to say something simple, which made the
-  // real rule -- an objection covers sale and sharing, not what is strictly necessary --
-  // impossible to read off the code.
+  // Two things it must not do. It must not mutate `tcData`, which is owned by the CMP and read by
+  // others. And it must not borrow the GDPR's machinery to express itself: flipping
+  // `gdprApplies` would be a way to stop `hasConsent` short-circuiting to "granted", but it says
+  // nothing about the GDPR, and it buries the real rule -- an objection covers sale and sharing,
+  // not what is strictly necessary.
   //
   // The verdict is resolved ONCE and passed down, so the pushed state and the cookie cannot
   // disagree about it.
@@ -2391,15 +2377,15 @@ const onUserChoice = (tcData, success) => {
   if (data.consentMode && !ABconsentCMP.enableConsentMode) {
     var consentModeState = generateConsentObject(defaultConsent, tcData, true, usOptOut);
 
-    // On ne pousse que si les signaux émis diffèrent de ce qui l'a déjà été.
+    // Push only when the emitted signals differ from what has already been pushed.
     if (differsFromLastPushed(consentModeState)) {
       updateConsentState(consentModeState);
       rememberPushed(consentModeState);
     }
 
   }
-  // Forcing `gdprApplies` also opened this path for a US objection, since `hasConsent` then
-  // answered false for purpose 1. Nothing is forced any more, so the case is stated.
+  // A US objection also closes purpose 1, and therefore opens this path. Stated here rather than
+  // reached as a side effect of how the verdict is derived.
   const purposeOneRefused = usOptOut === true || !hasConsent(tcData, ['purpose', 'consents', 1]);
   if (data.handleCookiesDeletion && (tcData.eventStatus === 'useractioncomplete' || tcData.eventStatus === 'tcloaded') && purposeOneRefused && tcData.hostName && tcData.cookieList) {
     deleteCookies(tcData.hostName, tcData.cookieList);
@@ -3233,7 +3219,7 @@ scenarios:
     });
 
     assertApi('gtmOnSuccess').wasCalled();
-- name: default comes from __sdgcm when a consent cookie is present
+- name: the default comes from __sdgcm
   code: |-
     mock('getCookieValues', (name) => {
       if (name === '__sdgcm') return ['1.1111111'];
@@ -3267,10 +3253,12 @@ scenarios:
       wait_for_update: 0,
       region: ['FR']
     });
-- name: the stored signals are ignored without a consent cookie
+- name: the stored signals are read with no consent record beside them
   code: |-
-    // The cookie alone could outlive the choice it describes, so it is only honoured next to
-    // euconsent-v2 or sdconsent-v2. Behaviour must be identical to the first scenario's.
+    // The cookie is read with no eligibility guard: which consent record exists depends on a
+    // configuration this template cannot see, so requiring one would ignore the visitor's stored
+    // choice in every case the requirement failed to name. The outcome must be identical to the
+    // scenario above, which has a record beside the same cookie.
     mock('getCookieValues', (name) => {
       if (name === '__sdgcm') return ['1.1111111'];
       return [];
@@ -3279,13 +3267,26 @@ scenarios:
     runCode(mockData);
 
     assertApi('setDefaultConsentState').wasCalledWith({
-      ad_storage: 'denied',
+      ad_storage: 'granted',
       analytics_storage: 'granted',
       personalization_storage: 'granted',
       functionality_storage: 'granted',
       security_storage: 'granted',
-      ad_user_data: 'denied',
-      ad_personalization: 'denied',
+      ad_user_data: 'granted',
+      ad_personalization: 'granted',
+      wait_for_update: 0
+    });
+
+    assertApi('setDefaultConsentState').wasCalledWith({
+      ad_storage: 'granted',
+      analytics_storage: 'granted',
+      personalization_storage: 'granted',
+      functionality_storage: 'granted',
+      security_storage: 'granted',
+      ad_user_data: 'granted',
+      ad_personalization: 'granted',
+      wait_for_update: 0,
+      region: ['FR']
     });
 - name: a malformed __sdgcm falls back instead of being read sideways
   code: |-

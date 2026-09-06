@@ -1,44 +1,43 @@
 // Behaviour harness for this template's sandboxed JS.
 //
-// POURQUOI il existe : la section `___TESTS___` du .tpl ne s'exécute que dans l'éditeur GTM, et
-// elle n'atteint en pratique que le chemin du `default` — le listener `onUserChoice`, la
-// déduplication des updates et l'écriture de `__sdgcm` lui échappent. Ce dépôt n'ayant aucune CI,
-// ce fichier est le seul contrôle mécanique du comportement.
+// WHY it exists: the `___TESTS___` section of the .tpl only runs inside the GTM template editor,
+// and in practice it reaches little beyond the `default` path -- the `onUserChoice` listener and
+// update deduplication escape it. This file is what covers the rest, and CI runs it on every push.
 //
 //     node tests/sandbox-harness.js
 //
-// Il extrait le JS du .tpl et le rejoue avec de faux APIs GTM. Ce n'est PAS le bac à sable de
-// Google : il ne vérifie ni les permissions, ni les restrictions du sous-ensemble de JS. Il
-// vérifie le comportement, ce qu'aucun autre contrôle local ne fait.
+// It extracts the JS from the .tpl and replays it against fake GTM APIs. This is NOT Google's
+// sandbox: it checks neither the permissions nor the restrictions of the JS subset. It checks
+// behaviour, which nothing else here does.
 const path = require("path");
 const fs = require("fs");
 
 const TPL = fs.readFileSync(path.join(__dirname, "..", "template.tpl"), "utf8");
 
-// L'extraction est le SEUL point où ce harnais peut mentir en silence : si un délimiteur changeait,
-// on rejouerait un fragment — voire du vide — et tous les contrôles passeraient au vert sans avoir
-// rien exercé. Un contrôle qui ne peut pas échouer ne contrôle rien, donc on vérifie que le
-// découpage a bien rendu le corps attendu et on jette bruyamment sinon.
+// Extraction is the ONE place where this harness could lie silently: if a delimiter changed we
+// would replay a fragment -- or nothing at all -- and every check would go green without having
+// exercised anything. A check that cannot fail checks nothing, so the split is verified to have
+// produced the expected body, and throws loudly otherwise.
 function extractSandboxedJs(tpl) {
     const OPEN = "___SANDBOXED_JS_FOR_WEB_TEMPLATE___";
     const CLOSE = "___WEB_PERMISSIONS___";
     const parts = tpl.split(OPEN);
     if (parts.length !== 2) {
-        throw new Error("delimiteur " + OPEN + " absent ou en double (" + parts.length + " morceaux)");
+        throw new Error("delimiter " + OPEN + " missing or duplicated (" + parts.length + " parts)");
     }
     if (parts[1].indexOf(CLOSE) === -1) {
-        throw new Error("delimiteur " + CLOSE + " absent apres " + OPEN);
+        throw new Error("delimiter " + CLOSE + " missing after " + OPEN);
     }
     const src = parts[1].split(CLOSE)[0];
-    // Sentinelles : des symboles que le corps sandboxé DOIT porter. Leur absence signifie qu'on a
-    // découpé au mauvais endroit — pas que le template a un bug.
+    // Sentinels: symbols the sandboxed body MUST carry. Their absence means the split landed in
+    // the wrong place, not that the template is at fault.
     ["setDefaultConsentState", "updateConsentState", "CONSENT_MODE_SIGNALS", "onUserChoice"].forEach((s) => {
         if (src.indexOf(s) === -1) {
-            throw new Error("corps sandboxe suspect : '" + s + "' introuvable");
+            throw new Error("suspicious sandboxed body: '" + s + "' not found");
         }
     });
     if (src.length < 2000) {
-        throw new Error("corps sandboxe suspect : " + src.length + " octets");
+        throw new Error("suspicious sandboxed body: " + src.length + " bytes");
     }
     return src;
 }
@@ -57,17 +56,17 @@ function run(opts) {
         makeTableMap: () => ({}),
         setDefaultConsentState: (o) => calls.defaults.push(JSON.parse(JSON.stringify(o))),
         updateConsentState: (o) => calls.updates.push(JSON.parse(JSON.stringify(o))),
-        // L'URL est ENREGISTRÉE, pas seulement le rappel exécuté : sans ça aucun test ne peut
-        // assérer que la CMP est bien chargée, seulement que rien n'a planté.
+        // The URL is RECORDED, not just the callback run: without it no test can assert that the
+        // CMP is actually loaded, only that nothing threw.
         injectScript: (u, ok) => { calls.injected.push(u); if (ok) { ok(); } },
         encodeUriComponent: encodeURIComponent,
         makeInteger: (v) => parseInt(v, 10),
         getCookieValues: (name) => (cookies[name] === undefined ? [] : [cookies[name]]),
         setCookie: (name, value, options, encode) => {
             calls.setCookies.push({name, value, options, encode});
-            // `max-age: -1` est l'instruction de SUPPRESSION, pas une écriture. Le stub l'honore
-            // pour que le pot reflète l'état réel du navigateur : sans ça, aucun test ne peut
-            // assérer qu'un cookie SURVIT à l'événement, seulement compter des appels.
+            // `max-age: -1` is the DELETION instruction, not a write. The stub honours it so the
+            // jar reflects the browser's real state: without that, no test can assert that a
+            // cookie SURVIVES the event, only count calls.
             if (options && options["max-age"] === -1) { delete cookies[name]; }
             else { cookies[name] = value; }
         },
@@ -90,7 +89,7 @@ function run(opts) {
     }, opts.data || {});
 
     new Function("data", "require", SRC)(data, (n) => {
-        if (!(n in api)) throw new Error("API non stubée : " + n);
+        if (!(n in api)) throw new Error("API not stubbed: " + n);
         return api[n];
     });
 
@@ -102,16 +101,16 @@ const TC_ALL_GRANTED = {
     purpose: {consents: {1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true}, legitimateInterests: {}},
     vendor: {consents: {755: true}, legitimateInterests: {}}
 };
-// Seule la finalité 1 est accordée : ni la 8 (analytics), ni les 5/6 (personalization), ni le
-// vendor 755 (les trois ad_*). Sert à vérifier qu'un changement repousse bien un update.
+// Purpose 1 only: not 8 (analytics), not 5/6 (personalization), not vendor 755 (the three ad_*).
+// Used to check that a change really does push another update.
 const TC_ONLY_P1 = {
     gdprApplies: true, eventStatus: "useractioncomplete",
     purpose: {consents: {1: true}, legitimateInterests: {}},
     vendor: {consents: {}, legitimateInterests: {}}
 };
 
-// Rien n'est accordé : l'objet émis vaut alors exactement le default tout-refusé de la table de
-// réglages. C'est le cas qui doit NE PAS repousser d'update.
+// Nothing is granted, so the emitted object equals the settings table's all-denied default
+// exactly. This is the case that must NOT push another update.
 const TC_ALL_DENIED = {
     gdprApplies: true, eventStatus: "useractioncomplete",
     purpose: {consents: {}, legitimateInterests: {}},
@@ -135,9 +134,9 @@ function check(label, cond, detail) {
     else { failures++; console.log("  FAIL " + label + (detail ? "  -> " + detail : "")); }
 }
 
-// Les noms des cookies que `deleteCookie` a réellement effacés. Il écrit plusieurs fois le même
-// nom (un par domaine remonté), d'où le dédoublonnage ; le marqueur est `max-age: -1`, seul
-// endroit du template qui l'emploie.
+// The names `deleteCookie` actually deleted. It writes the same name several times (once per
+// domain walked up), hence the de-duplication; the marker is `max-age: -1`, the only place in the
+// template that uses it.
 function deletedNames(calls) {
     const seen = {};
     const out = [];
@@ -151,8 +150,8 @@ function deletedNames(calls) {
     return out.sort();
 }
 
-// Un tcData qui n'accorde RIEN et porte de quoi déclencher la suppression : c'est l'absence de
-// consentement à la finalité 1 qui l'ouvre.
+// A tcData granting NOTHING and carrying what the deletion needs: it is the absence of consent
+// for purpose 1 that opens that path.
 function purgeEvent(cookieList) {
     return {
         gdprApplies: true, eventStatus: "useractioncomplete",
@@ -162,76 +161,77 @@ function purgeEvent(cookieList) {
     };
 }
 
-console.log("\n1. Sans aucun cookie : comportement identique à avant");
+console.log("\n1. With no cookie at all: the ordinary path");
 {
     const r = run({sddan: SDDAN_LOCAL});
-    check("un default posé", r.calls.defaults.length === 1);
-    check("default tout refusé", r.calls.defaults[0].ad_storage === "denied" && r.calls.defaults[0].analytics_storage === "denied");
-    check("wait_for_update conservé à 1000", r.calls.defaults[0].wait_for_update === 1000, JSON.stringify(r.calls.defaults[0]));
+    check("one default set", r.calls.defaults.length === 1);
+    check("default all denied", r.calls.defaults[0].ad_storage === "denied" && r.calls.defaults[0].analytics_storage === "denied");
+    check("wait_for_update preserved at 1000", r.calls.defaults[0].wait_for_update === 1000, JSON.stringify(r.calls.defaults[0]));
     r.listener(TC_ALL_GRANTED, true);
-    check("un update poussé", r.calls.updates.length === 1);
-    check("AUCUN cookie écrit", r.calls.setCookies.length === 0, JSON.stringify(r.calls.setCookies));
+    check("one update pushed", r.calls.updates.length === 1);
+    check("NO cookie written", r.calls.setCookies.length === 0, JSON.stringify(r.calls.setCookies));
 }
 
-console.log("\n2. __sdgcm + cookie de consentement : le default vient du cookie");
+console.log("\n2. The default comes from the stored cookie");
 {
     const r = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "1.1111111", "euconsent-v2": "CP..."}});
-    check("default tout accordé", r.calls.defaults[0].ad_storage === "granted" && r.calls.defaults[0].analytics_storage === "granted", JSON.stringify(r.calls.defaults[0]));
+    check("default all granted", r.calls.defaults[0].ad_storage === "granted" && r.calls.defaults[0].analytics_storage === "granted", JSON.stringify(r.calls.defaults[0]));
     check("wait_for_update = 0", r.calls.defaults[0].wait_for_update === 0);
     r.listener(TC_ALL_GRANTED, true);
-    check("AUCUN update (dédup)", r.calls.updates.length === 0, JSON.stringify(r.calls.updates));
-    check("et toujours aucune écriture", r.calls.setCookies.length === 0);
+    check("NO update (deduplicated)", r.calls.updates.length === 0, JSON.stringify(r.calls.updates));
+    check("and still no write", r.calls.setCookies.length === 0);
 
-    // Le cookie est lu SANS condition sur ce qui l'entoure, et c'est l'invariant à tenir. Une
-    // forme antérieure exigeait un enregistrement de consentement à côté — `euconsent-v2`,
-    // `sdconsent-v2` ou `usprivacy` — mais la liste ne peut pas être complète depuis ici : quel
-    // enregistrement est écrit dépend de la configuration (régulation applicable, API coupée),
-    // que le template ne voit pas. Toute combinaison non nommée se lisait « aucun choix », donc
-    // tout-refusé avec `wait_for_update`, à chaque page vue et sans le moindre signal.
+    // The cookie is read with NO condition on what surrounds it, and that is the invariant to
+    // hold. Requiring a consent record beside it -- `euconsent-v2`, `sdconsent-v2`, `usprivacy` --
+    // is tempting, but no such list can be complete from here: which record gets written depends
+    // on the configuration (which regulation applies, whether an API is off), which the template
+    // cannot see. Every combination the list failed to name would read as "no choice", so
+    // all-denied with a non-zero `wait_for_update`, on every page view and with nothing to show
+    // for it.
     //
-    // Les deux cas ci-dessous sont les DEUX côtés de ce retrait : avec un enregistrement, et sans
-    // aucun. Ils doivent rendre la même chose.
+    // The two cases below are the TWO sides of that rule: with a record, and with none at all.
+    // They must return the same thing.
     const us = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.g:1:1111111", "usprivacy": "1YNN"}});
-    check("chemin US — le cookie est lu", us.calls.defaults[0].analytics_storage === "granted" &&
+    check("US path -- the cookie is read", us.calls.defaults[0].analytics_storage === "granted" &&
         us.calls.defaults[0].wait_for_update === 0, JSON.stringify(us.calls.defaults[0]));
 
     const seul = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.g:1:1111111"}});
-    check("SANS aucun enregistrement à côté — lu quand même",
+    check("with NO record beside it -- read all the same",
         seul.calls.defaults[0].analytics_storage === "granted" &&
         seul.calls.defaults[0].wait_for_update === 0,
         JSON.stringify(seul.calls.defaults[0]));
 }
 
-console.log("\n3. __sdgcm mixte : le default le reflète signal par signal");
+console.log("\n3. A mixed cookie: the default reflects it signal by signal");
 {
-    // ordre v1 : analytics, functionality, security, personalization, ad_storage, ad_user_data, ad_personalization
+    // v1 order: analytics, functionality, security, personalization, ad_storage, ad_user_data, ad_personalization
     const r = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "1.1010000", "sdconsent-v2": "x"}});
     const d = r.calls.defaults[0];
-    check("analytics accordé", d.analytics_storage === "granted", JSON.stringify(d));
-    check("functionality refusé", d.functionality_storage === "denied");
-    check("security accordé", d.security_storage === "granted");
-    check("ad_storage refusé", d.ad_storage === "denied");
-    check("plus rien à attendre", d.wait_for_update === 0);
+    check("analytics granted", d.analytics_storage === "granted", JSON.stringify(d));
+    check("functionality denied", d.functionality_storage === "denied");
+    check("security granted", d.security_storage === "granted");
+    check("ad_storage denied", d.ad_storage === "denied");
+    check("nothing left to wait for", d.wait_for_update === 0);
 }
 
-console.log("\n4. Gardes : une chaîne MALFORMÉE est ignorée et rien ne change");
+console.log("\n4. Guards: a MALFORMED string is ignored and nothing changes");
 {
     // A higher version and a longer bit string are NOT rejections -- they are the definition of a
     // newer format, and they are covered in section 13. What stays here is what must keep being
     // rejected: a string we cannot read, not a version we do not know.
     const cases = {
-        "trop court": {"__sdgcm": "1.111111", "euconsent-v2": "x"},
-        "caractère hors 0/1 dans les 7 premiers": {"__sdgcm": "1.111111x", "euconsent-v2": "x"},
-        "sans version": {"__sdgcm": "1111111", "euconsent-v2": "x"},
-        "vide": {"__sdgcm": "", "euconsent-v2": "x"},
+        "too short": {"__sdgcm": "1.111111", "euconsent-v2": "x"},
+        "non 0/1 character within the first seven": {"__sdgcm": "1.111111x", "euconsent-v2": "x"},
+        "no version": {"__sdgcm": "1111111", "euconsent-v2": "x"},
+        "empty": {"__sdgcm": "", "euconsent-v2": "x"},
         // split('.') yields three segments here; reading only two would be interpreting sideways
         // a string we do not understand.
-        "segments en trop": {"__sdgcm": "1.1111111.0", "euconsent-v2": "x"},
-        "version zéro": {"__sdgcm": "0.1111111", "euconsent-v2": "x"},
-        "version non numérique": {"__sdgcm": "v2.1111111", "euconsent-v2": "x"},
-        "version vide": {"__sdgcm": ".1111111", "euconsent-v2": "x"},
-        // parseInt('1x') vaut 1 : sans validation chiffre par chiffre, celle-ci passerait.
-        "version numérique + suffixe": {"__sdgcm": "1x.1111111", "euconsent-v2": "x"}
+        "extra segment": {"__sdgcm": "1.1111111.0", "euconsent-v2": "x"},
+        "version zero": {"__sdgcm": "0.1111111", "euconsent-v2": "x"},
+        "non numeric version": {"__sdgcm": "v2.1111111", "euconsent-v2": "x"},
+        "empty version": {"__sdgcm": ".1111111", "euconsent-v2": "x"},
+        // parseInt('1x') is 1: without digit-by-digit validation, this one would get through.
+        "numeric version with a suffix": {"__sdgcm": "1x.1111111", "euconsent-v2": "x"}
     };
     for (const label in cases) {
         const r = run({sddan: SDDAN_LOCAL, cookies: cases[label]});
@@ -240,50 +240,49 @@ console.log("\n4. Gardes : une chaîne MALFORMÉE est ignorée et rien ne change
     }
 }
 
-console.log("\n5. Déduplication de l'update");
+console.log("\n5. Update deduplication");
 {
     const r = run({sddan: SDDAN_LOCAL});
     r.listener(TC_ALL_GRANTED, true);
     r.listener(TC_ALL_GRANTED, true);
-    check("deux événements identiques -> un seul update", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
-    check("et rien n'est écrit", r.calls.setCookies.length === 0);
+    check("two identical events -> a single update", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
+    check("and nothing is written", r.calls.setCookies.length === 0);
     r.listener(TC_ONLY_P1, true);
-    check("un changement repousse un update", r.calls.updates.length === 2);
-    // Seule la finalité 1 est accordée : functionality et security passent, mais analytics exige
-    // aussi la finalité 8, et tous les ad_* le vendor 755. D'où 0,1,1,0,0,0,0.
-    check("et le second update porte le nouvel état",
+    check("a change pushes an update again", r.calls.updates.length === 2);
+    // Purpose 1 only: functionality and security pass, but analytics also needs purpose 8, and
+    // every ad_* needs vendor 755. Hence 0,1,1,0,0,0,0.
+    check("and the second update carries the new state",
         r.calls.updates[1].analytics_storage === "denied", JSON.stringify(r.calls.updates[1]));
 }
 
-console.log("\n6. Le template n'ÉCRIT JAMAIS ce cookie — quelle que soit la portée");
+console.log("\n6. The template NEVER writes this cookie -- whatever the scope");
 {
-    // Un seul producteur, un seul consommateur. Le script de consentement qui sert la page
-    // possède le cookie ; le template le LIT pour son default et pousse les `update`. Deux
-    // producteurs sur le même segment, ce sont deux dérivations qui ne coïncident pas — ce
-    // template tire `ad_user_data` du seul vendor 755 — donc une valeur qui bascule d'une page
-    // vue à l'autre selon qui a écrit en dernier.
+    // One producer, one consumer. The consent script serving the page owns the cookie; the
+    // template READS it for its default and pushes the `update`s. Two producers on one segment
+    // means two derivations that do not coincide -- this template takes `ad_user_data` from
+    // vendor 755 alone -- so a value that flips between page views depending on who wrote last.
     const cas = [
-        ["portée LOCAL", {sddan: SDDAN_LOCAL}],
-        ["portée GROUP", {sddan: SDDAN_GROUP}],
-        ["SDDAN absent", {sddan: undefined}],
-        ["cookie déjà présent", {sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.g:1:0000000", "euconsent-v2": "x"}}]
+        ["LOCAL scope", {sddan: SDDAN_LOCAL}],
+        ["GROUP scope", {sddan: SDDAN_GROUP}],
+        ["no SDDAN", {sddan: undefined}],
+        ["cookie already present", {sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.g:1:0000000", "euconsent-v2": "x"}}]
     ];
     for (let i = 0; i < cas.length; i++) {
         const r = run(cas[i][1]);
         r.listener(TC_ALL_GRANTED, true);
-        check(cas[i][0] + " : aucune écriture", r.calls.setCookies.length === 0,
+        check(cas[i][0] + ": no write", r.calls.setCookies.length === 0,
             JSON.stringify(r.calls.setCookies));
     }
 
-    // TÉMOIN, et il est load-bearing : sans lui, un template qui ne ferait plus RIEN du tout
-    // satisferait les quatre assertions ci-dessus.
+    // WITNESS, and it is load-bearing: without it, a template doing NOTHING at all would satisfy
+    // the four assertions above.
     const temoin = run({sddan: SDDAN_LOCAL});
     temoin.listener(TC_ALL_GRANTED, true);
-    check("témoin — il pousse toujours son default et son update",
+    check("witness -- it still pushes its default and its update",
         temoin.calls.defaults.length === 1 && temoin.calls.updates.length === 1);
 }
 
-console.log("\n7. Signal 'not used' : absent du default comme de l'update");
+console.log("\n7. A 'not used' signal: absent from the default and from the update");
 {
     const r = run({
         sddan: SDDAN_LOCAL,
@@ -293,264 +292,262 @@ console.log("\n7. Signal 'not used' : absent du default comme de l'update");
         }]},
         cookies: {"__sdgcm": "1.1111111", "euconsent-v2": "x"}
     });
-    check("ad_storage absent du default", r.calls.defaults[0].ad_storage === undefined, JSON.stringify(r.calls.defaults[0]));
-    check("analytics vient du cookie", r.calls.defaults[0].analytics_storage === "granted");
+    check("ad_storage absent from the default", r.calls.defaults[0].ad_storage === undefined, JSON.stringify(r.calls.defaults[0]));
+    check("analytics comes from the cookie", r.calls.defaults[0].analytics_storage === "granted");
     r.listener(TC_ALL_GRANTED, true);
-    check("et rien n'est écrit", r.calls.setCookies.length === 0);
+    check("and nothing is written", r.calls.setCookies.length === 0);
 }
 
-console.log("\n8. SANS cookie, choix identique au default : aucun update");
+console.log("\n8. With NO cookie, a choice equal to the default: no update");
 {
-    // Le default EST une poussée : un update qui le répète n'apprend rien à gtag. Avant le
-    // correctif, lastPushedSignals n'était amorcé que depuis le cookie, donc ce cas — de loin le
-    // plus fréquent, un visiteur qui refuse sur sa première page vue — repoussait un update
-    // identique à CHAQUE page vue.
+    // The default IS a push: an update repeating it teaches gtag nothing. This is by far the most
+    // common case -- a visitor refusing on their first page view -- so seeding the deduplication
+    // from the EMITTED default, and not from the cookie, is what keeps it quiet here.
     const r = run({sddan: SDDAN_LOCAL});
-    check("default tout refusé", r.calls.defaults[0].ad_storage === "denied");
+    check("default all denied", r.calls.defaults[0].ad_storage === "denied");
     r.listener(TC_ALL_DENIED, true);
-    check("AUCUN update (identique au default)", r.calls.updates.length === 0, JSON.stringify(r.calls.updates));
-    check("et rien n'est écrit", r.calls.setCookies.length === 0);
-    // La décision 2 reste indépendante de la décision 1 : le cookie s'écrit sans qu'un update parte.
+    check("NO update (identical to the default)", r.calls.updates.length === 0, JSON.stringify(r.calls.updates));
+    check("and nothing is written", r.calls.setCookies.length === 0);
+    // Decision 2 stays independent of decision 1: the cookie is written without an update going out.
     r.listener(TC_ALL_GRANTED, true);
-    check("un vrai changement repousse un update", r.calls.updates.length === 1);
+    check("a real change pushes an update again", r.calls.updates.length === 1);
 }
 
-console.log("\n9. Lignes régionales divergentes : le signal ambigu repart en update");
+console.log("\n9. Diverging regional rows: the ambiguous signal is pushed again");
 {
-    // gtag applique la ligne FR aux visiteurs FR et la ligne ALL aux autres — le template ne sait
-    // pas laquelle ce visiteur a reçue. Sauter l'update sur une supposition laisserait les tags
-    // tourner sous un état qu'il n'a pas choisi : l'ambigu doit donc repartir.
+    // gtag applies the FR row to FR visitors and the ALL row to the others -- the template does
+    // not know which one this visitor received. Skipping the update on a guess would leave the
+    // tags running under a state they never chose, so the ambiguous must be pushed.
     const r = run({
         sddan: SDDAN_LOCAL,
         data: {settingsTable: [row({region: "ALL"}), row({analytics_storage: "granted", region: "FR"})]}
     });
-    check("deux defaults posés", r.calls.defaults.length === 2);
+    check("two defaults set", r.calls.defaults.length === 2);
     r.listener(TC_ALL_DENIED, true);
-    check("update poussé malgré l'égalité apparente", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
+    check("update pushed despite the apparent equality", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
 }
 
-console.log("\n10. Aucune ligne globale : on n'amorce rien");
+console.log("\n10. No global row: nothing is seeded");
 {
-    // Une table qui n'a que des lignes régionales ne pose AUCUN default aux visiteurs hors de ces
-    // régions. On ne peut donc rien affirmer sur ce qu'ils ont reçu.
+    // A table with regional rows only sets NO default at all for visitors outside those regions,
+    // so nothing can be asserted about what they received.
     const r = run({sddan: SDDAN_LOCAL, data: {settingsTable: [row({region: "FR"})]}});
-    check("le default porte bien une région", r.calls.defaults[0].region[0] === "FR", JSON.stringify(r.calls.defaults[0]));
+    check("the default does carry a region", r.calls.defaults[0].region[0] === "FR", JSON.stringify(r.calls.defaults[0]));
     r.listener(TC_ALL_DENIED, true);
-    check("update poussé (rien d'amorcé)", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
+    check("update pushed (nothing seeded)", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
 }
 
-console.log("\n11. 'not used' sur UNE ligne seulement : le signal non émis doit repartir");
+console.log("\n11. 'not used' on ONE row only: the unemitted signal must be pushed");
 {
-    // La ligne globale marque ad_storage « not used », la ligne FR l'émet. Un visiteur HORS de FR
-    // n'a donc reçu aucun default pour ad_storage — alors que l'update, lui, l'émet (defaultConsent
-    // est un accumulateur global : une seule ligne qui l'utilise suffit à le poser à 'denied').
+    // The global row marks ad_storage "not used", the FR row emits it. A visitor OUTSIDE FR
+    // therefore received no default for ad_storage -- while the update does emit it
+    // (defaultConsent is a global accumulator: one row using it is enough to set it to 'denied').
     //
-    // Amorcer ad_storage depuis le cookie ferait croire que gtag le connaît déjà et supprimerait
-    // l'update. L'état gtag ne survit PAS d'une page vue à l'autre : ce visiteur n'aurait jamais
-    // reçu ad_storage, et ses tags resteraient éteints malgré un consentement accordé.
+    // Seeding ad_storage from the cookie would suggest gtag already knows it and would drop the
+    // update. gtag state does NOT survive from one page view to the next: this visitor would never
+    // have received ad_storage, and their tags would stay off despite a granted consent.
     const r = run({
         sddan: SDDAN_LOCAL,
         data: {settingsTable: [row({ad_storage: "not used", region: "ALL"}), row({region: "FR"})]},
         cookies: {"__sdgcm": "1.1111111", "euconsent-v2": "x"}
     });
-    check("ad_storage absent du default global", r.calls.defaults[0].ad_storage === undefined, JSON.stringify(r.calls.defaults[0]));
-    check("mais présent sur la ligne FR", r.calls.defaults[1].ad_storage === "granted", JSON.stringify(r.calls.defaults[1]));
+    check("ad_storage absent from the global default", r.calls.defaults[0].ad_storage === undefined, JSON.stringify(r.calls.defaults[0]));
+    check("but present on the FR row", r.calls.defaults[1].ad_storage === "granted", JSON.stringify(r.calls.defaults[1]));
     r.listener(TC_ALL_GRANTED, true);
-    check("update poussé (ad_storage jamais posé en default)", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
+    check("update pushed (ad_storage never set as a default)", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
 }
 
-console.log("\n12. Conteneur segmenté : on ne lit que le segment qu'on possède");
+console.log("\n12. Segmented container: only the segment we own is read");
 {
-    // Le cookie porte un segment par mode de consentement, indexé par son id. Ce template ne
-    // possède que `g` ; les autres appartiennent à d'autres composants.
+    // The cookie carries one segment per consent mode, indexed by id. This template owns `g`
+    // only; the others belong to other components.
     const complet = run({sddan: SDDAN_LOCAL,
         cookies: {"__sdgcm": "2.g:1:1111111~m:1:1~o:1:0", "euconsent-v2": "x"}});
-    check("le segment g est lu au milieu des autres",
+    check("the g segment is read among the others",
         complet.calls.defaults[0].ad_storage === "granted" && complet.calls.defaults[0].wait_for_update === 0,
         JSON.stringify(complet.calls.defaults[0]));
 
-    // LE cas que l'ancien format ne savait pas dire : un cookie sans aucun segment Google.
-    // Segment ABSENT = non décidé, donc repli sur la configuration — surtout pas sept zéros.
+    // THE case the legacy format could not express: a cookie with no Google segment at all.
+    // Segment ABSENT = not decided, so fall back to the settings -- certainly not seven zeros.
     const sansG = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.m:1:1~o:1:0", "euconsent-v2": "x"}});
-    check("segment g ABSENT -> non décidé, repli sur la config",
+    check("g segment ABSENT -> not decided, fall back to the settings",
         sansG.calls.defaults[0].analytics_storage === "denied" && sansG.calls.defaults[0].wait_for_update === 1000,
         JSON.stringify(sansG.calls.defaults[0]));
 
-    // ... à distinguer d'un g présent dont tous les bits sont à zéro, qui est une DÉCISION.
+    // ... as distinct from a g present with every bit at zero, which is a DECISION.
     const zeros = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.g:1:0000000", "euconsent-v2": "x"}});
-    check("segment g à ZÉRO -> décidé, tout refusé",
+    check("g segment at ZERO -> decided, all denied",
         zeros.calls.defaults[0].analytics_storage === "denied" && zeros.calls.defaults[0].wait_for_update === 0,
         JSON.stringify(zeros.calls.defaults[0]));
 
-    // L'ordre ne veut rien dire : on splitte sur ~ et on cherche l'id.
+    // Order means nothing: split on ~ and look the id up.
     const avant = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.g:1:1010000~m:1:1", "euconsent-v2": "x"}});
     const apres = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.m:1:1~g:1:1010000", "euconsent-v2": "x"}});
-    check("l'ordre des segments ne change rien",
+    check("segment order changes nothing",
         JSON.stringify(avant.calls.defaults[0]) === JSON.stringify(apres.calls.defaults[0]),
         JSON.stringify(apres.calls.defaults[0]));
 
-    // Doublon d'id : la dernière occurrence gagne.
+    // Duplicate id: the last occurrence wins.
     const doublon = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.g:1:1111111~g:1:0000000", "euconsent-v2": "x"}});
-    check("sur doublon, la DERNIÈRE occurrence gagne",
+    check("on a duplicate id, the LAST occurrence wins",
         doublon.calls.defaults[0].analytics_storage === "denied", JSON.stringify(doublon.calls.defaults[0]));
 
-    // Version de segment supérieure : les bits sont appendés, on lit les sept premiers. C'est ce
-    // qui permet au format de s'étendre sans que ce template soit republié.
+    // Newer segment version: bits are appended, so the first seven are read. This is what lets
+    // the format be extended without republishing this template.
     const v2 = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.g:2:101000011~m:1:1", "euconsent-v2": "x"}});
     const d = v2.calls.defaults[0];
-    check("version de segment supérieure : analytics lu", d.analytics_storage === "granted", JSON.stringify(d));
-    check("version de segment supérieure : functionality lu", d.functionality_storage === "denied");
-    check("version de segment supérieure : security lu", d.security_storage === "granted");
+    check("newer segment version: analytics read", d.analytics_storage === "granted", JSON.stringify(d));
+    check("newer segment version: functionality read", d.functionality_storage === "denied");
+    check("newer segment version: security read", d.security_storage === "granted");
 
-    // Un champ structurellement cassé est écarté SEUL.
+    // A structurally broken field is dropped ON ITS OWN.
     const casse = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.casse~g:1:1010000", "euconsent-v2": "x"}});
-    check("un champ cassé n'empêche pas de lire g",
+    check("a broken field does not prevent reading g",
         casse.calls.defaults[0].analytics_storage === "granted", JSON.stringify(casse.calls.defaults[0]));
 
-    // L'ancien format reste lu, migré en segment g.
+    // The legacy format is still read, migrated into a g segment.
     const herite = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "1.1010000", "euconsent-v2": "x"}});
-    check("l'ancien format est toujours lu",
+    check("the legacy format is still read",
         herite.calls.defaults[0].analytics_storage === "granted" && herite.calls.defaults[0].wait_for_update === 0,
         JSON.stringify(herite.calls.defaults[0]));
 }
 
 console.log("\n13. Global Privacy Control takes precedence in the default");
 {
-    // Une ligne où TOUT est accordé : sans elle, le refus GPC serait indistinguable du default
-    // tout-refusé de la table, et le contrôle ne contrôlerait rien.
+    // A row granting EVERYTHING: without it, the GPC denial would be indistinguishable from the
+    // table's all-denied default, and the check would check nothing.
     const ALL_GRANTED_ROW = {
         ad_storage: "granted", analytics_storage: "granted", personalization_storage: "granted",
         functionality_storage: "granted", security_storage: "granted",
         wait_for_update: 1000, region: "ALL"
     };
     const GRANTED = {settingsTable: [ALL_GRANTED_ROW]};
-    // FABRIQUE, jamais une constante partagée : la règle US MUTE son argument
-    // (`tcData.gdprApplies = true`). Un objet réutilisé d'un cas au suivant arrive donc avec
-    // gdprApplies déjà vrai, le garde d'entrée d'`onUserChoice` le rejette faute de `purpose`,
-    // et le cas rend zéro update — ce qui se lit exactement comme le résultat attendu d'un
-    // discriminant. Payé ici : le discriminant plus bas passait pour cette raison.
+    // A FACTORY, never a shared constant: each case must start from a fresh object. A tcData
+    // reused from one case to the next can arrive already altered, `onUserChoice`'s entry guard
+    // then rejects it for want of a `purpose`, and the case yields zero updates -- which reads
+    // exactly like the expected result of a discriminator.
     const usEvent = () => ({gdprApplies: false, eventStatus: "useractioncomplete"});
 
-    // Témoin : sans marqueur, la ligne passe telle quelle. C'est lui qui rend le reste lisible.
+    // Witness: without the marker the row passes through unchanged. It is what makes the rest readable.
     const off = run({sddan: SDDAN_LOCAL, data: GRANTED});
-    check("témoin — sans marqueur, ad_storage accordé", off.calls.defaults[0].ad_storage === "granted");
-    check("témoin — wait_for_update conservé", off.calls.defaults[0].wait_for_update === 1000);
+    check("witness -- without the marker, ad_storage granted", off.calls.defaults[0].ad_storage === "granted");
+    check("witness -- wait_for_update preserved", off.calls.defaults[0].wait_for_update === 1000);
 
-    // CINQ refusés, DEUX conservés. Une opposition à la vente n'est pas un refus du strictement
-    // nécessaire : couper security_storage casserait l'authentification et l'anti-fraude.
+    // FIVE denied, TWO kept. An objection to sale is not a refusal of what is strictly necessary:
+    // denying security_storage would break authentication and anti-fraud.
     const on = run({sddan: SDDAN_LOCAL, data: GRANTED, cookies: {"__gpcactive": "1"}});
     const g = on.calls.defaults[0];
-    check("ad_storage refusé", g.ad_storage === "denied", JSON.stringify(g));
-    check("analytics_storage refusé", g.analytics_storage === "denied");
-    check("personalization_storage refusé", g.personalization_storage === "denied");
-    check("ad_user_data refusé", g.ad_user_data === "denied");
-    check("ad_personalization refusé", g.ad_personalization === "denied");
-    check("functionality_storage CONSERVÉ", g.functionality_storage === "granted");
-    check("security_storage CONSERVÉ", g.security_storage === "granted");
-    check("plus rien à attendre", g.wait_for_update === 0);
+    check("ad_storage denied", g.ad_storage === "denied", JSON.stringify(g));
+    check("analytics_storage denied", g.analytics_storage === "denied");
+    check("personalization_storage denied", g.personalization_storage === "denied");
+    check("ad_user_data denied", g.ad_user_data === "denied");
+    check("ad_personalization denied", g.ad_personalization === "denied");
+    check("functionality_storage KEPT", g.functionality_storage === "granted");
+    check("security_storage KEPT", g.security_storage === "granted");
+    check("nothing left to wait for", g.wait_for_update === 0);
 
-    // LA règle de précédence : le GPC gagne sur __sdgcm, quoi que celui-ci dise.
+    // THE precedence rule: GPC wins over __sdgcm, whatever the cookie says.
     const both = run({
         sddan: SDDAN_LOCAL, data: GRANTED,
         cookies: {"__sdgcm": "1.1111111", "euconsent-v2": "x", "__gpcactive": "1"}
     });
     const b = both.calls.defaults[0];
-    check("GPC gagne sur un __sdgcm tout accordé", b.ad_storage === "denied", JSON.stringify(b));
-    check("et les deux conservés viennent du cookie", b.functionality_storage === "granted");
+    check("GPC wins over an all-granted __sdgcm", b.ad_storage === "denied", JSON.stringify(b));
+    check("and the two kept signals come from the cookie", b.functionality_storage === "granted");
 
-    // La combinaison que le retrait du garde rend atteignable : un `__sdgcm` tout accordé SANS
-    // aucun enregistrement à côté. Le cookie est désormais lu, donc l'objection doit encore
-    // gagner — sinon le retrait aurait ouvert un chemin où un GPC actif sert du tout-accordé.
+    // The combination that reading the cookie unconditionally makes reachable: an all-granted
+    // `__sdgcm` with NO record beside it. The cookie is read, so the objection must still win --
+    // otherwise there would be a path where an active GPC serves an all-granted default.
     const gpcSurCookieSeul = run({
         sddan: SDDAN_LOCAL, data: GRANTED,
         cookies: {"__sdgcm": "1.1111111", "__gpcactive": "1"}
     });
     const gs = gpcSurCookieSeul.calls.defaults[0];
-    check("GPC gagne sur un __sdgcm SANS enregistrement", gs.ad_storage === "denied" &&
+    check("GPC wins over an __sdgcm with NO record beside it", gs.ad_storage === "denied" &&
         gs.analytics_storage === "denied" && gs.ad_user_data === "denied" &&
         gs.ad_personalization === "denied" && gs.personalization_storage === "denied",
         JSON.stringify(gs));
-    check("et les deux conservés le restent", gs.functionality_storage === "granted" &&
+    check("and the two kept signals stay kept", gs.functionality_storage === "granted" &&
         gs.security_storage === "granted", JSON.stringify(gs));
 
     // NO eligibility guard: no consent cookie needed. That is the point -- gating this on a value
     // that is only correct per cached response would ignore GPC for many US visitors.
     const bare = run({sddan: SDDAN_LOCAL, data: GRANTED, cookies: {"__gpcactive": "1"}});
-    check("honoré sans aucun cookie de consentement", bare.calls.defaults[0].ad_storage === "denied");
+    check("honoured with no consent cookie at all", bare.calls.defaults[0].ad_storage === "denied");
 
     // The marker is REMOVED rather than set to '0', so any value other than '1' would be a
     // sideways reading and is ignored.
     const zero = run({sddan: SDDAN_LOCAL, data: GRANTED, cookies: {"__gpcactive": "0"}});
-    check("une valeur autre que '1' est ignorée", zero.calls.defaults[0].ad_storage === "granted",
+    check("any value other than '1' is ignored", zero.calls.defaults[0].ad_storage === "granted",
         JSON.stringify(zero.calls.defaults[0]));
 
-    // Chemin US de l'UPDATE. Le marqueur apparaît entre le default et l'événement : c'est ce qui
-    // isole le chemin de l'update de celui du default, sinon la déduplication supprimerait
-    // l'update (le default aurait déjà dit la même chose) et le test ne prouverait rien.
+    // The UPDATE's US path. The marker appears between the default and the event, which is what
+    // isolates the update path from the default path: otherwise deduplication would drop the
+    // update (the default having already said the same thing) and the test would prove nothing.
     const upd = run({sddan: SDDAN_LOCAL, data: GRANTED});
     upd.cookies["__gpcactive"] = "1";
     upd.listener(usEvent(), true);
-    check("un update part sur le chemin US", upd.calls.updates.length === 1, JSON.stringify(upd.calls.updates));
+    check("an update goes out on the US path", upd.calls.updates.length === 1, JSON.stringify(upd.calls.updates));
     const u = upd.calls.updates[0];
-    check("update — ad_storage refusé", u.ad_storage === "denied", JSON.stringify(u));
-    check("update — analytics refusé", u.analytics_storage === "denied");
-    check("update — functionality conservé", u.functionality_storage === "granted");
-    check("update — security conservé", u.security_storage === "granted");
+    check("update -- ad_storage denied", u.ad_storage === "denied", JSON.stringify(u));
+    check("update -- analytics denied", u.analytics_storage === "denied");
+    check("update -- functionality kept", u.functionality_storage === "granted");
+    check("update -- security kept", u.security_storage === "granted");
 
-    // Discriminant : le même événement US SANS marqueur ni chaîne opposée ne refuse rien. Sans
-    // lui, le contrôle ci-dessus passerait même si le marqueur n'était jamais lu.
-    // On assère la VALEUR, pas l'absence d'update : « zéro update » est ce que rend aussi un
-    // événement rejeté au garde d'entrée, donc l'accepter ne prouverait rien.
+    // Discriminator: the same US event with NO marker and no objecting string denies nothing.
+    // Without it, the check above would pass even if the marker were never read.
+    // The VALUE is asserted, not the absence of an update: "zero updates" is also what an event
+    // rejected at the entry guard produces, so accepting that would prove nothing.
     const noGpc = run({sddan: SDDAN_LOCAL, data: GRANTED});
     noGpc.listener(usEvent(), true);
-    check("discriminant — sans marqueur, ad_storage reste accordé",
+    check("discriminator -- without the marker, ad_storage stays granted",
         noGpc.calls.updates.length === 1 && noGpc.calls.updates[0].ad_storage === "granted",
         JSON.stringify(noGpc.calls.updates));
 
-    // La chaîne usprivacy opposée continue de fonctionner : le marqueur s'AJOUTE à la règle
-    // existante, il ne la remplace pas.
-    // `__uspapi` doit exister EN FONCTION : c'est la porte de la branche usprivacy, et sans elle
-    // ce chemin est inatteignable — il ne l'avait jamais été depuis ce harnais.
+    // An objecting usprivacy string keeps working: the marker ADDS to the existing rule, it does
+    // not replace it.
+    // `__uspapi` must exist AS A FUNCTION: it is the gate of the usprivacy branch, and without it
+    // this path cannot be reached at all.
     const usp = run({
         sddan: SDDAN_LOCAL, data: GRANTED,
         cookies: {"usprivacy": "1YYN"}, globals: {"__uspapi": () => {}}
     });
     usp.listener(usEvent(), true);
-    check("usprivacy opposée toujours honorée",
+    check("an objecting usprivacy is still honoured",
         usp.calls.updates.length === 1 && usp.calls.updates[0].ad_storage === "denied",
         JSON.stringify(usp.calls.updates));
 }
 
-console.log("\n14. Exclusion mutuelle : qui POUSSE les update dans la dataLayer");
+console.log("\n14. Mutual exclusion: who PUSHES the updates into the dataLayer");
 {
-    // L'invariant le plus load-bearing du fichier, et il n'était couvert par RIEN. Le template
+    // The most load-bearing invariant in the file. The template
     // claims Consent Mode by setting `ABconsentCMP.enableConsentMode = false`; the CMP script
     // registers its own listener only when that flag is TRUE. The two derivations are not
     // identical -- this template takes ad_user_data from vendor 755 alone -- so two simultaneous
     // writers would contradict each other from one page view to the next.
     //
-    // Témoin d'abord : sans le drapeau, tout part normalement. Sans lui, un template qui ne
-    // ferait plus rien du tout satisferait les trois assertions suivantes.
+    // Witness first: without the flag, everything goes out normally. Without it, a template doing
+    // nothing at all would satisfy the three assertions that follow.
     const claimed = run({sddan: SDDAN_LOCAL});
     claimed.listener(TC_ALL_GRANTED, true);
-    check("témoin — sans le drapeau, le template mène", claimed.calls.defaults.length === 1 &&
+    check("witness -- without the flag, the template leads", claimed.calls.defaults.length === 1 &&
         claimed.calls.updates.length === 1 && claimed.calls.setCookies.length === 0);
 
     const ceded = run({sddan: SDDAN_LOCAL, globals: {ABconsentCMP: {enableConsentMode: true}}});
-    check("aucun default posé", ceded.calls.defaults.length === 0, JSON.stringify(ceded.calls.defaults));
-    check("le listener est tout de même enregistré", typeof ceded.listener === "function");
+    check("no default set", ceded.calls.defaults.length === 0, JSON.stringify(ceded.calls.defaults));
+    check("the listener is registered all the same", typeof ceded.listener === "function");
     ceded.listener(TC_ALL_GRANTED, true);
-    check("aucun update poussé", ceded.calls.updates.length === 0, JSON.stringify(ceded.calls.updates));
-    check("et toujours aucune écriture", ceded.calls.setCookies.length === 0, JSON.stringify(ceded.calls.setCookies));
+    check("no update pushed", ceded.calls.updates.length === 0, JSON.stringify(ceded.calls.updates));
+    check("and still no write", ceded.calls.setCookies.length === 0, JSON.stringify(ceded.calls.setCookies));
 
-    // Le drapeau à `false` est le cas du template qui a DÉJÀ revendiqué le Consent Mode sur une
-    // exécution précédente : il doit continuer de mener, pas se taire.
+    // The flag at `false` is the template having ALREADY claimed Consent Mode on an earlier run:
+    // it must keep leading, not fall silent.
     const reclaimed = run({sddan: SDDAN_LOCAL, globals: {ABconsentCMP: {enableConsentMode: false}}});
-    check("drapeau à false : le template mène toujours", reclaimed.calls.defaults.length === 1,
+    check("flag at false: the template still leads", reclaimed.calls.defaults.length === 1,
         JSON.stringify(reclaimed.calls.defaults));
 
-    // La suppression de cookies n'est PAS du Consent Mode : elle ne dépend pas de l'exclusion et
-    // must keep working when the CMP script is the one leading.
+    // Cookie deletion is NOT Consent Mode: it does not depend on the exclusion and must keep
+    // working when the CMP script is the one leading.
     const purge = run({
         sddan: SDDAN_LOCAL,
         globals: {ABconsentCMP: {enableConsentMode: true}},
@@ -558,25 +555,25 @@ console.log("\n14. Exclusion mutuelle : qui POUSSE les update dans la dataLayer"
         cookies: {"_ga": "x"}
     });
     purge.listener(purgeEvent("_ga"), true);
-    check("mais la suppression de cookies reste active", deletedNames(purge.calls).indexOf("_ga") !== -1,
+    check("but cookie deletion stays active", deletedNames(purge.calls).indexOf("_ga") !== -1,
         JSON.stringify(deletedNames(purge.calls)));
 }
 
-console.log("\n15. Suppression de cookies : les quatre règles de préservation");
+console.log("\n15. Cookie deletion: the four preservation rules");
 {
-    // Chemin entièrement découvert jusqu'ici. Il ne s'ouvre que sans consentement à la finalité 1.
+    // This path only opens without consent for purpose 1.
     const LIST = "_ga,_fbp,sd_keep,x_suffix,mid_dle,euconsent-v2,usprivacy";
     const PRESENT = {"_ga": "1", "_fbp": "1", "sd_keep": "1", "x_suffix": "1", "mid_dle": "1",
                      "euconsent-v2": "1", "usprivacy": "1"};
 
-    // Les deux cookies de consentement sont exemptés EN DUR : les effacer détruirait le choix
-    // que la suppression est censée honorer.
+    // The consent cookies are exempt BY DESIGN: deleting them would destroy the very choice the
+    // deletion is meant to honour.
     const base = run({sddan: SDDAN_LOCAL, data: {handleCookiesDeletion: true}, cookies: PRESENT});
     base.listener(purgeEvent(LIST), true);
     const d0 = deletedNames(base.calls);
-    check("euconsent-v2 jamais effacé", d0.indexOf("euconsent-v2") === -1, JSON.stringify(d0));
-    check("usprivacy jamais effacé", d0.indexOf("usprivacy") === -1);
-    check("le reste est effacé", d0.indexOf("_ga") !== -1 && d0.indexOf("_fbp") !== -1);
+    check("euconsent-v2 never deleted", d0.indexOf("euconsent-v2") === -1, JSON.stringify(d0));
+    check("usprivacy never deleted", d0.indexOf("usprivacy") === -1);
+    check("the rest is deleted", d0.indexOf("_ga") !== -1 && d0.indexOf("_fbp") !== -1);
 
     const rules = {
         "cookie_equals": {value: "sd_keep", kept: "sd_keep", gone: "_ga"},
@@ -592,33 +589,33 @@ console.log("\n15. Suppression de cookies : les quatre règles de préservation"
         });
         r.listener(purgeEvent(LIST), true);
         const del = deletedNames(r.calls);
-        check(rule + " préserve " + c.kept, del.indexOf(c.kept) === -1, JSON.stringify(del));
-        check(rule + " efface tout de même " + c.gone, del.indexOf(c.gone) !== -1, JSON.stringify(del));
+        check(rule + " preserves " + c.kept, del.indexOf(c.kept) === -1, JSON.stringify(del));
+        check(rule + " still deletes " + c.gone, del.indexOf(c.gone) !== -1, JSON.stringify(del));
     }
 
-    // Le drapeau gouverne tout : sans lui, rien n'est effacé même avec une liste fournie.
+    // The flag governs everything: without it nothing is deleted, even with a list supplied.
     const off = run({sddan: SDDAN_LOCAL, cookies: PRESENT, data: {handleCookiesDeletion: false}});
     off.listener(purgeEvent(LIST), true);
-    check("drapeau coupé : rien n'est effacé", deletedNames(off.calls).length === 0,
+    check("flag off: nothing is deleted", deletedNames(off.calls).length === 0,
         JSON.stringify(deletedNames(off.calls)));
 
-    // Et un consentement à la finalité 1 referme le chemin, quel que soit le drapeau.
+    // And consent for purpose 1 closes the path again, whatever the flag says.
     const consented = run({sddan: SDDAN_LOCAL, cookies: PRESENT, data: {handleCookiesDeletion: true}});
     consented.listener(Object.assign(purgeEvent(LIST), {
         purpose: {consents: {1: true}, legitimateInterests: {}}
     }), true);
-    check("finalité 1 accordée : rien n'est effacé", deletedNames(consented.calls).length === 0,
+    check("purpose 1 granted: nothing is deleted", deletedNames(consented.calls).length === 0,
         JSON.stringify(deletedNames(consented.calls)));
 }
 
-console.log("\n16. La section ___TESTS___ du .tpl reste structurellement saine");
+console.log("\n16. The .tpl's ___TESTS___ section stays structurally sound");
 {
-    // Ce que ce contrôle vérifie, et rien de plus : la section existe, ses scénarios sont ancrés
-    // en colonne 0, chacun porte un bloc `code:`, et deux ne partagent pas le même nom.
+    // What this checks, and nothing more: the section exists, its scenarios are anchored at
+    // column 0, each carries a `code:` block, and no two share a name.
     //
-    // Ce n'est PAS une validation YAML — ce dépôt n'a aucune dépendance et le README promet
-    // « rien d'autre que node ». Ce qu'il attrape est la faute réelle : un scénario appendu à la
-    // mauvaise indentation, ou un nom dupliqué, que seul l'éditeur GTM verrait sinon.
+    // This is NOT YAML validation -- the repo has no dependencies and the README promises
+    // "nothing but node". What it catches is the real mistake: a scenario appended at the wrong
+    // indentation, or a duplicate name, which only the GTM editor would otherwise see.
     const testsSection = TPL.split("___TESTS___")[1].split("___NOTES___")[0];
     const names = [];
     let malformed = 0;
@@ -633,21 +630,21 @@ console.log("\n16. La section ___TESTS___ du .tpl reste structurellement saine")
             if (!hasCode) { malformed++; }
         }
     }
-    check("la section porte des scénarios", names.length > 0, String(names.length));
-    check("chacun porte un bloc code:", malformed === 0, malformed + " sans code");
+    check("the section carries scenarios", names.length > 0, String(names.length));
+    check("each one carries a code: block", malformed === 0, malformed + " sans code");
     const dupes = names.filter((n, i) => names.indexOf(n) !== i);
-    check("aucun nom en double", dupes.length === 0, JSON.stringify(dupes));
-    // L'éditeur REFUSE un nom de scénario commençant par « _ », et il est le seul à le dire :
-    // rien dans le fichier ne le signale, donc la faute ne se voit qu'au moment de publier.
-    // Deux noms sont partis ainsi, tirés du nom du cookie qu'ils exercent.
+    check("no duplicate name", dupes.length === 0, JSON.stringify(dupes));
+    // The editor REFUSES a scenario name starting with "_", and it is the only thing that says
+    // so: nothing in the file flags it, so the mistake only surfaces at publication time -- and a
+    // name taken from the cookie it exercises falls into it naturally.
     const souligne = names.filter((n) => n.indexOf("_") === 0);
-    check("aucun nom ne commence par un souligné", souligne.length === 0, JSON.stringify(souligne));
-    // L'inventaire EXACT plutôt qu'un compte : un scénario qui disparaît est alors nommé, et le
-    // contrôle ne peut pas être satisfait par un scénario qui en remplace un autre.
+    check("no name starts with an underscore", souligne.length === 0, JSON.stringify(souligne));
+    // The EXACT inventory rather than a count: a scenario that disappears is then named, and the
+    // check cannot be satisfied by one scenario replacing another.
     const ATTENDUS = [
         "default settings sent",
-        "default comes from __sdgcm when a consent cookie is present",
-        "the stored signals are ignored without a consent cookie",
+        "the default comes from __sdgcm",
+        "the stored signals are read with no consent record beside them",
         "a malformed __sdgcm falls back instead of being read sideways",
         "an extra segment is still rejected",
         "a newer segment version is read for the signals it knows",
@@ -657,18 +654,18 @@ console.log("\n16. La section ___TESTS___ du .tpl reste structurellement saine")
     ];
     const manquants = ATTENDUS.filter((n) => names.indexOf(n) === -1);
     const inattendus = names.filter((n) => ATTENDUS.indexOf(n) === -1);
-    check("l'inventaire des scénarios est exact",
+    check("the scenario inventory is exact",
         manquants.length === 0 && inattendus.length === 0,
         "manquants=" + JSON.stringify(manquants) + " inattendus=" + JSON.stringify(inattendus));
 }
 
-console.log("\n17. Les cookies que la CMP POSSÈDE survivent à sa propre suppression");
+console.log("\n17. The cookies this setup OWNS survive its own deletion sweep");
 {
     // The deletion path opens when purpose 1 is NOT granted -- exactly when these cookies carry
     // the refusal that has to be remembered.
-    // La liste est l'ensemble COMPLET des cookies que cette installation écrit. `__sdusnat`
-    // porte les choix US détaillés, que les quatre caractères de `usprivacy` ne peuvent pas
-    // contenir — format gelé par `__uspapi` et ses lecteurs tiers.
+    // The list is the COMPLETE set of cookies this setup writes. `__sdusnat` holds the detailed
+    // US choices, which the four characters of `usprivacy` cannot carry -- that format is frozen
+    // by `__uspapi` and its third-party readers.
     const OWNED = ["euconsent-v2", "sdconsent-v2", "usprivacy", "__sdgcm", "__gpcactive",
                    "__sdusnat"];
     const LIST = OWNED.join(",") + ",_ga";
@@ -681,45 +678,45 @@ console.log("\n17. Les cookies que la CMP POSSÈDE survivent à sa propre suppre
     const del = deletedNames(r.calls);
 
     for (let i = 0; i < OWNED.length; i++) {
-        check(OWNED[i] + " n'est jamais effacé", del.indexOf(OWNED[i]) === -1, JSON.stringify(del));
+        check(OWNED[i] + " is never deleted", del.indexOf(OWNED[i]) === -1, JSON.stringify(del));
     }
 
-    // Le discriminant, sans lequel tout ce bloc serait satisfait par un template qui n'efface
-    // plus rien du tout.
-    check("un cookie tiers de la même liste est bien effacé", del.indexOf("_ga") !== -1,
+    // The discriminator, without which this whole block would be satisfied by a template that
+    // deletes nothing at all.
+    check("a third-party cookie in the same list is deleted", del.indexOf("_ga") !== -1,
         JSON.stringify(del));
 
-    // Ce cookie vient d'AILLEURS : le template le lit, il ne l'écrit pas. C'est ce qui rend
-    // son exemption plus importante encore — l'effacer détruirait la donnée d'un autre
-    // producteur, et le default du chargement suivant repartirait de rien.
+    // This cookie comes from ELSEWHERE: the template reads it, it does not write it. That makes
+    // its exemption matter more, not less -- deleting it would destroy another producer's data,
+    // and the next load's default would start from nothing.
     //
-    // On assère le POT, pas un compte d'appels : c'est la survie du cookie qui est l'invariant.
-    check("__sdgcm SURVIT intact à l'événement", r.cookies["__sdgcm"] === "1.1111111",
+    // The JAR is asserted, not a call count: the cookie's survival is the invariant.
+    check("__sdgcm SURVIVES the event intact", r.cookies["__sdgcm"] === "1.1111111",
         JSON.stringify(r.cookies["__sdgcm"]));
-    check("et le template n'a rien écrit du tout", r.calls.setCookies.every(
+    check("and the template wrote nothing at all", r.calls.setCookies.every(
         (c) => c.options && c.options["max-age"] === -1), JSON.stringify(r.calls.setCookies));
 
-    // Le pot doit refléter la suppression réelle, sinon l'assertion ci-dessus ne prouve rien.
-    check("le pot reflète bien la suppression du tiers", r.cookies["_ga"] === undefined,
+    // The jar must reflect the real deletion, otherwise the assertion above proves nothing.
+    check("the jar reflects the third-party deletion", r.cookies["_ga"] === undefined,
         JSON.stringify(r.cookies["_ga"]));
 
-    // Une règle d'exemption de l'éditeur ne doit pas RÉDUIRE la liste en dur : elle s'y ajoute.
+    // An exemption rule from the editor must not SHRINK the built-in list: it adds to it.
     const custom = run({
         sddan: SDDAN_LOCAL, cookies: PRESENT,
         data: {handleCookiesDeletion: true, cookieNames: [{value: "_ga", rule: "cookie_equals"}]}
     });
     custom.listener(purgeEvent(LIST), true);
     const del2 = deletedNames(custom.calls);
-    check("une règle d'éditeur s'ajoute aux exemptions en dur",
+    check("an editor rule adds to the built-in exemptions",
         del2.length === 0 && custom.cookies["__sdgcm"] !== undefined, JSON.stringify(del2));
 }
 
-console.log("\n18. Le GPC agit sur le STATUT du Consent Mode, jamais sur le CHARGEMENT de la CMP");
+console.log("\n18. GPC acts on the consent-mode STATUS, never on LOADING the CMP");
 {
-    // Le marqueur change ce qu'on DÉCLARE à gtag. Il ne doit rien changer à l'injection des
-    // scripts : couper le chargement priverait le visiteur de la bannière — donc du seul moyen
-    // de revenir sur son opposition — pour un signal qui ne demande que de ne pas vendre.
-    // Et le marqueur serait alors indélogeable, la bannière étant ce qui le retire.
+    // The marker changes what is DECLARED to gtag. It must change nothing about script injection:
+    // cutting the load would deprive the visitor of the banner -- their only way to revisit the
+    // objection -- for a signal that only asks not to sell. The marker would then be impossible to
+    // clear, the banner being what removes it.
     const ROW = {
         ad_storage: "granted", analytics_storage: "granted", personalization_storage: "granted",
         functionality_storage: "granted", security_storage: "granted",
@@ -730,36 +727,35 @@ console.log("\n18. Le GPC agit sur le STATUT du Consent Mode, jamais sur le CHAR
     const sans = run({sddan: SDDAN_LOCAL, data: CMP});
     const avec = run({sddan: SDDAN_LOCAL, data: CMP, cookies: {"__gpcactive": "1"}});
 
-    // Témoin : sans lui, un harnais qui n'injecterait RIEN satisferait l'égalité ci-dessous.
-    check("témoin — deux scripts injectés sans marqueur", sans.calls.injected.length === 2,
+    // Witness: without it, a harness injecting NOTHING would satisfy the equality below.
+    check("witness -- two scripts injected without the marker", sans.calls.injected.length === 2,
         JSON.stringify(sans.calls.injected));
-    check("témoin — le stub puis le bundle",
+    check("witness -- the stub then the bundle",
         sans.calls.injected[0].indexOf("/stub") !== -1 && sans.calls.injected[1].indexOf("/cmp") !== -1,
         JSON.stringify(sans.calls.injected));
 
-    check("le marqueur n'ôte aucun script", avec.calls.injected.length === 2,
+    check("the marker removes no script", avec.calls.injected.length === 2,
         JSON.stringify(avec.calls.injected));
-    check("et ce sont exactement les mêmes URL",
+    check("and they are exactly the same URLs",
         JSON.stringify(avec.calls.injected) === JSON.stringify(sans.calls.injected),
         JSON.stringify(avec.calls.injected));
 
-    // Le discriminant : sans lui, l'égalité ci-dessus serait aussi satisfaite par un GPC INERTE,
-    // c'est-à-dire par un marqueur qui ne ferait rien du tout.
-    check("alors que le statut, lui, change bien",
+    // The discriminator: without it, the equality above would also be satisfied by an INERT GPC,
+    // that is, by a marker doing nothing at all.
+    check("while the status itself does change",
         sans.calls.defaults[0].ad_storage === "granted" && avec.calls.defaults[0].ad_storage === "denied",
         JSON.stringify([sans.calls.defaults[0].ad_storage, avec.calls.defaults[0].ad_storage]));
-    check("et le chargement reste le même quand la CMP est coupée par la CONFIGURATION",
+    check("and loading is unchanged when the CMP is switched off by CONFIGURATION",
         run({sddan: SDDAN_LOCAL, data: {settingsTable: [ROW]}, cookies: {"__gpcactive": "1"}})
             .calls.injected.length === 0);
 }
 
-console.log("\n19. Le chemin US DÉCIDE, il ne déguise plus l'absence de RGPD");
+console.log("\n19. The US path DECIDES, instead of borrowing another regulation");
 {
-    // `hasConsent` rend `!gdprApplies || <lookup>` : hors RGPD, tout est accordé. L'ancienne
-    // forme forçait `tcData.gdprApplies = true` pour obtenir « pas de consentement ». Elle
-    // mutait l'objet de la CMP, et surtout la règle « cinq refusés, DEUX conservés » n'était
-    // pas tenue dans le cookie : `EVERY_STORAGE_SIGNAL_USED` met tout à 'denied', donc
-    // functionality et security y tombaient dessus. Mesuré avant correctif : 2.g:1:0000000.
+    // `hasConsent` returns `!gdprApplies || <lookup>`: outside the GDPR, everything is granted.
+    // Flipping `tcData.gdprApplies` would be one way to get "no consent" out of it, but it mutates
+    // the CMP's object, and it makes the "five denied, TWO kept" rule impossible to hold: an
+    // all-denied derivation catches functionality and security along with the rest.
     const TOUT_ACCORDE = {
         ad_storage: "granted", analytics_storage: "granted", personalization_storage: "granted",
         functionality_storage: "granted", security_storage: "granted",
@@ -767,37 +763,37 @@ console.log("\n19. Le chemin US DÉCIDE, il ne déguise plus l'absence de RGPD")
     };
     const US = {settingsTable: [TOUT_ACCORDE]};
     const USPAPI = {"__uspapi": function () { return undefined; }};
-    // FABRIQUE : la règle US mutait son argument. Elle ne le mute plus, et c'est justement ce
-    // qu'un des tests ci-dessous vérifie — donc l'objet doit être neuf à chaque cas.
+    // A FACTORY: one of the tests below asserts that the US rule does not mutate its argument, so
+    // each case must start from a fresh object.
     const evUs = () => ({gdprApplies: false, eventStatus: "useractioncomplete"});
 
-    // Le marqueur apparaît APRÈS le default (le bundle l'écrit pendant la page vue) : le
-    // default part accordé, et c'est l'update qui doit refuser. C'est le cas qui montre les
-    // deux conservés, les autres étant absorbés par la déduplication.
+    // The marker appears AFTER the default (the consent script writes it during the page view):
+    // the default goes out granted, and it is the update that must deny. This is the case that
+    // shows the two kept signals, the others being absorbed by deduplication.
     const objecte = run({sddan: SDDAN_LOCAL, data: US, globals: USPAPI});
     objecte.cookies["__gpcactive"] = "1";
     objecte.listener(evUs(), true);
     const u = objecte.calls.updates[0] || {};
-    check("objection US — ad_storage refusé", u.ad_storage === "denied", JSON.stringify(u));
-    check("objection US — analytics_storage refusé", u.analytics_storage === "denied");
-    check("objection US — personalization_storage refusé", u.personalization_storage === "denied");
-    check("objection US — ad_user_data refusé", u.ad_user_data === "denied");
-    check("objection US — ad_personalization refusé", u.ad_personalization === "denied");
-    check("objection US — functionality_storage CONSERVÉ", u.functionality_storage === "granted", JSON.stringify(u));
-    check("objection US — security_storage CONSERVÉ", u.security_storage === "granted", JSON.stringify(u));
-    check("et rien n'est écrit, même sous objection", objecte.calls.setCookies.length === 0,
+    check("US objection -- ad_storage denied", u.ad_storage === "denied", JSON.stringify(u));
+    check("US objection -- analytics_storage denied", u.analytics_storage === "denied");
+    check("US objection -- personalization_storage denied", u.personalization_storage === "denied");
+    check("US objection -- ad_user_data denied", u.ad_user_data === "denied");
+    check("US objection -- ad_personalization denied", u.ad_personalization === "denied");
+    check("US objection -- functionality_storage KEPT", u.functionality_storage === "granted", JSON.stringify(u));
+    check("US objection -- security_storage KEPT", u.security_storage === "granted", JSON.stringify(u));
+    check("and nothing is written, even under an objection", objecte.calls.setCookies.length === 0,
         JSON.stringify(objecte.calls.setCookies));
 
-    // `usprivacy` dit la même chose que le marqueur, et doit produire le même verdict.
+    // `usprivacy` says the same thing as the marker, and must produce the same verdict.
     const parChaine = run({sddan: SDDAN_LOCAL, data: US, cookies: {"usprivacy": "1YYN"}, globals: USPAPI});
     parChaine.listener(evUs(), true);
     const uc = parChaine.calls.updates[0] || {};
-    check("l'opt-out par usprivacy rend le même verdict",
+    check("the usprivacy opt-out yields the same verdict",
         uc.ad_storage === "denied" && uc.functionality_storage === "granted", JSON.stringify(uc));
 
-    // Une ligne TOUT REFUSÉ pour ces deux cas-ci : le default part alors refusé, donc un verdict
-    // « accordé » se voit dans un update. Avec la ligne tout-accordé la déduplication l'absorbe,
-    // et le test passerait sans rien exercer.
+    // An ALL-DENIED row for these two cases: the default then goes out denied, so a "granted"
+    // verdict shows up as an update. With the all-granted row, deduplication absorbs it and the
+    // test would pass without exercising anything.
     const TOUT_REFUSE = {
         ad_storage: "denied", analytics_storage: "denied", personalization_storage: "denied",
         functionality_storage: "denied", security_storage: "denied",
@@ -805,56 +801,55 @@ console.log("\n19. Le chemin US DÉCIDE, il ne déguise plus l'absence de RGPD")
     };
     const US_REFUSE = {settingsTable: [TOUT_REFUSE]};
 
-    // Une chaîne SANS opposition est une décision, pas une absence : tout accordé.
+    // A string with NO objection is a decision, not an absence: everything granted.
     const pasObjecte = run({sddan: SDDAN_LOCAL, data: US_REFUSE, cookies: {"usprivacy": "1YNN"}, globals: USPAPI});
     pasObjecte.listener(evUs(), true);
     const up = pasObjecte.calls.updates[0] || {};
-    check("pas d'opposition — tout accordé",
+    check("no objection -- all granted",
         up.ad_storage === "granted" && up.analytics_storage === "granted", JSON.stringify(up));
 
-    // Une objection SUR une ligne tout-refusé : c'est le SEUL cas où router les deux conservés
-    // par le verdict se voit. Avec la ligne tout-accordé, le repli `setting.X` rend 'granted' de
-    // toute façon — donc l'assertion « les deux conservés » d'au-dessus passe, mais n'exerce
-    // rien. Trou trouvé en re-mesurant la falsifiabilité : la mutation rendait 0 rouge.
+    // An objection ON an all-denied row: the ONLY case where routing the two kept signals through
+    // the verdict would show. With the all-granted row, the `setting.X` fallback returns 'granted'
+    // anyway, so the "two kept" assertion above passes without exercising the rule.
     const objecteRefuse = run({sddan: SDDAN_LOCAL, data: US_REFUSE, cookies: {"usprivacy": "1YYN"}, globals: USPAPI});
     objecteRefuse.listener(evUs(), true);
     const ur = objecteRefuse.calls.updates[0] || {};
-    check("objection sur ligne refusée — les deux conservés restent accordés",
+    check("objection on a denying row -- the two kept signals stay granted",
         ur.functionality_storage === "granted" && ur.security_storage === "granted", JSON.stringify(ur));
 
-    // TÉMOIN, et il est load-bearing : hors des États-Unis, « le RGPD ne s'applique pas » veut
-    // toujours dire « tout est permis ». Sans lui, un verdict qui refuserait par défaut
-    // passerait inaperçu et éteindrait la mesure du reste du monde.
+    // WITNESS, and load-bearing: outside the US, "the GDPR does not apply" still means
+    // "everything is allowed". Without it, a verdict denying by default would go unnoticed and
+    // would switch off measurement for the rest of the world.
     const horsUs = run({sddan: SDDAN_LOCAL, data: US_REFUSE});
     horsUs.listener(evUs(), true);
     const uh = horsUs.calls.updates[0] || {};
-    check("témoin — hors US, tout reste accordé",
+    check("witness -- outside the US, everything stays granted",
         uh.ad_storage === "granted" && uh.analytics_storage === "granted", JSON.stringify(uh));
 
-    // L'objet appartient à la CMP. Le muter marchait, mais empruntait la machinerie d'une autre
-    // régulation pour dire une chose simple — et un autre lecteur du même objet l'aurait subi.
+    // The object belongs to the CMP. Mutating it would borrow another regulation's machinery to
+    // say something simple, and any other reader of that object would inherit the change.
     const ev = evUs();
     const sansMutation = run({sddan: SDDAN_LOCAL, data: US, cookies: {"__gpcactive": "1"}, globals: USPAPI});
     sansMutation.listener(ev, true);
-    check("tcData n'est PAS muté", ev.gdprApplies === false, JSON.stringify(ev));
+    check("tcData is NOT mutated", ev.gdprApplies === false, JSON.stringify(ev));
 
-    // Forcer `gdprApplies` ouvrait aussi la suppression des cookies, `hasConsent` répondant
-    // alors faux pour la finalité 1. Le comportement est conservé, mais énoncé.
+    // A US objection also closes purpose 1, and therefore opens the cookie deletion path. Stated
+    // here rather than reached as a side effect of how the verdict is derived.
     const purge = run({sddan: SDDAN_LOCAL, data: {settingsTable: [TOUT_ACCORDE], handleCookiesDeletion: true},
         cookies: {"__gpcactive": "1", "_ga": "x"}, globals: USPAPI});
     purge.listener(Object.assign(evUs(), {hostName: "example.com", cookieList: "_ga"}), true);
-    check("une objection US ouvre toujours la suppression",
+    check("a US objection still opens the deletion",
         deletedNames(purge.calls).indexOf("_ga") !== -1, JSON.stringify(deletedNames(purge.calls)));
 }
 
-// Plancher d'assertions : « zéro rouge » ne doit pas pouvoir vouloir dire « rien n'a tourné ».
-// Une section supprimée par accident sortirait sinon en TOUT VERT. À relever avec le harnais.
+// Assertion floor: "zero red" must never be able to mean "nothing ran". A section deleted by
+// accident would otherwise come out ALL GREEN. Raise it along with the harness.
 const MIN_CHECKS = 137;
 if (checksRun < MIN_CHECKS) {
     failures++;
-    console.log("\n  FAIL seulement " + checksRun + " assertions exécutées, plancher = " + MIN_CHECKS);
+    console.log("\n  FAIL only " + checksRun + " assertions ran, floor = " + MIN_CHECKS);
 }
 
 console.log("\n" + checksRun + " assertions");
-console.log(failures === 0 ? "TOUT VERT" : failures + " ECHEC(S)");
+console.log(failures === 0 ? "ALL GREEN" : failures + " FAILURE(S)");
 process.exit(failures === 0 ? 0 : 1);
