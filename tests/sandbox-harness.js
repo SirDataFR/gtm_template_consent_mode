@@ -446,6 +446,21 @@ console.log("\n13. Global Privacy Control takes precedence in the default");
     check("security_storage KEPT", g.security_storage === "granted");
     check("nothing left to wait for", g.wait_for_update === 0);
 
+    // The other side of the same rule, and the one `applyStoredSignals` already has pinned in
+    // section 7: a signal marked "not used" stays ABSENT under GPC rather than being denied. The
+    // marker records what is TRUE, the settings table decides what is SAID.
+    //
+    // Its neighbour is the discriminator: `analytics_storage` denied proves the denial pass ran,
+    // so `ad_storage` being absent is the guard's doing and not a template that emitted nothing.
+    const notUsed = run({
+        sddan: SDDAN_LOCAL,
+        data: {settingsTable: [Object.assign({}, ALL_GRANTED_ROW, {ad_storage: "not used"})]},
+        cookies: {"__gpcactive": "1"}
+    });
+    const nu = notUsed.calls.defaults[0];
+    check("a 'not used' signal stays ABSENT under GPC", nu.ad_storage === undefined, JSON.stringify(nu));
+    check("while its neighbour is denied", nu.analytics_storage === "denied", JSON.stringify(nu));
+
     // THE precedence rule: GPC wins over __sdgcm, whatever the cookie says.
     const both = run({
         sddan: SDDAN_LOCAL, data: GRANTED,
@@ -844,7 +859,7 @@ console.log("\n19. The US path DECIDES, instead of borrowing another regulation"
 
 // Assertion floor: "zero red" must never be able to mean "nothing ran". A section deleted by
 // accident would otherwise come out ALL GREEN. Raise it along with the harness.
-const MIN_CHECKS = 137;
+const MIN_CHECKS = 139;
 if (checksRun < MIN_CHECKS) {
     failures++;
     console.log("\n  FAIL only " + checksRun + " assertions ran, floor = " + MIN_CHECKS);

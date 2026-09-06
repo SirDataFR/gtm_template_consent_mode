@@ -1919,6 +1919,14 @@ const CONSENT_MODE_COOKIE_NAME = '__sdgcm';
 //
 // Segment ORDER carries no meaning: split on `~` and look the id up. On a duplicate id the LAST
 // occurrence wins.
+//
+// A container version this template does not know is parsed with the grammar above rather than
+// rejected, and that is safe because of what moves the version: only a change of GRAMMAR does.
+// Any field such a change produces either still parses as `id:version:bits` -- in which case the
+// id lookup and the bit validation below hold -- or fails the three-part / digit-version check and
+// is dropped. A payload whose LAYOUT changes moves the SEGMENT version, not the container's, and
+// that case is handled by reading the prefix. So the worst outcome is a fall back to the
+// configured defaults, never a value read sideways.
 const CONSENT_MODE_SEGMENT_ID = 'g';
 const SEGMENT_SEPARATOR = '~';
 const FIELD_SEPARATOR = ':';
