@@ -1,0 +1,46 @@
+# The `___TESTS___` section of the template only runs inside the GTM template editor, so the
+# sandbox harness in `tests/sandbox-harness.js` is the only mechanical check of behaviour that can
+# run outside it. This workflow runs that harness on every push and pull request.
+#
+# What it covers, and nothing more: the BEHAVIOUR of the sandboxed JS, replayed against fake GTM
+# APIs. It checks neither the permissions nor the restrictions of Google's JS subset -- neither is
+# reproducible outside the template editor, so validating there stays a manual step before any
+# gallery publication.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    name: Sandbox harness (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Both versions run to completion instead of stopping at the first failure: one run that
+      # reports every version is worth more than one that reports the first.
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+
+      # No dependencies and no cache: the harness needs nothing but `node`, and the README makes
+      # that a promise. An `npm ci` here would mean the promise had been broken.
+      #
+      # `node --version` is printed deliberately: without it nothing in the log says which version
+      # actually ran the harness, and the matrix is only an intention. The runner pins the ACTIONS
+      # themselves to its own Node -- not to be confused with this one, which is the only Node that
+      # runs the harness.
+      - name: Run the sandbox harness
+        run: |
+          node --version
+          node tests/sandbox-harness.js
