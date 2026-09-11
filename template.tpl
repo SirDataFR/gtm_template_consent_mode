@@ -2332,13 +2332,30 @@ const appendCommands = (target, source, filteredName) => {
   }
 };
 
-const appendDistinctQueue = (target, first, second, filteredName) => {
+const QUEUE_STORAGE_PROBE = '__sd_queue_storage_probe__';
+
+// `copyFromWindow` returns copied/coerced values, so neither reference nor content equality proves
+// that two paths share one queue. Probe the global storage synchronously and restore it immediately.
+// Any inconclusive result means "distinct": preserving both sources is safer than losing commands.
+const queuesShareStorage = (probePath, observedPath) => {
+  const probeQueue = copyFromWindow(probePath);
+  const observedQueue = copyFromWindow(observedPath);
+  if (!probeQueue || !observedQueue || typeof(probeQueue.length) !== 'number' ||
+      typeof(observedQueue.length) !== 'number') return false;
+
+  const pushedLength = callInWindow(probePath + '.push', QUEUE_STORAGE_PROBE);
+  const observedAfterPush = copyFromWindow(observedPath);
+  const removed = callInWindow(probePath + '.splice', probeQueue.length, 1);
+
+  return pushedLength === probeQueue.length + 1 && removed && removed.length === 1 &&
+    removed[0] === QUEUE_STORAGE_PROBE &&
+    observedAfterPush && observedAfterPush.length === observedQueue.length + 1 &&
+    observedAfterPush[observedAfterPush.length - 1] === QUEUE_STORAGE_PROBE;
+};
+
+const appendQueueSources = (target, first, second, shareStorage, filteredName) => {
   appendCommands(target, first, filteredName);
-  // `copyFromWindow` cannot expose object identity. Equal serializations are therefore the only
-  // observable proof that `q` and `queue` contain the same pending work; append them once.
-  if (JSON.stringify(first || []) !== JSON.stringify(second || [])) {
-    appendCommands(target, second, filteredName);
-  }
+  if (!shareStorage) appendCommands(target, second, filteredName);
 };
 
 const openAiReady = () => copyFromWindow('oaiq.__oaiqInitialized') === true;
@@ -2350,10 +2367,11 @@ const setOpenAiConsent = (granted) => {
     return;
   }
 
+  const shareStorage = queuesShareStorage('oaiq.queue', 'oaiq.q');
   const queueQ = copyFromWindow('oaiq.q') || [];
   const queue = copyFromWindow('oaiq.queue') || [];
   const commands = [];
-  appendDistinctQueue(commands, queueQ, queue, 'consent');
+  appendQueueSources(commands, queueQ, queue, shareStorage, 'consent');
 
   // A queue function may close over the array that existed when it was created. Replacing only
   // `oaiq.queue` could then strand later `init` or `measure` calls in that old array. Replace the
@@ -2382,6 +2400,7 @@ const facebookReady = () => typeof(copyFromWindow('fbq.callMethod')) === 'functi
 
 const installFacebookQueue = () => {
   const ready = facebookReady();
+  const shareStorage = queuesShareStorage('fbq.queue', '_fbq.queue');
   const existingQueue = copyFromWindow('fbq.queue') || [];
   const aliasQueue = copyFromWindow('_fbq.queue') || [];
 
@@ -2405,7 +2424,7 @@ const installFacebookQueue = () => {
     facebookQueueWrapperInstalled = true;
     createQueue('fbq.queue');
     const commands = [];
-    appendDistinctQueue(commands, existingQueue, aliasQueue, '');
+    appendQueueSources(commands, existingQueue, aliasQueue, shareStorage, '');
     setInWindow('fbq.queue', commands, true);
     // Alias only after both original queues have been captured and merged.
     aliasInWindow('_fbq', 'fbq');
@@ -2414,6 +2433,7 @@ const installFacebookQueue = () => {
 };
 
 const mergeFacebookQueues = (filteredName) => {
+  const shareStorage = queuesShareStorage('fbq.queue', '_fbq.queue');
   const fbqQueue = copyFromWindow('fbq.queue') || [];
   const aliasQueue = copyFromWindow('_fbq.queue') || [];
   const commands = [];
@@ -2428,7 +2448,7 @@ const mergeFacebookQueues = (filteredName) => {
   };
 
   append(fbqQueue);
-  if (JSON.stringify(fbqQueue) !== JSON.stringify(aliasQueue)) append(aliasQueue);
+  if (!shareStorage) append(aliasQueue);
   return commands;
 };
 
@@ -2482,7 +2502,7 @@ const setFacebookConsent = (granted, finalChoice) => {
     }
   }
 
-  const commands = mergeFacebookQueues('consent', false);
+  const commands = mergeFacebookQueues('consent');
   setInWindow('fbq.queue', commands, true);
   aliasInWindow('_fbq', 'fbq');
   aliasInWindow('fbq.push', 'fbq');
@@ -2500,7 +2520,7 @@ const setFacebookUsDataProcessing = (optedOut) => {
   const queuedSignalRemoved = wasQueued
     ? removeQueuedFacebookConsent(facebookOwnedConsentValue)
     : false;
-  const commands = mergeFacebookQueues('dataProcessingOptions', false);
+  const commands = mergeFacebookQueues('dataProcessingOptions');
   const dpo = optedOut === true
     ? ['dataProcessingOptions', ['LDU'], 0, 0]
     : ['dataProcessingOptions', []];
@@ -3529,6 +3549,45 @@ ___WEB_PERMISSIONS___
                   {
                     "type": 1,
                     "string": "oaiq.queue.push"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.queue.splice"
                   },
                   {
                     "type": 8,

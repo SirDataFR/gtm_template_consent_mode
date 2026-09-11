@@ -27,6 +27,12 @@ For OpenAI, `oaiq.q` and `oaiq.queue` are unified and only competing `consent` c
 replaced; `init`, `measure`, Pixel ID, and user-data commands keep their order. For Meta, the
 same rule preserves `_fbq`, `fbq.queue`, `fbq.push`, `init`, `track`, Pixel ID, and user data.
 
+Sandboxed `copyFromWindow` does not expose queue identity. The template therefore never treats
+matching serialized content as proof that two queue paths are aliases. It probes shared global
+storage with a synchronous, immediately removed sentinel. If shared storage cannot be proven,
+both queue sources are preserved — even when their pending commands have identical content —
+because dropping a legitimate command is less safe than retaining both source invocations.
+
 The GDPR/US regime is not available synchronously when Consent Initialization starts. Meta
 therefore reuses a valid stored `m` bit when one exists and otherwise queues a temporary
 `consent revoke`. Once the CMP callback identifies the regime, GDPR receives `consent grant` or

@@ -86,6 +86,13 @@ function run(opts) {
         return true;
     }
 
+    // The documented API returns a copied/coerced sandbox value, not an identity handle. Arrays
+    // are copied here so production code cannot pass by comparing host references.
+    function copyWindowValue(pathName) {
+        const value = getPath(pathName);
+        return Array.isArray(value) ? value.slice() : value;
+    }
+
     const api = {
         callInWindow: (name, ...args) => {
             if (name === "__sdcmpapi" && args[0] === "addEventListener") {
@@ -123,7 +130,7 @@ function run(opts) {
             if (options && options["max-age"] === -1) { delete cookies[name]; }
             else { cookies[name] = value; }
         },
-        copyFromWindow: getPath,
+        copyFromWindow: copyWindowValue,
         setInWindow: setPath,
         aliasInWindow: (toPath, fromPath) => setPath(toPath, getPath(fromPath), true),
         createQueue: (arrayKey) => {
@@ -995,6 +1002,7 @@ console.log("\n20. Vendor ownership parameters and permissions");
             ["oaiq.q", true, true, false],
             ["oaiq.queue", true, true, false],
             ["oaiq.queue.push", false, false, true],
+            ["oaiq.queue.splice", false, false, true],
             ["oaiq.__oaiqInitialized", true, false, false]
         ]), JSON.stringify(vendorPermissions));
     check("no vendor SDK domain was added to inject_script",
@@ -1086,6 +1094,21 @@ console.log("\n22. OpenAI queue compatibility and updates");
         ]), JSON.stringify(commands));
     check("OpenAI has one authoritative consent",
         JSON.stringify(named(commands, "consent")) === JSON.stringify([["consent", true]]));
+
+    function equalOaiq() {}
+    const equalQ = [["init", {pixelId: "equal"}], ["measure", "page_viewed"]];
+    const equalQueue = [["init", {pixelId: "equal"}], ["measure", "page_viewed"]];
+    equalOaiq.q = equalQ;
+    equalOaiq.queue = equalQueue;
+    const equalOpenAi = run({sddan: SDDAN_LOCAL, globals: {oaiq: equalOaiq},
+        data: {openAiConsentModeOverride: "enabled"}});
+    check("distinct equal-content OpenAI queues preserve both legitimate sources",
+        equalQ !== equalQueue &&
+        JSON.stringify(without(commandList(equalOpenAi.globals.oaiq.q), ["consent"])) ===
+        JSON.stringify([
+            ["init", {pixelId: "equal"}], ["measure", "page_viewed"],
+            ["init", {pixelId: "equal"}], ["measure", "page_viewed"]
+        ]), JSON.stringify(commandList(equalOpenAi.globals.oaiq.q)));
 
     function aliasedOaiq() { aliasedOaiq.queue.push(Array.prototype.slice.call(arguments)); }
     const shared = [["init", {pixelId: "shared"}], ["measure", "page_viewed"]];
@@ -1185,6 +1208,23 @@ console.log("\n23. Meta queue compatibility and GDPR/US updates");
             ["dataProcessingOptions", ["LDU"], 0, 0], ["init", "pixel", {em: "hash"}],
             ["track", "PageView"], ["set", "user", {id: "user"}]
         ]), JSON.stringify(commands));
+
+    function equalFbq() {}
+    const equalFbqQueue = [["init", "equal", {em: "hash"}], ["track", "PageView"]];
+    equalFbq.queue = equalFbqQueue;
+    equalFbq.push = equalFbq;
+    function equalAlias() {}
+    const equalAliasQueue = [["init", "equal", {em: "hash"}], ["track", "PageView"]];
+    equalAlias.queue = equalAliasQueue;
+    const equalMeta = run({sddan: SDDAN_LOCAL, globals: {fbq: equalFbq, _fbq: equalAlias},
+        data: {facebookConsentModeOverride: "enabled"}});
+    check("distinct equal-content Meta queues preserve both legitimate sources",
+        equalFbqQueue !== equalAliasQueue &&
+        JSON.stringify(without(commandList(equalMeta.globals.fbq.queue), ["consent"])) ===
+        JSON.stringify([
+            ["init", "equal", {em: "hash"}], ["track", "PageView"],
+            ["init", "equal", {em: "hash"}], ["track", "PageView"]
+        ]), JSON.stringify(commandList(equalMeta.globals.fbq.queue)));
 
     function distinctFbq() { distinctFbq.queue.push(Array.prototype.slice.call(arguments)); }
     distinctFbq.queue = [["init", "distinct", {em: "hash"}]];
@@ -1349,7 +1389,7 @@ console.log("\n23. Meta queue compatibility and GDPR/US updates");
 
 // Assertion floor: "zero red" must never be able to mean "nothing ran". A section deleted by
 // accident would otherwise come out ALL GREEN. Raise it along with the harness.
-const MIN_CHECKS = 212;
+const MIN_CHECKS = 214;
 if (checksRun < MIN_CHECKS) {
     failures++;
     console.log("\n  FAIL only " + checksRun + " assertions ran, floor = " + MIN_CHECKS);
