@@ -80,6 +80,61 @@ ___TEMPLATE_PARAMETERS___
 [
   {
     "type": "GROUP",
+    "name": "vendorConsentModeOverrides",
+    "displayName": "Meta and OpenAI consent mode ownership",
+    "groupStyle": "ZIPPY_OPEN",
+    "help": "Compatibility requires the official \u003ca href\u003d\"https://github.com/facebook/GoogleTagManager-WebTemplate-For-FacebookPixel\"\u003eMeta template\u003c/a\u003e or official \u003ca href\u003d\"https://github.com/openai/ads-measurement-pixel-gtm-template\"\u003eOpenAI template\u003c/a\u003e. Custom HTML and third-party templates are not guaranteed. These controls coordinate consent commands; they do not prevent either SDK from being downloaded by another tag.",
+    "subParams": [
+      {
+        "type": "SELECT",
+        "name": "facebookConsentModeOverride",
+        "displayName": "Meta consent mode ownership",
+        "simpleValueType": true,
+        "defaultValue": "inherit",
+        "alwaysInSummary": true,
+        "selectItems": [
+          {
+            "value": "inherit",
+            "displayValue": "Inherit CMP configuration"
+          },
+          {
+            "value": "enabled",
+            "displayValue": "Enabled (GTM owns consent commands)"
+          },
+          {
+            "value": "disabled",
+            "displayValue": "Disabled"
+          }
+        ],
+        "help": "Overrides the CMP configuration for this page. Inherit keeps the CMP configuration. Enabled prepares fbq for the official Meta template and makes this GTM container responsible for updates. Custom HTML and third-party templates are not guaranteed. This feature does not prevent the Meta SDK from being downloaded. The GDPR/US regime is unavailable synchronously on the first page: a valid stored Meta bit is used when available, otherwise a temporary revoke is queued until the CMP callback. That temporary revoke is not equivalent to Limited Data Use; the US callback replaces it with dataProcessingOptions."
+      },
+      {
+        "type": "SELECT",
+        "name": "openAiConsentModeOverride",
+        "displayName": "OpenAI consent mode ownership",
+        "simpleValueType": true,
+        "defaultValue": "inherit",
+        "alwaysInSummary": true,
+        "selectItems": [
+          {
+            "value": "inherit",
+            "displayValue": "Inherit CMP configuration"
+          },
+          {
+            "value": "enabled",
+            "displayValue": "Enabled (GTM owns consent commands)"
+          },
+          {
+            "value": "disabled",
+            "displayValue": "Disabled"
+          }
+        ],
+        "help": "Overrides the CMP configuration for this page. Inherit keeps the CMP configuration. Enabled prepares oaiq for the official OpenAI template and makes this GTM container responsible for updates. Custom HTML and third-party templates are not guaranteed. This feature controls consent commands only; it does not prevent the OpenAI SDK from being downloaded. A valid stored OpenAI bit is reused; absent or malformed state starts with consent false."
+      }
+    ]
+  },
+  {
+    "type": "GROUP",
     "name": "consent Mode",
     "displayName": "Google Consent Mode",
     "groupStyle": "ZIPPY_OPEN",
@@ -1739,9 +1794,11 @@ ___TEMPLATE_PARAMETERS___
 
 ___SANDBOXED_JS_FOR_WEB_TEMPLATE___
 
-const currentVersion = '1.81';
+const currentVersion = '1.82';
 
 const callInWindow = require('callInWindow');
+const aliasInWindow = require('aliasInWindow');
+const createQueue = require('createQueue');
 const gtagSet = require('gtagSet');
 const log = require('logToConsole');
 const makeTableMap = require('makeTableMap');
@@ -1750,12 +1807,32 @@ const updateConsentState = require('updateConsentState');
 const injectScript = require('injectScript');
 const encodeUriComponent = require('encodeUriComponent');
 const makeInteger = require('makeInteger');
+const JSON = require('JSON');
 const getCookieValues = require('getCookieValues');
 const setCookie = require('setCookie');
 const copyFromWindow = require('copyFromWindow');
 const setInWindow = require('setInWindow');
 
 const ABconsentCMP = copyFromWindow('ABconsentCMP') || {};
+const facebookConsentModeOwned = data.facebookConsentModeOverride === 'enabled';
+const openAiConsentModeOwned = data.openAiConsentModeOverride === 'enabled';
+const hasFacebookConsentModeOverride = facebookConsentModeOwned ||
+  data.facebookConsentModeOverride === 'disabled';
+const hasOpenAiConsentModeOverride = openAiConsentModeOwned ||
+  data.openAiConsentModeOverride === 'disabled';
+
+// Publish explicit ownership before a CMP stub can load. `inherit` deliberately performs no
+// assignment: absence lets the served CMP configuration remain authoritative.
+if (hasFacebookConsentModeOverride) {
+  ABconsentCMP.gtmFacebookConsentMode = facebookConsentModeOwned;
+}
+if (hasOpenAiConsentModeOverride) {
+  ABconsentCMP.gtmOpenAiConsentMode = openAiConsentModeOwned;
+}
+if (hasFacebookConsentModeOverride || hasOpenAiConsentModeOverride) {
+  setInWindow('ABconsentCMP', ABconsentCMP, true);
+}
+
 var cmpLoaded = false;
 if (typeof (ABconsentCMP.enableConsentMode) == 'undefined') {
   const copyFromDataLayer = require('copyFromDataLayer');
@@ -2106,14 +2183,22 @@ const findSegmentBits = (segments, id) => {
 // The segment's VERSION is deliberately not consulted. A later version appends bits, so reading
 // the first seven is correct whether the segment is v1 or newer. That is the whole point: this
 // template survives a format extension without being republished.
-const readStoredConsentSignals = () => {
-  const bits = findSegmentBits(readCookieSegments(), CONSENT_MODE_SEGMENT_ID);
+const readStoredConsentSignals = (segments) => {
+  const bits = findSegmentBits(segments, CONSENT_MODE_SEGMENT_ID);
   if (!isBits(bits) || bits.length < CONSENT_MODE_SIGNALS.length) return undefined;
   const signals = {};
   for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
     signals[CONSENT_MODE_SIGNALS[i]] = bits[i] === '1' ? 'granted' : 'denied';
   }
   return signals;
+};
+
+// Meta (`m`) and OpenAI (`o`) each own one bit in the same read-only container. Undefined is
+// preserved for an absent or malformed segment; callers choose their own conservative fallback.
+const readStoredVendorConsent = (segments, id) => {
+  const bits = findSegmentBits(segments, id);
+  if (!isBits(bits) || bits.length < 1) return undefined;
+  return bits[0] === '1';
 };
 
 // Stored signals replace the configured values, but NOT the emission rule: a signal marked
@@ -2223,13 +2308,254 @@ let defaultConsent = {
   'security_storage': 'not used'
 };
 
-// Read ONCE, before the default is set: this is the last moment at which the cookie still carries
-// what the visitor chose on the previous load, with nothing rewritten in between.
-const storedConsentSignals = readStoredConsentSignals();
+// Read ONCE, before defaults and vendor queues are prepared: every segment must describe the same
+// cookie snapshot. This template remains a reader only; the CMP script owns all writes.
+const storedConsentSegments = readCookieSegments();
+const storedConsentSignals = readStoredConsentSignals(storedConsentSegments);
+const storedFacebookConsent = readStoredVendorConsent(storedConsentSegments, 'm');
+const storedOpenAiConsent = readStoredVendorConsent(storedConsentSegments, 'o');
 
 // Read once as well, and for the same reason: two reads of the same cookie at two different
 // moments would end up disagreeing.
 const gpcActive = isGpcActive();
+
+const commandName = (entry) => {
+  if (!entry || typeof(entry) === 'string' || typeof(entry.length) !== 'number' ||
+      entry.length < 1 || typeof(entry[0]) !== 'string') return '';
+  return entry[0];
+};
+
+const appendCommands = (target, source, filteredName) => {
+  if (!source || typeof(source.length) !== 'number') return;
+  for (let i = 0; i < source.length; i++) {
+    if (!filteredName || commandName(source[i]) !== filteredName) target.push(source[i]);
+  }
+};
+
+const appendDistinctQueue = (target, first, second, filteredName) => {
+  appendCommands(target, first, filteredName);
+  // `copyFromWindow` cannot expose object identity. Equal serializations are therefore the only
+  // observable proof that `q` and `queue` contain the same pending work; append them once.
+  if (JSON.stringify(first || []) !== JSON.stringify(second || [])) {
+    appendCommands(target, second, filteredName);
+  }
+};
+
+const openAiReady = () => copyFromWindow('oaiq.__oaiqInitialized') === true;
+
+const setOpenAiConsent = (granted) => {
+  if (openAiReady()) {
+    // Once initialized, the SDK owns both function and queue identities. Only push the update.
+    callInWindow('oaiq', 'consent', granted);
+    return;
+  }
+
+  const queueQ = copyFromWindow('oaiq.q') || [];
+  const queue = copyFromWindow('oaiq.queue') || [];
+  const commands = [];
+  appendDistinctQueue(commands, queueQ, queue, 'consent');
+
+  // A queue function may close over the array that existed when it was created. Replacing only
+  // `oaiq.queue` could then strand later `init` or `measure` calls in that old array. Replace the
+  // not-yet-initialized wrapper as well, so every future call resolves the current shared queue.
+  setInWindow('oaiq', function() {
+    // GTM owns this policy command. Ignore only competing consent; init, measure, Pixel ID and
+    // user data keep using the official arguments-queue shape and their original order.
+    if (commandName(arguments) !== 'consent') {
+      callInWindow('oaiq.queue.push', arguments);
+    }
+  }, true);
+  commands.unshift(['consent', granted]);
+  setInWindow('oaiq.queue', commands, true);
+  aliasInWindow('oaiq.q', 'oaiq.queue');
+};
+
+let facebookOwnedConsentQueued = false;
+let facebookOwnedConsentValue = 'revoke';
+let facebookOwnedConsentSentDirectly = false;
+let facebookRegimeKnown = false;
+let facebookFilteredCommand = 'consent';
+let facebookDeferredConsentCommands = [];
+let facebookQueueWrapperInstalled = false;
+
+const facebookReady = () => typeof(copyFromWindow('fbq.callMethod')) === 'function';
+
+const installFacebookQueue = () => {
+  const ready = facebookReady();
+  const existingQueue = copyFromWindow('fbq.queue') || [];
+  const aliasQueue = copyFromWindow('_fbq.queue') || [];
+
+  if (!ready) {
+    // Replace only a queue-stage wrapper, never an initialized SDK. The wrapper enforces ownership
+    // before a competing policy command can be drained while preserving every business command.
+    setInWindow('fbq', function() {
+      const name = commandName(arguments);
+      if (name === facebookFilteredCommand) {
+        if (!facebookRegimeKnown && name === 'consent') {
+          facebookDeferredConsentCommands.push(arguments);
+        }
+        return;
+      }
+      if (typeof(copyFromWindow('fbq.callMethod.apply')) === 'function') {
+        callInWindow('fbq.callMethod.apply', null, arguments);
+      } else {
+        callInWindow('fbq.queue.push', arguments);
+      }
+    }, true);
+    facebookQueueWrapperInstalled = true;
+    createQueue('fbq.queue');
+    const commands = [];
+    appendDistinctQueue(commands, existingQueue, aliasQueue, '');
+    setInWindow('fbq.queue', commands, true);
+    // Alias only after both original queues have been captured and merged.
+    aliasInWindow('_fbq', 'fbq');
+    aliasInWindow('fbq.push', 'fbq');
+  }
+};
+
+const mergeFacebookQueues = (filteredName) => {
+  const fbqQueue = copyFromWindow('fbq.queue') || [];
+  const aliasQueue = copyFromWindow('_fbq.queue') || [];
+  const commands = [];
+
+  const append = (source) => {
+    if (!source || typeof(source.length) !== 'number') return;
+    for (let i = 0; i < source.length; i++) {
+      if (!filteredName || commandName(source[i]) !== filteredName) {
+        commands.push(source[i]);
+      }
+    }
+  };
+
+  append(fbqQueue);
+  if (JSON.stringify(fbqQueue) !== JSON.stringify(aliasQueue)) append(aliasQueue);
+  return commands;
+};
+
+const removeQueuedFacebookConsent = (value) => {
+  const queue = copyFromWindow('fbq.queue') || [];
+  for (let i = 0; i < queue.length; i++) {
+    if (commandName(queue[i]) === 'consent' && queue[i][1] === value) {
+      callInWindow('fbq.queue.splice', i, 1);
+      return true;
+    }
+  }
+  return false;
+};
+
+const setFacebookConsent = (granted, finalChoice) => {
+  const wasQueued = facebookOwnedConsentQueued;
+  const previousValue = facebookOwnedConsentValue;
+
+  if (finalChoice) {
+    facebookRegimeKnown = true;
+    facebookFilteredCommand = 'consent';
+    // Under GDPR, GTM owns consent: concurrent consent commands stay discarded.
+    facebookDeferredConsentCommands = [];
+  }
+
+  facebookOwnedConsentValue = granted ? 'grant' : 'revoke';
+
+  if (facebookReady()) {
+    // A queue-stage wrapper may have become ready since the initial signal. Remove that exact
+    // queued signal in place when it is still pending; never replace an initialized SDK's queue.
+    if (wasQueued) removeQueuedFacebookConsent(previousValue);
+    facebookOwnedConsentQueued = false;
+    facebookOwnedConsentSentDirectly = true;
+    if (facebookQueueWrapperInstalled &&
+        typeof(copyFromWindow('fbq.callMethod.apply')) === 'function') {
+      callInWindow('fbq.callMethod.apply', null, ['consent', facebookOwnedConsentValue]);
+    } else {
+      callInWindow('fbq', 'consent', facebookOwnedConsentValue);
+    }
+    return;
+  }
+
+  if (!finalChoice && !facebookRegimeKnown) {
+    // The regime is not known yet. Quarantine competing consent commands instead of dropping them:
+    // GDPR will discard them, while the US path will restore them behind authoritative DPO.
+    const existing = copyFromWindow('fbq.queue') || [];
+    for (let i = 0; i < existing.length; i++) {
+      if (commandName(existing[i]) === 'consent') {
+        facebookDeferredConsentCommands.push(existing[i]);
+      }
+    }
+  }
+
+  const commands = mergeFacebookQueues('consent', false);
+  setInWindow('fbq.queue', commands, true);
+  aliasInWindow('_fbq', 'fbq');
+  aliasInWindow('fbq.push', 'fbq');
+  commands.unshift(['consent', facebookOwnedConsentValue]);
+  setInWindow('fbq.queue', commands, true);
+  facebookOwnedConsentQueued = true;
+  facebookOwnedConsentSentDirectly = false;
+};
+
+const setFacebookUsDataProcessing = (optedOut) => {
+  facebookRegimeKnown = true;
+  facebookFilteredCommand = 'dataProcessingOptions';
+
+  const wasQueued = facebookOwnedConsentQueued;
+  const queuedSignalRemoved = wasQueued
+    ? removeQueuedFacebookConsent(facebookOwnedConsentValue)
+    : false;
+  const commands = mergeFacebookQueues('dataProcessingOptions', false);
+  const dpo = optedOut === true
+    ? ['dataProcessingOptions', ['LDU'], 0, 0]
+    : ['dataProcessingOptions', []];
+  const finalCommands = [dpo];
+  // On the US path only DPO is owned. Consent commands quarantined while the regime was unknown
+  // are restored in their original order, between the authoritative DPO and business commands.
+  appendCommands(finalCommands, facebookDeferredConsentCommands, '');
+  appendCommands(finalCommands, commands, '');
+  facebookDeferredConsentCommands = [];
+
+  if (facebookReady()) {
+    // A direct temporary revoke cannot be removed from an initialized SDK. Neutralize it first;
+    // this grant is cleanup, not an assertion that revoke is equivalent to Limited Data Use.
+    if (facebookOwnedConsentValue === 'revoke' &&
+        (facebookOwnedConsentSentDirectly || (wasQueued && !queuedSignalRemoved))) {
+      if (facebookQueueWrapperInstalled &&
+          typeof(copyFromWindow('fbq.callMethod.apply')) === 'function') {
+        callInWindow('fbq.callMethod.apply', null, ['consent', 'grant']);
+      } else {
+        callInWindow('fbq', 'consent', 'grant');
+      }
+    }
+
+    if (facebookQueueWrapperInstalled &&
+        typeof(copyFromWindow('fbq.callMethod.apply')) === 'function') {
+      callInWindow('fbq.callMethod.apply', null, dpo);
+      for (let i = 0; i < finalCommands.length; i++) {
+        if (commandName(finalCommands[i]) === 'consent') {
+          callInWindow('fbq.callMethod.apply', null, finalCommands[i]);
+        }
+      }
+    } else if (optedOut === true) {
+      callInWindow('fbq', dpo[0], dpo[1], dpo[2], dpo[3]);
+    } else {
+      callInWindow('fbq', dpo[0], dpo[1]);
+    }
+  } else {
+    setInWindow('fbq.queue', finalCommands, true);
+    aliasInWindow('_fbq', 'fbq');
+    aliasInWindow('fbq.push', 'fbq');
+  }
+  facebookOwnedConsentQueued = false;
+  facebookOwnedConsentSentDirectly = false;
+};
+
+if (openAiConsentModeOwned) {
+  setOpenAiConsent(storedOpenAiConsent === true);
+}
+if (facebookConsentModeOwned) {
+  installFacebookQueue();
+  // `tcData.gdprApplies` is not available synchronously at Consent Initialization. Neither the
+  // US API nor a stored vendor bit can exclude a GDPR path, so do not invent a regime detector.
+  // A valid stored choice is replayed; absent or malformed state starts conservatively at revoke.
+  setFacebookConsent(storedFacebookConsent === true);
+}
 
 // What was actually PUSHED -- the `default` first, then every `update`. This is the comparison
 // reference, never the cookie: comparing against the cookie would open a race between what is read
@@ -2358,6 +2684,37 @@ if (data.consentMode && !ABconsentCMP.enableConsentMode) {
   seedFromEmittedDefaults();
 }
 
+const hasPurposeOneConsent = (tcData) => {
+  return safeGet(tcData, ['purpose', 'consents', 1]) === true ||
+    (tcData.purposeOneTreatment && tcData.publisherCC === 'CH');
+};
+
+const hasAdditionalConsentProvider = (tcData, id) => {
+  const raw = tcData.addtlConsent;
+  if (typeof(raw) !== 'string') return false;
+  const parts = raw.split('~');
+  if (parts.length < 2 || !parts[1]) return false;
+  const ids = parts[1].split('.');
+  let found = false;
+  for (let i = 0; i < ids.length; i++) {
+    if (!isDigits(ids[i])) return false;
+    if (makeInteger(ids[i]) === id) found = true;
+  }
+  return found;
+};
+
+const isFacebookGranted = (tcData) => {
+  return hasPurposeOneConsent(tcData) && hasAdditionalConsentProvider(tcData, 89) &&
+    (safeGet(tcData, ['purpose', 'consents', 3]) === true ||
+     safeGet(tcData, ['purpose', 'consents', 4]) === true);
+};
+
+const isOpenAiGranted = (tcData) => {
+  return hasPurposeOneConsent(tcData) &&
+    safeGet(tcData, ['purpose', 'consents', 7]) === true &&
+    safeGet(tcData, ['sirdata', 'vendor', 'consents', 108]) === true;
+};
+
 const onUserChoice = (tcData, success) => {
   if (!success || !tcData || typeof(tcData.gdprApplies) == 'undefined' || ((typeof(tcData.eventStatus) == 'undefined' || !tcData.purpose || !tcData.vendor) && tcData.gdprApplies)) {
       return;
@@ -2373,6 +2730,17 @@ const onUserChoice = (tcData, success) => {
   // The verdict is resolved ONCE and passed down, so the pushed state and the cookie cannot
   // disagree about it.
   const usOptOut = tcData.gdprApplies ? undefined : readUsOptOut();
+
+  if (openAiConsentModeOwned) {
+    setOpenAiConsent(tcData.gdprApplies ? isOpenAiGranted(tcData) : usOptOut !== true);
+  }
+  if (facebookConsentModeOwned) {
+    if (tcData.gdprApplies) {
+      setFacebookConsent(isFacebookGranted(tcData), true);
+    } else {
+      setFacebookUsDataProcessing(usOptOut === true);
+    }
+  }
 
   if (data.consentMode && !ABconsentCMP.enableConsentMode) {
     var consentModeState = generateConsentObject(defaultConsent, tcData, true, usOptOut);
@@ -2428,7 +2796,6 @@ const loadStub = () => {
 };
 
 if (!cmpLoaded && data.loadCmpScripts && data.partnerId && data.configId) {
-  const JSON = require('JSON');
   ABconsentCMP.gtmTemplateDefaultConsent = JSON.stringify(defaultConsent);
   setInWindow('ABconsentCMP', ABconsentCMP, true);
   loadStub();
@@ -2667,6 +3034,552 @@ ___WEB_PERMISSIONS___
                   {
                     "type": 8,
                     "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.queue"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.queue.push"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.queue.splice"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.push"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.callMethod"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.callMethod.apply"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "_fbq"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "_fbq.queue"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.q"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.queue"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.queue.push"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.__oaiqInitialized"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
                   }
                 ]
               },
