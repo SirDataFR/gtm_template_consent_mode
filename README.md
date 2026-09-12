@@ -6,52 +6,43 @@ Please read our documentation <a href="https://cmp.docs.sirdata.net/v/en/script-
 
 Open CMP account at <a href="https://cmp.sirdata.io/" target="_blank">here</a>.
 
-## Meta and OpenAI consent command ownership
+## Meta and OpenAI defaults with CMP-owned updates
 
-The first template group can override who owns consent commands for Meta and OpenAI on the
-current page. Compatibility is designed for the official templates only:
+The first template group keeps tri-state overrides for the official
+[Meta Pixel](https://github.com/facebook/GoogleTagManager-WebTemplate-For-FacebookPixel) and
+[OpenAI Ads Measurement Pixel](https://github.com/openai/ads-measurement-pixel-gtm-template)
+templates. **Enabled** publishes the activation override and prepares the vendor default/file
+before those tags run. The served CMP remains the only producer of later Google, Meta, and OpenAI
+updates. **Disabled** publishes `false`; **Inherit** leaves the CMP configuration authoritative.
 
-- [Meta Pixel](https://github.com/facebook/GoogleTagManager-WebTemplate-For-FacebookPixel)
-- [OpenAI Ads Measurement Pixel](https://github.com/openai/ads-measurement-pixel-gtm-template)
+When Google Consent Mode is enabled and at least one default-settings row is emitted, the template
+publishes `ABconsentCMP.gtmGoogleConsentModeDefaultSet=true` before that first default. The served
+CMP can therefore skip its legacy fallback default while remaining responsible for every update.
+An empty settings table emits neither a Google default nor this handoff marker.
 
-Each selector has three states:
+OpenAI reuses the persisted `o` bit when valid, otherwise defaults to `false`. If its SDK is already
+initialized, the template sends that default directly without replacing the function or either queue;
+otherwise its `q` and `queue` files are unified while non-consent commands retain their order. Meta
+starts with a conservative, explicitly marked temporary revoke because the GDPR/US regime is not yet
+known. An initialized Meta SDK receives it directly without replacing `fbq`, `_fbq`, or their queues.
+The CMP controller can remove or neutralize only that marked entry before applying GDPR consent or US
+data-processing options, without deleting publisher consent commands.
 
-| Value | Behaviour |
-|---|---|
-| **Inherit CMP configuration** | Leaves the public override property absent, so the CMP configuration remains authoritative. |
-| **Enabled** | Publishes `true` before the CMP loader runs, prepares the vendor queue, and sends updates from this GTM template. |
-| **Disabled** | Publishes `false`; this template neither installs a vendor queue nor sends vendor updates. |
+When CMP loading is configured, the template installs same-window mini-stubs only for missing CMP
+APIs so synchronous callers can queue work. It then still loads the real `/stub` before `/cmp`.
+The real stub is mandatory: it canonicalises those marked mini-stubs, preserves their queues/events,
+and adds iframe locators, `postMessage` bridges, and IE11 bundle selection. The template creates no
+locator iframe or message listener itself. The first-party loader and its regular-host fallback are
+preserved.
 
-When enabled, run this template on **Consent Initialization**, before the official vendor tags.
-For OpenAI, `oaiq.q` and `oaiq.queue` are unified and only competing `consent` commands are
-replaced; `init`, `measure`, Pixel ID, and user-data commands keep their order. For Meta, the
-same rule preserves `_fbq`, `fbq.queue`, `fbq.push`, `init`, `track`, Pixel ID, and user data.
-
-Sandboxed `copyFromWindow` does not expose queue identity. The template therefore never treats
-matching serialized content as proof that two queue paths are aliases. It probes shared global
-storage with a synchronous, immediately removed sentinel. If shared storage cannot be proven,
-both queue sources are preserved — even when their pending commands have identical content —
-because dropping a legitimate command is less safe than retaining both source invocations.
-
-The GDPR/US regime is not available synchronously when Consent Initialization starts. Meta
-therefore reuses a valid stored `m` bit when one exists and otherwise queues a temporary
-`consent revoke`. Once the CMP callback identifies the regime, GDPR receives `consent grant` or
-`consent revoke`; the US path removes that temporary queued signal and uses
-`dataProcessingOptions` according to the US opt-out. If the SDK already received the temporary
-revoke, it is neutralized before the US data-processing option is sent. A Meta consent revoke is
-**not** equivalent to Limited Data Use, and is not documented or treated as such.
-
-These controls coordinate commands only. This template does not inject the Meta or OpenAI SDK,
-does not prevent another tag from downloading either SDK, and does not promise network
-blocking. Custom HTML snippets and third-party templates are not guaranteed to use the
-compatible queue shapes.
+These controls do not inject a vendor SDK or prevent another tag from downloading one. Custom HTML
+and third-party templates are not guaranteed to use the compatible queue shapes.
 
 ## Before submitting a change
 
 The `___TESTS___` section of `template.tpl` only runs inside the GTM template editor, and in
-practice it only reaches the `default` path — the `__sdcmpapi` listener, update deduplication,
-segmented `__sdgcm` replay, and vendor queue ownership are not fully covered by it. Run the
-standalone harness as well:
+practice it only reaches the Google `default` path. The same-window mini-stubs, loader ordering,
+cookie-deletion listener, and vendor defaults are covered by the standalone harness instead:
 
 ```sh
 node tests/sandbox-harness.js
