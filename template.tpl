@@ -1810,6 +1810,7 @@ const getCookieValues = require('getCookieValues');
 const setCookie = require('setCookie');
 const copyFromWindow = require('copyFromWindow');
 const setInWindow = require('setInWindow');
+const createArgumentsQueue = require('createArgumentsQueue');
 
 const ABconsentCMP = copyFromWindow('ABconsentCMP') || {};
 const cmpLoaded = typeof(ABconsentCMP.enableConsentMode) !== 'undefined';
@@ -2326,24 +2327,11 @@ const queuesShareStorage = (probePath, observedPath) => {
   const observedQueue = copyFromWindow(observedPath);
   if (!probeQueue || !observedQueue || typeof(probeQueue.length) !== 'number' ||
       typeof(observedQueue.length) !== 'number') return false;
-  let pushedLength;
-  let observedAfterPush;
-  let removed;
-  try {
-    pushedLength = callInWindow(probePath + '.push', QUEUE_STORAGE_PROBE);
-  } catch (e) {
-    return false;
-  }
-  try {
-    observedAfterPush = copyFromWindow(observedPath);
-  } catch (e) {
-    observedAfterPush = undefined;
-  }
-  try {
-    removed = callInWindow(probePath + '.splice', probeQueue.length, 1);
-  } catch (e) {
-    removed = undefined;
-  }
+  if (typeof(copyFromWindow(probePath + '.push')) !== 'function' ||
+      typeof(copyFromWindow(probePath + '.splice')) !== 'function') return false;
+  const pushedLength = callInWindow(probePath + '.push', QUEUE_STORAGE_PROBE);
+  const observedAfterPush = copyFromWindow(observedPath);
+  const removed = callInWindow(probePath + '.splice', probeQueue.length, 1);
   return pushedLength === probeQueue.length + 1 && removed && removed.length === 1 &&
     removed[0] === QUEUE_STORAGE_PROBE && observedAfterPush &&
     observedAfterPush.length === observedQueue.length + 1 &&
@@ -2372,10 +2360,20 @@ const prepareOpenAiDefault = (granted) => {
   const commands = [];
   appendOpenAiCommands(commands, q);
   if (!shareStorage) appendOpenAiCommands(commands, queue);
-  setInWindow('oaiq', function() {
-    if (commandName(arguments) !== 'consent') {
-      callInWindow('oaiq.queue.push', arguments);
+  setInWindow('oaiq', function(command, arg1, arg2, arg3) {
+    if (command === 'consent') return;
+    const queuedArguments = [command];
+    if (typeof(arg3) !== 'undefined') {
+      queuedArguments.push(arg1);
+      queuedArguments.push(arg2);
+      queuedArguments.push(arg3);
+    } else if (typeof(arg2) !== 'undefined') {
+      queuedArguments.push(arg1);
+      queuedArguments.push(arg2);
+    } else if (typeof(arg1) !== 'undefined') {
+      queuedArguments.push(arg1);
     }
+    callInWindow('oaiq.queue.push', queuedArguments);
   }, true);
   commands.unshift(['consent', granted]);
   setInWindow('oaiq.queue', commands, true);
@@ -2409,11 +2407,12 @@ const prepareFacebookDefault = () => {
   const commands = [];
   appendMetaCommands(commands, queue);
   if (!shareStorage) appendMetaCommands(commands, aliasQueue);
-  setInWindow('fbq', function() {
-    callInWindow('fbq.queue.push', arguments);
-  }, true);
   commands.unshift(['consent', 'revoke', META_TEMPORARY_MARKER]);
-  setInWindow('fbq.queue', commands, true);
+  setInWindow('fbq', undefined, true);
+  createArgumentsQueue('fbq', 'fbq.queue');
+  for (let i = 0; i < commands.length; i++) {
+    callInWindow('fbq.queue.push', commands[i]);
+  }
   aliasInWindow('_fbq', 'fbq');
   aliasInWindow('fbq.push', 'fbq');
   ABconsentCMP.gtmTemplateFacebookTemporaryRevoke = true;
@@ -2491,7 +2490,7 @@ const installQueuedMiniStub = (name) => {
       }
       return;
     }
-    queue.push(arguments);
+    queue.push([command, version, callback]);
   }, true);
   return true;
 };
@@ -2505,7 +2504,7 @@ const installUspMiniStub = () => {
       if (typeof(callback) === 'function') callback({uspapiLoaded: false}, true);
       return;
     }
-    queue.push(arguments);
+    queue.push([command, version, callback]);
   }, true);
   return true;
 };
@@ -2535,7 +2534,7 @@ const installGppMiniStub = () => {
       }
       return;
     }
-    queue.push(arguments);
+    queue.push([command, callback, parameter]);
   }, true);
   setInWindow('__gpp.queue', queue, true);
   setInWindow('__gpp.events', events, true);

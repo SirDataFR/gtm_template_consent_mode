@@ -43,6 +43,19 @@ function extractSandboxedJs(tpl) {
 }
 const SRC = extractSandboxedJs(TPL);
 
+function assertGtmSandboxSubset(src) {
+    const forbidden = [
+        ["try/catch", /(^|[^A-Za-z_$])(try|catch)([^A-Za-z0-9_$]|$)/],
+        ["bare arguments", /(^|[^A-Za-z_$])arguments([^A-Za-z0-9_$]|$)/]
+    ];
+    forbidden.forEach((entry) => {
+        if (entry[1].test(src)) {
+            throw new Error("GTM sandbox subset forbids " + entry[0]);
+        }
+    });
+}
+assertGtmSandboxSubset(SRC);
+
 function extractJsonSection(open, close) {
     const afterOpen = TPL.split(open);
     if (afterOpen.length !== 2 || afterOpen[1].indexOf(close) === -1) {
@@ -149,6 +162,19 @@ function run(opts) {
         copyFromWindow: copyWindowValue,
         setInWindow: setPath,
         aliasInWindow: (toPath, fromPath) => setPath(toPath, getPath(fromPath), true),
+        createArgumentsQueue: (fnKey, arrayKey) => {
+            let queue = getPath(arrayKey);
+            if (!Array.isArray(queue)) queue = [];
+            let fn = getPath(fnKey);
+            if (typeof fn !== "function") {
+                fn = function () {
+                    queue.push(Array.prototype.slice.call(arguments));
+                };
+                setPath(fnKey, fn, true);
+            }
+            if (!Array.isArray(getPath(arrayKey))) setPath(arrayKey, queue, true);
+            return fn;
+        },
         createQueue: (arrayKey) => {
             let queue = getPath(arrayKey);
             if (!Array.isArray(queue)) {
@@ -743,6 +769,10 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
         rows.some((row) => row[0] === "fbq.callMethod" && row[1] === true && row[2] === false && row[3] === false) &&
         rows.some((row) => row[0] === "oaiq.__oaiqInitialized" && row[1] === true && row[2] === false && row[3] === false),
         JSON.stringify(rows));
+    check("createArgumentsQueue permissions are exact read/write globals",
+        rows.some((row) => row[0] === "fbq" && row[1] === true && row[2] === true) &&
+        rows.some((row) => row[0] === "fbq.queue" && row[1] === true && row[2] === true),
+        JSON.stringify(rows));
     check("no callMethod.apply permission is needed",
         !rows.some((row) => row[0] === "fbq.callMethod.apply"), JSON.stringify(rows));
     check("no vendor SDK domain was added to inject_script",
@@ -766,32 +796,32 @@ console.log("\n20. Same-window mini-stubs and takeover handoff");
         JSON.stringify({__tcfapi: true, __sdcmpapi: true, __gpp: true}),
         JSON.stringify(valid.globals.ABconsentCMP.gtmTemplateMiniStubApis));
 
-    const tcfArgs = ["getTCData", 2, function () {}, {vendor: 755}];
+    const tcfArgs = ["getTCData", 2, function () {}];
     if (typeof valid.globals.__tcfapi === "function") valid.globals.__tcfapi.apply(null, tcfArgs);
     const tcfQueue = typeof valid.globals.__tcfapi === "function" ? valid.globals.__tcfapi() : [];
     check("TCF no-command call returns its recoverable queue",
         tcfQueue === valid.globals.__tcfapi() && tcfQueue.length === 1);
-    check("TCF queue preserves every original argument", tcfQueue[0] && tcfQueue[0].length === 4 &&
-        tcfQueue[0][0] === tcfArgs[0] && tcfQueue[0][2] === tcfArgs[2] && tcfQueue[0][3] === tcfArgs[3]);
+    check("TCF queue preserves every named argument", tcfQueue[0] && tcfQueue[0].length === 3 &&
+        tcfQueue[0][0] === tcfArgs[0] && tcfQueue[0][2] === tcfArgs[2]);
     let tcfPing = null;
     if (typeof valid.globals.__tcfapi === "function") valid.globals.__tcfapi("ping", 2, (value, ok) => { tcfPing = [value, ok]; });
     check("TCF ping reports a pending stub", tcfPing && tcfPing[1] === true &&
         tcfPing[0].cmpLoaded === false && tcfPing[0].cmpStatus === "stub" && tcfPing[0].gdprApplies === undefined,
         JSON.stringify(tcfPing));
 
-    const sdArgs = ["getConfig", 2, function () {}, "parameter"];
+    const sdArgs = ["getConfig", 2, function () {}];
     if (typeof valid.globals.__sdcmpapi === "function") valid.globals.__sdcmpapi.apply(null, sdArgs);
     const sdQueue = typeof valid.globals.__sdcmpapi === "function" ? valid.globals.__sdcmpapi() : [];
-    check("Sirdata API queue is recoverable and preserves all arguments",
+    check("Sirdata API queue is recoverable and preserves every named argument",
         sdQueue === valid.globals.__sdcmpapi() && sdQueue.length === 1 &&
-        sdQueue[0].length === 4 && sdQueue[0][3] === "parameter");
+        sdQueue[0].length === 3 && sdQueue[0][2] === sdArgs[2]);
 
     const usp = run({sddan: SDDAN_LOCAL, data: {loadCmpScripts: true, partnerId: "1020", configId: "public"}});
-    const uspArgs = ["getUSPData", 1, function () {}, "parameter"];
+    const uspArgs = ["getUSPData", 1, function () {}];
     if (typeof usp.globals.__uspapi === "function") usp.globals.__uspapi.apply(null, uspArgs);
     const uspQueue = typeof usp.globals.__uspapi === "function" ? usp.globals.__uspapi() : [];
-    check("USP queue is recoverable and preserves all arguments",
-        uspQueue.length === 1 && uspQueue[0].length === 4 && uspQueue[0][3] === "parameter");
+    check("USP queue is recoverable and preserves every named argument",
+        uspQueue.length === 1 && uspQueue[0].length === 3 && uspQueue[0][2] === uspArgs[2]);
     let uspPing = null;
     if (typeof usp.globals.__uspapi === "function") usp.globals.__uspapi("ping", 1, (value, ok) => { uspPing = [value, ok]; });
     check("USP ping reports not loaded", uspPing && uspPing[1] === true && uspPing[0].uspapiLoaded === false,
@@ -821,6 +851,18 @@ console.log("\n20. Same-window mini-stubs and takeover handoff");
     check("other GPP commands retain all arguments in .queue",
         valid.globals.__gpp.queue[0] && valid.globals.__gpp.queue[0].length === 3 &&
         valid.globals.__gpp.queue[0][0] === "getGPPData" && valid.globals.__gpp.queue[0][2] === "field");
+    const replayed = [];
+    function replayTarget() {
+        replayed.push(Array.prototype.slice.call(arguments));
+    }
+    [tcfQueue[0], uspQueue[0], valid.globals.__gpp.queue[0]].forEach((queuedCall) => {
+        if (queuedCall) replayTarget.apply(null, queuedCall);
+    });
+    check("mini-stub queues use arrays replayable via apply",
+        Array.isArray(tcfQueue[0]) && Array.isArray(uspQueue[0]) &&
+        Array.isArray(valid.globals.__gpp.queue[0]) && replayed.length === 3 &&
+        replayed[0][0] === "getTCData" && replayed[1][0] === "getUSPData" &&
+        replayed[2][0] === "getGPPData", JSON.stringify(replayed.map((entry) => entry[0])));
 
     const noLoader = run({sddan: SDDAN_LOCAL, data: {loadCmpScripts: false, partnerId: "1020", configId: "public"}});
     check("mini-stubs are absent when CMP script loading is disabled",
@@ -978,30 +1020,38 @@ console.log("\n21. Activation overrides, CMP ownership, and loader ordering");
 
 console.log("\n22. Early vendor defaults preserve files and callbacks produce no updates");
 {
-    function throwingProbeOaiq() { throwingProbeOaiq.queue.push(Array.prototype.slice.call(arguments)); }
-    const throwingOpenAiQueue = [["measure", "survives-throwing-splice"]];
-    throwingOpenAiQueue.splice = function () { throw new Error("publisher splice failure"); };
-    throwingProbeOaiq.q = throwingOpenAiQueue;
-    throwingProbeOaiq.queue = throwingOpenAiQueue;
-    let throwingOpenAi = null;
-    let throwingOpenAiError = null;
-    try {
-        throwingOpenAi = run({sddan: SDDAN_LOCAL, globals: {oaiq: throwingProbeOaiq},
-            data: {openAiConsentModeOverride: "enabled"}});
-    } catch (error) {
-        throwingOpenAiError = error;
-    }
-    check("OpenAI tolerates a publisher queue whose splice throws",
-        throwingOpenAiError === null, throwingOpenAiError && throwingOpenAiError.message);
-    const throwingOpenAiCommands = throwingOpenAi ? commandList(throwingOpenAi.globals.oaiq.queue) : [];
-    check("OpenAI never publishes the storage probe after failed cleanup",
-        throwingOpenAi && throwingOpenAi.globals.oaiq.q.indexOf("__sd_queue_storage_probe__") === -1 &&
-        throwingOpenAi.globals.oaiq.queue.indexOf("__sd_queue_storage_probe__") === -1,
-        throwingOpenAi && JSON.stringify(throwingOpenAi.globals.oaiq.queue));
-    check("OpenAI preserves business commands when probe cleanup fails",
-        throwingOpenAiCommands.some((command) =>
-            command[0] === "measure" && command[1] === "survives-throwing-splice"),
-        JSON.stringify(throwingOpenAiCommands));
+    function missingPushOaiq() {}
+    const missingPushOpenAiQueue = [["measure", "survives-missing-push"]];
+    missingPushOpenAiQueue.push = undefined;
+    missingPushOaiq.q = missingPushOpenAiQueue;
+    missingPushOaiq.queue = missingPushOpenAiQueue;
+    const missingOpenAiPush = run({sddan: SDDAN_LOCAL, globals: {oaiq: missingPushOaiq},
+        data: {openAiConsentModeOverride: "enabled"}});
+    const missingOpenAiPushCommands = commandList(missingOpenAiPush.globals.oaiq.queue);
+    check("OpenAI never publishes the storage probe when push is absent",
+        missingOpenAiPush.globals.oaiq.queue.indexOf("__sd_queue_storage_probe__") === -1,
+        JSON.stringify(missingOpenAiPushCommands));
+    check("OpenAI preserves business commands when push is absent",
+        missingOpenAiPushCommands.some((command) =>
+            command[0] === "measure" && command[1] === "survives-missing-push"),
+        JSON.stringify(missingOpenAiPushCommands));
+
+    function missingSpliceFbq() { missingSpliceFbq.queue.push(Array.prototype.slice.call(arguments)); }
+    const missingSpliceMetaQueue = [["track", "SurvivesMissingSplice"]];
+    missingSpliceMetaQueue.splice = undefined;
+    missingSpliceFbq.queue = missingSpliceMetaQueue;
+    missingSpliceFbq.push = missingSpliceFbq;
+    const missingMetaSplice = run({sddan: SDDAN_LOCAL,
+        globals: {fbq: missingSpliceFbq, _fbq: missingSpliceFbq},
+        data: {facebookConsentModeOverride: "enabled"}});
+    const missingMetaSpliceCommands = commandList(missingMetaSplice.globals.fbq.queue);
+    check("Meta never publishes the storage probe when splice is absent",
+        missingMetaSplice.globals.fbq.queue.indexOf("__sd_queue_storage_probe__") === -1,
+        JSON.stringify(missingMetaSpliceCommands));
+    check("Meta preserves business commands when splice is absent",
+        missingMetaSpliceCommands.some((command) =>
+            command[0] === "track" && command[1] === "SurvivesMissingSplice"),
+        JSON.stringify(missingMetaSpliceCommands));
 
     function invalidProbeFbq() { invalidProbeFbq.queue.push(Array.prototype.slice.call(arguments)); }
     const invalidMetaQueue = [["track", "SurvivesInvalidSplice"]];

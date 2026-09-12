@@ -50,11 +50,13 @@ node tests/sandbox-harness.js
 
 It extracts the sandboxed JS straight out of `template.tpl` and replays it against fake GTM
 APIs. It needs nothing but `node` — no dependencies, no install step. CI runs exactly this
-command on Node 20 and 22 for every push to `main` and every pull request.
+command on Node 20 and 22 for every push to `main` and every pull request. A static guard also
+rejects `try`/`catch` and the bare `arguments` object in the sandboxed section; use named
+parameters or documented template APIs such as `createArgumentsQueue` instead.
 
-It is **not** Google's sandbox: it checks behaviour, not permissions nor the restrictions of
-the JS subset. **Those still have to be validated in the template editor before publishing**,
-and no amount of green CI replaces that step.
+It is **not** Google's sandbox: it checks behaviour and these explicit syntax exclusions, not
+permissions or the complete restricted JavaScript subset. **Those still have to be validated in
+the template editor before publishing**, and no amount of green CI replaces that step.
 
 Publishing is a separate manual act: append the merged commit's sha to `versions` in
 `metadata.yaml` with its `changeNotes`. The gallery updates the template **in place**, and each
