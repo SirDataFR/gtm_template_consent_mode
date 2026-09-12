@@ -80,6 +80,61 @@ ___TEMPLATE_PARAMETERS___
 [
   {
     "type": "GROUP",
+    "name": "vendorConsentModeOverrides",
+    "displayName": "Meta and OpenAI consent defaults",
+    "groupStyle": "ZIPPY_OPEN",
+    "help": "Compatibility requires the official \u003ca href\u003d\"https://github.com/facebook/GoogleTagManager-WebTemplate-For-FacebookPixel\"\u003eMeta template\u003c/a\u003e or official \u003ca href\u003d\"https://github.com/openai/ads-measurement-pixel-gtm-template\"\u003eOpenAI template\u003c/a\u003e. Custom HTML and third-party templates are not guaranteed. These controls coordinate consent commands; they do not prevent either SDK from being downloaded by another tag.",
+    "subParams": [
+      {
+        "type": "SELECT",
+        "name": "facebookConsentModeOverride",
+        "displayName": "Meta consent mode override",
+        "simpleValueType": true,
+        "defaultValue": "inherit",
+        "alwaysInSummary": true,
+        "selectItems": [
+          {
+            "value": "inherit",
+            "displayValue": "Inherit CMP configuration"
+          },
+          {
+            "value": "enabled",
+            "displayValue": "Enabled (prepare default; CMP sends updates)"
+          },
+          {
+            "value": "disabled",
+            "displayValue": "Disabled"
+          }
+        ],
+        "help": "Overrides the CMP configuration for this page. Inherit keeps the CMP configuration. Enabled prepares the Meta default and queue for the official template; the CMP sends subsequent updates. Custom HTML and third-party templates are not guaranteed. This feature does not prevent the Meta SDK from being downloaded. The GDPR/US regime is unavailable synchronously on the first page, so a marked temporary revoke is queued. It is not equivalent to Limited Data Use; the CMP removes or neutralizes only that marked entry before applying the regional update."
+      },
+      {
+        "type": "SELECT",
+        "name": "openAiConsentModeOverride",
+        "displayName": "OpenAI consent mode override",
+        "simpleValueType": true,
+        "defaultValue": "inherit",
+        "alwaysInSummary": true,
+        "selectItems": [
+          {
+            "value": "inherit",
+            "displayValue": "Inherit CMP configuration"
+          },
+          {
+            "value": "enabled",
+            "displayValue": "Enabled (prepare default; CMP sends updates)"
+          },
+          {
+            "value": "disabled",
+            "displayValue": "Disabled"
+          }
+        ],
+        "help": "Overrides the CMP configuration for this page. Inherit keeps the CMP configuration. Enabled prepares the OpenAI default and queue for the official template; the CMP sends subsequent updates. Custom HTML and third-party templates are not guaranteed. This feature controls consent commands only; it does not prevent the OpenAI SDK from being downloaded. A valid stored OpenAI bit supplies the default; absent or malformed state starts with consent false."
+      }
+    ]
+  },
+  {
+    "type": "GROUP",
     "name": "consent Mode",
     "displayName": "Google Consent Mode",
     "groupStyle": "ZIPPY_OPEN",
@@ -1739,25 +1794,44 @@ ___TEMPLATE_PARAMETERS___
 
 ___SANDBOXED_JS_FOR_WEB_TEMPLATE___
 
-const currentVersion = '1.81';
+const currentVersion = '1.82';
 
 const callInWindow = require('callInWindow');
+const aliasInWindow = require('aliasInWindow');
 const gtagSet = require('gtagSet');
 const log = require('logToConsole');
 const makeTableMap = require('makeTableMap');
 const setDefaultConsentState = require('setDefaultConsentState');
-const updateConsentState = require('updateConsentState');
 const injectScript = require('injectScript');
 const encodeUriComponent = require('encodeUriComponent');
 const makeInteger = require('makeInteger');
+const JSON = require('JSON');
 const getCookieValues = require('getCookieValues');
 const setCookie = require('setCookie');
 const copyFromWindow = require('copyFromWindow');
 const setInWindow = require('setInWindow');
+const createArgumentsQueue = require('createArgumentsQueue');
 
 const ABconsentCMP = copyFromWindow('ABconsentCMP') || {};
-var cmpLoaded = false;
-if (typeof (ABconsentCMP.enableConsentMode) == 'undefined') {
+const cmpLoaded = typeof(ABconsentCMP.enableConsentMode) !== 'undefined';
+const facebookConsentModeEnabled = data.facebookConsentModeOverride === 'enabled';
+const openAiConsentModeEnabled = data.openAiConsentModeOverride === 'enabled';
+const hasFacebookConsentModeOverride = facebookConsentModeEnabled ||
+  data.facebookConsentModeOverride === 'disabled';
+const hasOpenAiConsentModeOverride = openAiConsentModeEnabled ||
+  data.openAiConsentModeOverride === 'disabled';
+
+// Overrides decide activation only. The served CMP owns every subsequent update.
+if (hasFacebookConsentModeOverride) {
+  ABconsentCMP.gtmFacebookConsentMode = facebookConsentModeEnabled;
+  ABconsentCMP.gtmFacebookConsentModeUpdatesOwnedByGtm = false;
+}
+if (hasOpenAiConsentModeOverride) {
+  ABconsentCMP.gtmOpenAiConsentMode = openAiConsentModeEnabled;
+  ABconsentCMP.gtmOpenAiConsentModeUpdatesOwnedByGtm = false;
+}
+
+if (!cmpLoaded) {
   const copyFromDataLayer = require('copyFromDataLayer');
   const eventName = copyFromDataLayer('event');
   const getContainerVersion = require('getContainerVersion');
@@ -1769,12 +1843,15 @@ if (typeof (ABconsentCMP.enableConsentMode) == 'undefined') {
   }
   ABconsentCMP.gtmTemplateVersion = currentVersion;
   ABconsentCMP.gtmTemplateTrigger = eventName;
-  if (data.consentMode) {
-    ABconsentCMP.enableConsentMode = false;
-  }
 } else {
-  cmpLoaded = true;
   log('CMP loaded already');
+}
+
+if (data.consentMode) {
+  ABconsentCMP.enableConsentMode = true;
+}
+if (hasFacebookConsentModeOverride || hasOpenAiConsentModeOverride || data.consentMode) {
+  setInWindow('ABconsentCMP', ABconsentCMP, true);
 }
 
 // Cookies owned by this consent setup, exempt by design. Deleting them would destroy the
@@ -2106,14 +2183,20 @@ const findSegmentBits = (segments, id) => {
 // The segment's VERSION is deliberately not consulted. A later version appends bits, so reading
 // the first seven is correct whether the segment is v1 or newer. That is the whole point: this
 // template survives a format extension without being republished.
-const readStoredConsentSignals = () => {
-  const bits = findSegmentBits(readCookieSegments(), CONSENT_MODE_SEGMENT_ID);
+const readStoredConsentSignals = (segments) => {
+  const bits = findSegmentBits(segments, CONSENT_MODE_SEGMENT_ID);
   if (!isBits(bits) || bits.length < CONSENT_MODE_SIGNALS.length) return undefined;
   const signals = {};
   for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
     signals[CONSENT_MODE_SIGNALS[i]] = bits[i] === '1' ? 'granted' : 'denied';
   }
   return signals;
+};
+
+const readStoredVendorConsent = (segments, id) => {
+  const bits = findSegmentBits(segments, id);
+  if (!isBits(bits) || bits.length < 1) return undefined;
+  return bits[0] === '1';
 };
 
 // Stored signals replace the configured values, but NOT the emission rule: a signal marked
@@ -2223,108 +2306,126 @@ let defaultConsent = {
   'security_storage': 'not used'
 };
 
-// Read ONCE, before the default is set: this is the last moment at which the cookie still carries
-// what the visitor chose on the previous load, with nothing rewritten in between.
-const storedConsentSignals = readStoredConsentSignals();
+// Read once so Google and vendor defaults describe the same persisted snapshot.
+const storedConsentSegments = readCookieSegments();
+const storedConsentSignals = readStoredConsentSignals(storedConsentSegments);
+const storedOpenAiConsent = readStoredVendorConsent(storedConsentSegments, 'o');
 
 // Read once as well, and for the same reason: two reads of the same cookie at two different
 // moments would end up disagreeing.
 const gpcActive = isGpcActive();
 
-// What was actually PUSHED -- the `default` first, then every `update`. This is the comparison
-// reference, never the cookie: comparing against the cookie would open a race between what is read
-// and what has just been written.
-//
-// The `default` IS a push, exactly like an `update`, so deduplication does not depend on the
-// cookie: it is the emitted default that seeds it (below).
-//
-// The cookie seeds NOTHING, deliberately. gtag state does not survive from one page view to the
-// next: the cookie does not say what gtag knows HERE, it says what the visitor chose. Its role is
-// to ENTER the computation of the default (applyStoredSignals), not to attest to a push. Seeding
-// it with a signal the default did not emit would assert that gtag knows a value it was never
-// told -- and the update carrying that value would be dropped, leaving this visitor's tags off on
-// a consent that was in fact granted.
-let lastPushedSignals = {};
+const commandName = (entry) => {
+  if (!entry || typeof(entry) === 'string' || typeof(entry.length) !== 'number' ||
+      entry.length < 1 || typeof(entry[0]) !== 'string') return '';
+  return entry[0];
+};
 
-// Collects what is actually EMITTED as the default, during the loop that sets it -- never
-// reconstructed afterwards from the settings table.
-//
-// A signal is kept only if it means the SAME thing for EVERY visitor. The table may carry several
-// rows, including regional rows that override the global row for their visitors only
-// (`consentObject.region`, set by generateConsentObject): the template does not know which one
-// gtag applied. Skipping an update on a guess would leave Google tags running under a state this
-// visitor never chose, so only the unanimous is kept, and the ambiguous is pushed as an update,
-// which is the safe direction.
-let emittedDefault = {};
-let emittedCount = {};
-let emittedRows = 0;
-let hasGlobalRow = false;
+const QUEUE_STORAGE_PROBE = '__sd_queue_storage_probe__';
+const queuesShareStorage = (probePath, observedPath) => {
+  const probeQueue = copyFromWindow(probePath);
+  const observedQueue = copyFromWindow(observedPath);
+  if (!probeQueue || !observedQueue || typeof(probeQueue.length) !== 'number' ||
+      typeof(observedQueue.length) !== 'number') return false;
+  if (typeof(copyFromWindow(probePath + '.push')) !== 'function' ||
+      typeof(copyFromWindow(probePath + '.splice')) !== 'function') return false;
+  const pushedLength = callInWindow(probePath + '.push', QUEUE_STORAGE_PROBE);
+  const observedAfterPush = copyFromWindow(observedPath);
+  const removed = callInWindow(probePath + '.splice', probeQueue.length, 1);
+  return pushedLength === probeQueue.length + 1 && removed && removed.length === 1 &&
+    removed[0] === QUEUE_STORAGE_PROBE && observedAfterPush &&
+    observedAfterPush.length === observedQueue.length + 1 &&
+    observedAfterPush[observedAfterPush.length - 1] === QUEUE_STORAGE_PROBE;
+};
 
-const recordEmittedDefault = (consentObject) => {
-  emittedRows = emittedRows + 1;
-  if (!consentObject.region) {
-    hasGlobalRow = true;
-  }
-  for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
-    const name = CONSENT_MODE_SIGNALS[i];
-    const value = consentObject[name];
-    if (value !== undefined) {
-      if (emittedCount[name] === undefined) {
-        emittedDefault[name] = value;
-        emittedCount[name] = 1;
-      } else {
-        emittedCount[name] = emittedCount[name] + 1;
-        if (emittedDefault[name] !== value) {
-          // Two rows disagree: which one applies is unknowable here. Sticky.
-          emittedDefault[name] = undefined;
-        }
-      }
+const appendOpenAiCommands = (target, source) => {
+  if (!source || typeof(source.length) !== 'number') return;
+  for (let i = 0; i < source.length; i++) {
+    if (source[i] !== QUEUE_STORAGE_PROBE && commandName(source[i]) !== 'consent') {
+      target.push(source[i]);
     }
   }
 };
 
-// Three conditions, each ruling out a case where the visitor did NOT receive the value one would
-// assume:
-//  - a global row must exist, otherwise a visitor outside every region received no default at all;
-//  - every row must emit the signal (a row marking it "not used" does not set it for the visitors
-//    of its region);
-//  - and they must agree on the value.
-const seedFromEmittedDefaults = () => {
-  if (hasGlobalRow) {
-    for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
-      const name = CONSENT_MODE_SIGNALS[i];
-      if (emittedCount[name] === emittedRows && emittedDefault[name] !== undefined) {
-        lastPushedSignals[name] = emittedDefault[name];
-      }
+const prepareOpenAiDefault = (granted) => {
+  if (copyFromWindow('oaiq.__oaiqInitialized') === true) {
+    // The initialized SDK owns its function and both queue identities. Its public command API can
+    // receive the persisted default directly without taking ownership of later CMP updates.
+    callInWindow('oaiq', 'consent', granted);
+    return;
+  }
+  const shareStorage = queuesShareStorage('oaiq.queue', 'oaiq.q');
+  const q = copyFromWindow('oaiq.q') || [];
+  const queue = copyFromWindow('oaiq.queue') || [];
+  const commands = [];
+  appendOpenAiCommands(commands, q);
+  if (!shareStorage) appendOpenAiCommands(commands, queue);
+  setInWindow('oaiq', function(command, arg1, arg2, arg3) {
+    if (command === 'consent') return;
+    const queuedArguments = [command];
+    if (typeof(arg3) !== 'undefined') {
+      queuedArguments.push(arg1);
+      queuedArguments.push(arg2);
+      queuedArguments.push(arg3);
+    } else if (typeof(arg2) !== 'undefined') {
+      queuedArguments.push(arg1);
+      queuedArguments.push(arg2);
+    } else if (typeof(arg1) !== 'undefined') {
+      queuedArguments.push(arg1);
+    }
+    callInWindow('oaiq.queue.push', queuedArguments);
+  }, true);
+  commands.unshift(['consent', granted]);
+  setInWindow('oaiq.queue', commands, true);
+  aliasInWindow('oaiq.q', 'oaiq.queue');
+};
+
+const META_TEMPORARY_MARKER = '__abconsent_temporary__';
+const appendMetaCommands = (target, source) => {
+  if (!source || typeof(source.length) !== 'number') return;
+  for (let i = 0; i < source.length; i++) {
+    const entry = source[i];
+    if (entry !== QUEUE_STORAGE_PROBE &&
+        !(commandName(entry) === 'consent' && entry[2] === META_TEMPORARY_MARKER)) {
+      target.push(entry);
     }
   }
 };
 
-// Compared signal by signal over the keys PRESENT, never by object equality: the emitted object
-// does not always carry the same keys ("not used"), and gtag state is cumulative -- a subset with
-// the same values is not a difference.
-const differsFromLastPushed = (signals) => {
-  for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
-    const name = CONSENT_MODE_SIGNALS[i];
-    if (signals[name] !== undefined && lastPushedSignals[name] !== signals[name]) {
-      return true;
-    }
+const prepareFacebookDefault = () => {
+  if (typeof(copyFromWindow('fbq.callMethod')) === 'function') {
+    // The initialized SDK drains commands synchronously. Send only the identifiable temporary
+    // revoke; the CMP's US controller consumes the marker and neutralizes it before its final DPO.
+    callInWindow('fbq', 'consent', 'revoke', META_TEMPORARY_MARKER);
+    ABconsentCMP.gtmTemplateFacebookTemporaryRevoke = true;
+    setInWindow('ABconsentCMP', ABconsentCMP, true);
+    return;
   }
-  return false;
+  const shareStorage = queuesShareStorage('fbq.queue', '_fbq.queue');
+  const queue = copyFromWindow('fbq.queue') || [];
+  const aliasQueue = copyFromWindow('_fbq.queue') || [];
+  const commands = [];
+  appendMetaCommands(commands, queue);
+  if (!shareStorage) appendMetaCommands(commands, aliasQueue);
+  commands.unshift(['consent', 'revoke', META_TEMPORARY_MARKER]);
+  setInWindow('fbq', undefined, true);
+  createArgumentsQueue('fbq', 'fbq.queue');
+  for (let i = 0; i < commands.length; i++) {
+    callInWindow('fbq.queue.push', commands[i]);
+  }
+  aliasInWindow('_fbq', 'fbq');
+  aliasInWindow('fbq.push', 'fbq');
+  ABconsentCMP.gtmTemplateFacebookTemporaryRevoke = true;
+  setInWindow('ABconsentCMP', ABconsentCMP, true);
 };
 
-// MERGES, does not replace: the last value pushed for a signal must stay known even when a later
-// push does not mention it.
-const rememberPushed = (signals) => {
-  for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
-    const name = CONSENT_MODE_SIGNALS[i];
-    if (signals[name] !== undefined) {
-      lastPushedSignals[name] = signals[name];
-    }
-  }
-};
-
-if (data.consentMode && !ABconsentCMP.enableConsentMode) {
+if (openAiConsentModeEnabled) {
+  prepareOpenAiDefault(storedOpenAiConsent === true);
+}
+if (facebookConsentModeEnabled) {
+  prepareFacebookDefault();
+}
+if (data.consentMode) {
   gtagSet('developer_id.dOWE1OT', true);
 
   // Advanced settings
@@ -2350,91 +2451,150 @@ if (data.consentMode && !ABconsentCMP.enableConsentMode) {
     if (gpcActive) {
       consentModeState = applyGpcRefusal(consentModeState);
     }
+    // Publish the handoff only when this loop is about to emit a real Google default. An empty
+    // settings table therefore leaves the marker absent and lets the served tag keep its legacy
+    // fallback default.
+    if (ABconsentCMP.gtmGoogleConsentModeDefaultSet !== true) {
+      ABconsentCMP.gtmGoogleConsentModeDefaultSet = true;
+      setInWindow('ABconsentCMP', ABconsentCMP, true);
+    }
     setDefaultConsentState(consentModeState);
-    recordEmittedDefault(consentModeState);
   });
-  // The default just set becomes the reference: an update repeating what it already says teaches
-  // gtag nothing.
-  seedFromEmittedDefaults();
 }
 
 const onUserChoice = (tcData, success) => {
-  if (!success || !tcData || typeof(tcData.gdprApplies) == 'undefined' || ((typeof(tcData.eventStatus) == 'undefined' || !tcData.purpose || !tcData.vendor) && tcData.gdprApplies)) {
-      return;
-  }
-  // US path -- the objection is READ, and stated as itself.
-  //
-  // Two things it must not do. It must not mutate `tcData`, which is owned by the CMP and read by
-  // others. And it must not borrow the GDPR's machinery to express itself: flipping
-  // `gdprApplies` would be a way to stop `hasConsent` short-circuiting to "granted", but it says
-  // nothing about the GDPR, and it buries the real rule -- an objection covers sale and sharing,
-  // not what is strictly necessary.
-  //
-  // The verdict is resolved ONCE and passed down, so the pushed state and the cookie cannot
-  // disagree about it.
+  if (!success || !tcData || typeof(tcData.gdprApplies) === 'undefined') return;
   const usOptOut = tcData.gdprApplies ? undefined : readUsOptOut();
-
-  if (data.consentMode && !ABconsentCMP.enableConsentMode) {
-    var consentModeState = generateConsentObject(defaultConsent, tcData, true, usOptOut);
-
-    // Push only when the emitted signals differ from what has already been pushed.
-    if (differsFromLastPushed(consentModeState)) {
-      updateConsentState(consentModeState);
-      rememberPushed(consentModeState);
-    }
-
-  }
-  // A US objection also closes purpose 1, and therefore opens this path. Stated here rather than
-  // reached as a side effect of how the verdict is derived.
   const purposeOneRefused = usOptOut === true || !hasConsent(tcData, ['purpose', 'consents', 1]);
-  if (data.handleCookiesDeletion && (tcData.eventStatus === 'useractioncomplete' || tcData.eventStatus === 'tcloaded') && purposeOneRefused && tcData.hostName && tcData.cookieList) {
+  if (data.handleCookiesDeletion &&
+      (tcData.eventStatus === 'useractioncomplete' || tcData.eventStatus === 'tcloaded') &&
+      purposeOneRefused && tcData.hostName && tcData.cookieList) {
     deleteCookies(tcData.hostName, tcData.cookieList);
   }
 };
 
+const installQueuedMiniStub = (name) => {
+  if (typeof(copyFromWindow(name)) === 'function') return false;
+  const queue = [];
+  setInWindow(name, function(command, version, callback) {
+    if (!command) return queue;
+    if (command === 'ping') {
+      if (typeof(callback) === 'function') {
+        callback({
+          gdprApplies: ABconsentCMP.gdprApplies,
+          cmpLoaded: false,
+          cmpStatus: 'stub',
+          displayStatus: 'hidden',
+          apiVersion: '2.0'
+        }, true);
+      }
+      return;
+    }
+    queue.push([command, version, callback]);
+  }, true);
+  return true;
+};
+
+const installUspMiniStub = () => {
+  if (typeof(copyFromWindow('__uspapi')) === 'function') return false;
+  const queue = [];
+  setInWindow('__uspapi', function(command, version, callback) {
+    if (!command) return queue;
+    if (command === 'ping') {
+      if (typeof(callback) === 'function') callback({uspapiLoaded: false}, true);
+      return;
+    }
+    queue.push([command, version, callback]);
+  }, true);
+  return true;
+};
+
+const installGppMiniStub = () => {
+  if (typeof(copyFromWindow('__gpp')) === 'function') return false;
+  const queue = [];
+  const events = [];
+  let listenerId = 0;
+  const pingData = () => ({
+    gppVersion: '1.1', cmpStatus: 'stub', cmpDisplayStatus: null,
+    signalStatus: 'not ready', supportedAPIs: [], cmpId: 0,
+    sectionList: [], applicableSections: [-1], gppString: '', parsedSections: {}
+  });
+  setInWindow('__gpp', function(command, callback, parameter) {
+    if (!command) return queue;
+    if (command === 'ping') {
+      if (typeof(callback) === 'function') callback(pingData(), true);
+      return;
+    }
+    if (command === 'addEventListener') {
+      if (typeof(callback) === 'function') {
+        listenerId = listenerId + 1;
+        events.push({id: listenerId, callback: callback, parameter: parameter});
+        callback({eventName: 'listenerRegistered', listenerId: listenerId,
+          data: true, pingData: pingData()}, true);
+      }
+      return;
+    }
+    queue.push([command, callback, parameter]);
+  }, true);
+  setInWindow('__gpp.queue', queue, true);
+  setInWindow('__gpp.events', events, true);
+  return true;
+};
+
+const installTemplateMiniStubs = () => {
+  const installed = {};
+  if (installQueuedMiniStub('__tcfapi')) installed.__tcfapi = true;
+  if (installQueuedMiniStub('__sdcmpapi')) installed.__sdcmpapi = true;
+  if (installUspMiniStub()) installed.__uspapi = true;
+  if (installGppMiniStub()) installed.__gpp = true;
+  ABconsentCMP.gtmTemplateMiniStubApis = installed;
+  setInWindow('ABconsentCMP', ABconsentCMP, true);
+};
+
 const loadCmp = () => {
-  if (!data.loadCmpScripts || !data.partnerId || !data.configId) {
-    return;
-  }
-  let url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/cmp';
+  if (!data.loadCmpScripts || !data.partnerId || !data.configId) return;
+  const url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/cmp';
   injectScript(url, function(){data.gtmOnSuccess();}, function(){data.gtmOnFailure();});
 };
 
-const registerSdApiListener = () => {
-  callInWindow('__sdcmpapi', 'addEventListener', 2, onUserChoice);
-  if (!data.firstPartyHost) {
-    loadCmp();
+const registerCookieDeletionListener = () => {
+  if (data.handleCookiesDeletion) {
+    callInWindow('__sdcmpapi', 'addEventListener', 2, onUserChoice);
   }
+};
+
+const onRegularStubLoaded = () => {
+  registerCookieDeletionListener();
+  loadCmp();
 };
 
 const loadRegularStub = () => {
-  let url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/stub';
-  injectScript(url, registerSdApiListener, loadCmp);
+  const url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/stub';
+  injectScript(url, onRegularStubLoaded, loadCmp);
 };
 
 const loadStub = () => {
-  if (!data.loadCmpScripts || !data.partnerId || !data.configId) {
-    return;
-  }
   if (!data.firstPartyHost) {
     loadRegularStub();
-  } else {
-    let sdCmpTemplateCallback = copyFromWindow('sdCmpTemplateCallback') || [];
-    sdCmpTemplateCallback.push(registerSdApiListener);
-    setInWindow('sdCmpTemplateCallback', sdCmpTemplateCallback);
-    let url = 'https://cdn.sirdata.eu/cmp_loader.js?p='+encodeUriComponent(data.partnerId)+'&c='+encodeUriComponent(data.configId)+'&h='+encodeUriComponent(data.firstPartyHost)+'&cb=sdCmpTemplateCallback';
-    injectScript(url, function(){data.gtmOnSuccess();}, function(){data.firstPartyHost = '';loadRegularStub();});
+    return;
   }
+  const sdCmpTemplateCallback = copyFromWindow('sdCmpTemplateCallback') || [];
+  sdCmpTemplateCallback.push(registerCookieDeletionListener);
+  setInWindow('sdCmpTemplateCallback', sdCmpTemplateCallback);
+  const url = 'https://cdn.sirdata.eu/cmp_loader.js?p='+encodeUriComponent(data.partnerId)+'&c='+encodeUriComponent(data.configId)+'&h='+encodeUriComponent(data.firstPartyHost)+'&cb=sdCmpTemplateCallback';
+  injectScript(url, function(){data.gtmOnSuccess();}, function(){
+    data.firstPartyHost = '';
+    loadRegularStub();
+  });
 };
 
 if (!cmpLoaded && data.loadCmpScripts && data.partnerId && data.configId) {
-  const JSON = require('JSON');
   ABconsentCMP.gtmTemplateDefaultConsent = JSON.stringify(defaultConsent);
   setInWindow('ABconsentCMP', ABconsentCMP, true);
+  installTemplateMiniStubs();
   loadStub();
 } else {
-  //fallback
-  callInWindow('__sdcmpapi', 'addEventListener', 2, onUserChoice);
+  registerCookieDeletionListener();
   data.gtmOnSuccess();
 }
 
@@ -2693,6 +2853,552 @@ ___WEB_PERMISSIONS___
                 "mapValue": [
                   {
                     "type": 1,
+                    "string": "fbq"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.callMethod"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.queue"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.queue.push"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.queue.splice"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.push"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "_fbq"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "_fbq.queue"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.__oaiqInitialized"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.q"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.queue"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.queue.push"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.queue.splice"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
                     "string": "SDDAN"
                   },
                   {
@@ -2702,6 +3408,123 @@ ___WEB_PERMISSIONS___
                   {
                     "type": 8,
                     "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "__gpp"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "__gpp.queue"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "__gpp.events"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
                   },
                   {
                     "type": 8,
