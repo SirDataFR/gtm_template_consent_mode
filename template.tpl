@@ -2326,9 +2326,24 @@ const queuesShareStorage = (probePath, observedPath) => {
   const observedQueue = copyFromWindow(observedPath);
   if (!probeQueue || !observedQueue || typeof(probeQueue.length) !== 'number' ||
       typeof(observedQueue.length) !== 'number') return false;
-  const pushedLength = callInWindow(probePath + '.push', QUEUE_STORAGE_PROBE);
-  const observedAfterPush = copyFromWindow(observedPath);
-  const removed = callInWindow(probePath + '.splice', probeQueue.length, 1);
+  let pushedLength;
+  let observedAfterPush;
+  let removed;
+  try {
+    pushedLength = callInWindow(probePath + '.push', QUEUE_STORAGE_PROBE);
+  } catch (e) {
+    return false;
+  }
+  try {
+    observedAfterPush = copyFromWindow(observedPath);
+  } catch (e) {
+    observedAfterPush = undefined;
+  }
+  try {
+    removed = callInWindow(probePath + '.splice', probeQueue.length, 1);
+  } catch (e) {
+    removed = undefined;
+  }
   return pushedLength === probeQueue.length + 1 && removed && removed.length === 1 &&
     removed[0] === QUEUE_STORAGE_PROBE && observedAfterPush &&
     observedAfterPush.length === observedQueue.length + 1 &&
@@ -2338,7 +2353,9 @@ const queuesShareStorage = (probePath, observedPath) => {
 const appendOpenAiCommands = (target, source) => {
   if (!source || typeof(source.length) !== 'number') return;
   for (let i = 0; i < source.length; i++) {
-    if (commandName(source[i]) !== 'consent') target.push(source[i]);
+    if (source[i] !== QUEUE_STORAGE_PROBE && commandName(source[i]) !== 'consent') {
+      target.push(source[i]);
+    }
   }
 };
 
@@ -2370,7 +2387,8 @@ const appendMetaCommands = (target, source) => {
   if (!source || typeof(source.length) !== 'number') return;
   for (let i = 0; i < source.length; i++) {
     const entry = source[i];
-    if (!(commandName(entry) === 'consent' && entry[2] === META_TEMPORARY_MARKER)) {
+    if (entry !== QUEUE_STORAGE_PROBE &&
+        !(commandName(entry) === 'consent' && entry[2] === META_TEMPORARY_MARKER)) {
       target.push(entry);
     }
   }
@@ -2525,7 +2543,7 @@ const installGppMiniStub = () => {
 };
 
 const installTemplateMiniStubs = () => {
-  const installed = ABconsentCMP.gtmTemplateMiniStubApis || {};
+  const installed = {};
   if (installQueuedMiniStub('__tcfapi')) installed.__tcfapi = true;
   if (installQueuedMiniStub('__sdcmpapi')) installed.__sdcmpapi = true;
   if (installUspMiniStub()) installed.__uspapi = true;

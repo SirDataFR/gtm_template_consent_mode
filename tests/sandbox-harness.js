@@ -844,6 +844,18 @@ console.log("\n20. Same-window mini-stubs and takeover handoff");
         !allThirdParty.globals.ABconsentCMP.gtmTemplateMiniStubApis ||
         Object.keys(allThirdParty.globals.ABconsentCMP.gtmTemplateMiniStubApis).length === 0,
         JSON.stringify(allThirdParty.globals.ABconsentCMP.gtmTemplateMiniStubApis));
+
+    const staleMarkerMap = {__tcfapi: true, __sdcmpapi: true, __uspapi: true, __gpp: true};
+    const staleThirdParty = run({sddan: SDDAN_LOCAL, globals: {
+        ABconsentCMP: {gtmTemplateMiniStubApis: staleMarkerMap},
+        __tcfapi: thirdPartyApi, __sdcmpapi: thirdPartyApi, __uspapi: thirdPartyApi, __gpp: thirdPartyApi
+    }, data: {loadCmpScripts: true, partnerId: "1020", configId: "public"}});
+    check("stale handoff markers never claim pre-existing third-party APIs",
+        staleThirdParty.globals.__tcfapi === thirdPartyApi &&
+        staleThirdParty.globals.__sdcmpapi === thirdPartyApi &&
+        staleThirdParty.globals.__uspapi === thirdPartyApi && staleThirdParty.globals.__gpp === thirdPartyApi &&
+        Object.keys(staleThirdParty.globals.ABconsentCMP.gtmTemplateMiniStubApis).length === 0,
+        JSON.stringify(staleThirdParty.globals.ABconsentCMP.gtmTemplateMiniStubApis));
 }
 
 console.log("\n21. Activation overrides, CMP ownership, and loader ordering");
@@ -966,6 +978,51 @@ console.log("\n21. Activation overrides, CMP ownership, and loader ordering");
 
 console.log("\n22. Early vendor defaults preserve files and callbacks produce no updates");
 {
+    function throwingProbeOaiq() { throwingProbeOaiq.queue.push(Array.prototype.slice.call(arguments)); }
+    const throwingOpenAiQueue = [["measure", "survives-throwing-splice"]];
+    throwingOpenAiQueue.splice = function () { throw new Error("publisher splice failure"); };
+    throwingProbeOaiq.q = throwingOpenAiQueue;
+    throwingProbeOaiq.queue = throwingOpenAiQueue;
+    let throwingOpenAi = null;
+    let throwingOpenAiError = null;
+    try {
+        throwingOpenAi = run({sddan: SDDAN_LOCAL, globals: {oaiq: throwingProbeOaiq},
+            data: {openAiConsentModeOverride: "enabled"}});
+    } catch (error) {
+        throwingOpenAiError = error;
+    }
+    check("OpenAI tolerates a publisher queue whose splice throws",
+        throwingOpenAiError === null, throwingOpenAiError && throwingOpenAiError.message);
+    const throwingOpenAiCommands = throwingOpenAi ? commandList(throwingOpenAi.globals.oaiq.queue) : [];
+    check("OpenAI never publishes the storage probe after failed cleanup",
+        throwingOpenAi && throwingOpenAi.globals.oaiq.q.indexOf("__sd_queue_storage_probe__") === -1 &&
+        throwingOpenAi.globals.oaiq.queue.indexOf("__sd_queue_storage_probe__") === -1,
+        throwingOpenAi && JSON.stringify(throwingOpenAi.globals.oaiq.queue));
+    check("OpenAI preserves business commands when probe cleanup fails",
+        throwingOpenAiCommands.some((command) =>
+            command[0] === "measure" && command[1] === "survives-throwing-splice"),
+        JSON.stringify(throwingOpenAiCommands));
+
+    function invalidProbeFbq() { invalidProbeFbq.queue.push(Array.prototype.slice.call(arguments)); }
+    const invalidMetaQueue = [["track", "SurvivesInvalidSplice"]];
+    invalidMetaQueue.splice = function () { return []; };
+    invalidProbeFbq.queue = invalidMetaQueue;
+    invalidProbeFbq.push = invalidProbeFbq;
+    const invalidMetaSplice = run({sddan: SDDAN_LOCAL,
+        globals: {fbq: invalidProbeFbq, _fbq: invalidProbeFbq},
+        data: {facebookConsentModeOverride: "enabled"}});
+    const invalidMetaCommands = commandList(invalidMetaSplice.globals.fbq.queue);
+    check("Meta never publishes the storage probe after invalid cleanup",
+        invalidMetaSplice.globals.fbq.queue.indexOf("__sd_queue_storage_probe__") === -1 &&
+        invalidMetaSplice.globals._fbq.queue.indexOf("__sd_queue_storage_probe__") === -1,
+        JSON.stringify(invalidMetaSplice.globals.fbq.queue));
+    check("Meta preserves business commands when probe cleanup is invalid",
+        invalidMetaCommands.some((command) =>
+            command[0] === "track" && command[1] === "SurvivesInvalidSplice"),
+        JSON.stringify(invalidMetaCommands));
+    check("Meta aliases both public queues after invalid cleanup",
+        invalidMetaSplice.globals.fbq.queue === invalidMetaSplice.globals._fbq.queue);
+
     function beforeOaiq() { beforeOaiq.queue.push(Array.prototype.slice.call(arguments)); }
     beforeOaiq.q = [["consent", false], ["init", {pixelId: "pixel"}], ["pixelId", "pixel"]];
     beforeOaiq.queue = [["consent", "publisher"], ["measure", "page_viewed"], ["set", "user", {id: "user"}]];
