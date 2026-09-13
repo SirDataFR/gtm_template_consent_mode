@@ -11,7 +11,7 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_NGJ2P",
-  "version": 1.79,
+  "version": 1.82,
   "securityGroups": [],
   "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
@@ -2476,7 +2476,7 @@ const onUserChoice = (tcData, success) => {
 const installQueuedMiniStub = (name) => {
   if (typeof(copyFromWindow(name)) === 'function') return false;
   const queue = [];
-  setInWindow(name, function(command, version, callback) {
+  setInWindow(name, function(command, version, callback, parameter) {
     if (!command) return queue;
     if (command === 'ping') {
       if (typeof(callback) === 'function') {
@@ -2490,7 +2490,9 @@ const installQueuedMiniStub = (name) => {
       }
       return;
     }
-    queue.push([command, version, callback]);
+    const args = [command, version, callback];
+    if (typeof(parameter) !== 'undefined') args.push(parameter);
+    queue.push(args);
   }, true);
   return true;
 };
@@ -2498,13 +2500,15 @@ const installQueuedMiniStub = (name) => {
 const installUspMiniStub = () => {
   if (typeof(copyFromWindow('__uspapi')) === 'function') return false;
   const queue = [];
-  setInWindow('__uspapi', function(command, version, callback) {
+  setInWindow('__uspapi', function(command, version, callback, parameter) {
     if (!command) return queue;
     if (command === 'ping') {
       if (typeof(callback) === 'function') callback({uspapiLoaded: false}, true);
       return;
     }
-    queue.push([command, version, callback]);
+    const args = [command, version, callback];
+    if (typeof(parameter) !== 'undefined') args.push(parameter);
+    queue.push(args);
   }, true);
   return true;
 };

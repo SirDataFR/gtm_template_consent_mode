@@ -714,6 +714,12 @@ function without(commands, names) {
 
 console.log("\n19. Vendor selectors, ownership contract, and minimal permissions");
 {
+    const info = JSON.parse(extractJsonSection("___INFO___", "___VENDOR_DETAILS___"));
+    const currentVersionMatch = SRC.match(/const currentVersion = '([^']+)';/);
+    check("___INFO___ version matches the sandbox currentVersion",
+        currentVersionMatch !== null && String(info.version) === currentVersionMatch[1],
+        JSON.stringify({infoVersion: info.version, currentVersion: currentVersionMatch && currentVersionMatch[1]}));
+
     const parameters = JSON.parse(extractJsonSection(
         "___TEMPLATE_PARAMETERS___", "___SANDBOXED_JS_FOR_WEB_TEMPLATE___"));
     const group = parameters[0] || {};
@@ -803,6 +809,13 @@ console.log("\n20. Same-window mini-stubs and takeover handoff");
         tcfQueue === valid.globals.__tcfapi() && tcfQueue.length === 1);
     check("TCF queue preserves every named argument", tcfQueue[0] && tcfQueue[0].length === 3 &&
         tcfQueue[0][0] === tcfArgs[0] && tcfQueue[0][2] === tcfArgs[2]);
+    if (typeof valid.globals.__tcfapi === "function") {
+        valid.globals.__tcfapi("removeEventListener", 2, function () {}, 42);
+    }
+    check("TCF queue preserves the optional parameter without padding calls that omit it",
+        tcfQueue[0] && tcfQueue[0].length === 3 &&
+        tcfQueue[1] && tcfQueue[1].length === 4 && tcfQueue[1][3] === 42,
+        JSON.stringify(tcfQueue));
     let tcfPing = null;
     if (typeof valid.globals.__tcfapi === "function") valid.globals.__tcfapi("ping", 2, (value, ok) => { tcfPing = [value, ok]; });
     check("TCF ping reports a pending stub", tcfPing && tcfPing[1] === true &&
@@ -815,6 +828,13 @@ console.log("\n20. Same-window mini-stubs and takeover handoff");
     check("Sirdata API queue is recoverable and preserves every named argument",
         sdQueue === valid.globals.__sdcmpapi() && sdQueue.length === 1 &&
         sdQueue[0].length === 3 && sdQueue[0][2] === sdArgs[2]);
+    if (typeof valid.globals.__sdcmpapi === "function") {
+        valid.globals.__sdcmpapi("removeEventListener", 2, function () {}, 42);
+    }
+    check("Sirdata API queue preserves the optional parameter without padding calls that omit it",
+        sdQueue[0] && sdQueue[0].length === 3 &&
+        sdQueue[1] && sdQueue[1].length === 4 && sdQueue[1][3] === 42,
+        JSON.stringify(sdQueue));
 
     const usp = run({sddan: SDDAN_LOCAL, data: {loadCmpScripts: true, partnerId: "1020", configId: "public"}});
     const uspArgs = ["getUSPData", 1, function () {}];
@@ -822,6 +842,13 @@ console.log("\n20. Same-window mini-stubs and takeover handoff");
     const uspQueue = typeof usp.globals.__uspapi === "function" ? usp.globals.__uspapi() : [];
     check("USP queue is recoverable and preserves every named argument",
         uspQueue.length === 1 && uspQueue[0].length === 3 && uspQueue[0][2] === uspArgs[2]);
+    if (typeof usp.globals.__uspapi === "function") {
+        usp.globals.__uspapi("removeEventListener", 1, function () {}, 42);
+    }
+    check("USP queue preserves the optional parameter without padding calls that omit it",
+        uspQueue[0] && uspQueue[0].length === 3 &&
+        uspQueue[1] && uspQueue[1].length === 4 && uspQueue[1][3] === 42,
+        JSON.stringify(uspQueue));
     let uspPing = null;
     if (typeof usp.globals.__uspapi === "function") usp.globals.__uspapi("ping", 1, (value, ok) => { uspPing = [value, ok]; });
     check("USP ping reports not loaded", uspPing && uspPing[1] === true && uspPing[0].uspapiLoaded === false,
