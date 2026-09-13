@@ -1824,11 +1824,9 @@ const hasOpenAiConsentModeOverride = openAiConsentModeEnabled ||
 // Overrides decide activation only. The served CMP owns every subsequent update.
 if (hasFacebookConsentModeOverride) {
   ABconsentCMP.gtmFacebookConsentMode = facebookConsentModeEnabled;
-  ABconsentCMP.gtmFacebookConsentModeUpdatesOwnedByGtm = false;
 }
 if (hasOpenAiConsentModeOverride) {
   ABconsentCMP.gtmOpenAiConsentMode = openAiConsentModeEnabled;
-  ABconsentCMP.gtmOpenAiConsentModeUpdatesOwnedByGtm = false;
 }
 
 if (!cmpLoaded) {

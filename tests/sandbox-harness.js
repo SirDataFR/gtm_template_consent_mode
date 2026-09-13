@@ -132,8 +132,6 @@ function run(opts) {
             calls.injectionStates.push({
                 facebook: cmp.gtmFacebookConsentMode,
                 openai: cmp.gtmOpenAiConsentMode,
-                facebookUpdatesOwnedByGtm: cmp.gtmFacebookConsentModeUpdatesOwnedByGtm,
-                openaiUpdatesOwnedByGtm: cmp.gtmOpenAiConsentModeUpdatesOwnedByGtm,
                 enableConsentMode: cmp.enableConsentMode,
                 googleDefaultSet: cmp.gtmGoogleConsentModeDefaultSet,
                 miniStubApis: Object.assign({}, cmp.gtmTemplateMiniStubApis || {})
@@ -927,8 +925,10 @@ console.log("\n20. Same-window mini-stubs and takeover handoff");
         JSON.stringify(staleThirdParty.globals.ABconsentCMP.gtmTemplateMiniStubApis));
 }
 
-console.log("\n21. Activation overrides, CMP ownership, and loader ordering");
+console.log("\n21. Activation overrides and loader ordering");
 {
+    const publishesVendorUpdateOwnership = (cmp) => Object.keys(cmp).some((key) =>
+        key.indexOf("Updates" + "OwnedByGtm") !== -1);
     const enabled = run({sddan: SDDAN_LOCAL, data: {
         facebookConsentModeOverride: "enabled", openAiConsentModeOverride: "enabled",
         loadCmpScripts: true, partnerId: "1020", configId: "public"
@@ -936,18 +936,16 @@ console.log("\n21. Activation overrides, CMP ownership, and loader ordering");
     check("enabled publishes activation overrides",
         enabled.globals.ABconsentCMP.gtmFacebookConsentMode === true &&
         enabled.globals.ABconsentCMP.gtmOpenAiConsentMode === true);
-    check("new template explicitly delegates both vendor updates to the CMP",
-        enabled.globals.ABconsentCMP.gtmFacebookConsentModeUpdatesOwnedByGtm === false &&
-        enabled.globals.ABconsentCMP.gtmOpenAiConsentModeUpdatesOwnedByGtm === false);
+    check("enabled publishes no vendor update ownership marker",
+        !publishesVendorUpdateOwnership(enabled.globals.ABconsentCMP));
     check("Google updates are delegated to the CMP when Consent Mode is active",
         enabled.globals.ABconsentCMP.enableConsentMode === true);
     check("Google default handoff is true before the first default is emitted",
         enabled.calls.defaults.length > 0 && enabled.calls.defaultStates[0].googleDefaultSet === true,
         JSON.stringify(enabled.calls.defaultStates));
     const firstState = enabled.calls.injectionStates[0] || {};
-    check("overrides, ownership, and handoff are visible at the first /stub injection",
+    check("overrides and handoff are visible at the first /stub injection",
         firstState.facebook === true && firstState.openai === true &&
-        firstState.facebookUpdatesOwnedByGtm === false && firstState.openaiUpdatesOwnedByGtm === false &&
         firstState.enableConsentMode === true && firstState.googleDefaultSet === true &&
         firstState.miniStubApis.__tcfapi === true &&
         firstState.miniStubApis.__sdcmpapi === true && firstState.miniStubApis.__uspapi === true &&
@@ -972,35 +970,22 @@ console.log("\n21. Activation overrides, CMP ownership, and loader ordering");
     const inherited = run({sddan: SDDAN_LOCAL, globals: {ABconsentCMP: {sentinel: true}}, data: {
         consentMode: false, facebookConsentModeOverride: "inherit", openAiConsentModeOverride: "inherit"
     }});
-    check("inherit leaves activation and ownership properties absent",
+    check("inherit leaves activation properties absent",
         inherited.globals.ABconsentCMP.gtmFacebookConsentMode === undefined &&
-        inherited.globals.ABconsentCMP.gtmOpenAiConsentMode === undefined &&
-        inherited.globals.ABconsentCMP.gtmFacebookConsentModeUpdatesOwnedByGtm === undefined &&
-        inherited.globals.ABconsentCMP.gtmOpenAiConsentModeUpdatesOwnedByGtm === undefined);
+        inherited.globals.ABconsentCMP.gtmOpenAiConsentMode === undefined);
+    check("inherit publishes no vendor update ownership marker",
+        !publishesVendorUpdateOwnership(inherited.globals.ABconsentCMP));
     check("inherit installs no vendor queue", inherited.globals.fbq === undefined && inherited.globals.oaiq === undefined);
 
     const disabled = run({sddan: SDDAN_LOCAL, data: {
         consentMode: false, facebookConsentModeOverride: "disabled", openAiConsentModeOverride: "disabled"
     }});
-    check("disabled publishes false activation and CMP-owned update markers",
+    check("disabled publishes false activation overrides",
         disabled.globals.ABconsentCMP.gtmFacebookConsentMode === false &&
-        disabled.globals.ABconsentCMP.gtmOpenAiConsentMode === false &&
-        disabled.globals.ABconsentCMP.gtmFacebookConsentModeUpdatesOwnedByGtm === false &&
-        disabled.globals.ABconsentCMP.gtmOpenAiConsentModeUpdatesOwnedByGtm === false);
+        disabled.globals.ABconsentCMP.gtmOpenAiConsentMode === false);
+    check("disabled publishes no vendor update ownership marker",
+        !publishesVendorUpdateOwnership(disabled.globals.ABconsentCMP));
     check("disabled installs no vendor queue", disabled.globals.fbq === undefined && disabled.globals.oaiq === undefined);
-
-    const legacy = run({sddan: SDDAN_LOCAL, globals: {ABconsentCMP: {
-        gtmFacebookConsentModeUpdatesOwnedByGtm: true,
-        gtmOpenAiConsentModeUpdatesOwnedByGtm: true,
-        enableConsentMode: false
-    }}, data: {
-        facebookConsentModeOverride: "enabled", openAiConsentModeOverride: "enabled",
-        loadCmpScripts: true, partnerId: "1020", configId: "public"
-    }});
-    check("new template neutralizes legacy ownership values",
-        legacy.globals.ABconsentCMP.gtmFacebookConsentModeUpdatesOwnedByGtm === false &&
-        legacy.globals.ABconsentCMP.gtmOpenAiConsentModeUpdatesOwnedByGtm === false &&
-        legacy.globals.ABconsentCMP.enableConsentMode === true);
 
     const deletion = run({sddan: SDDAN_LOCAL, data: {
         handleCookiesDeletion: true, loadCmpScripts: true, partnerId: "1020", configId: "public"
