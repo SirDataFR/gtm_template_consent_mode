@@ -2231,6 +2231,33 @@ const applyGpcRefusal = (consentObject) => {
   return consentObject;
 };
 
+// The US perimeter: the country value and every state value the settings table can carry. Matched
+// on the `US-` prefix rather than against a list of states, so a state added to the parameters
+// tomorrow is covered without a second edit here -- and `RU`, which merely contains the letters,
+// is not.
+const isUsRegion = (region) => {
+  if (typeof(region) !== 'string') return false;
+  return region === 'US' || region.indexOf('US-') === 0;
+};
+
+// The starting position on that perimeter when NOTHING was ever recorded -- no marker, no
+// container. Silence there is not agreement, so the five signals an objection to sale and sharing
+// covers start denied; `functionality_storage` and `security_storage` are not among them and keep
+// the configured value, as everywhere else in this file.
+//
+// Unlike the two functions above, `wait_for_update` is NOT zeroed: this is a default awaiting a
+// choice, not a choice already made. Zeroing it would tell gtag the answer is in when nobody has
+// answered.
+const applyUsDefaultRefusal = (consentObject) => {
+  for (let i = 0; i < GPC_DENIED_SIGNALS.length; i++) {
+    const name = GPC_DENIED_SIGNALS[i];
+    if (consentObject[name] !== undefined) {
+      consentObject[name] = 'denied';
+    }
+  }
+  return consentObject;
+};
+
 // generate object
 const generateConsentObject = function(setting, tcData, isUpdate, usOptOut) {
   let consentObject = {};
@@ -2304,13 +2331,23 @@ let defaultConsent = {
   'security_storage': 'not used'
 };
 
-// Read once so Google and vendor defaults describe the same persisted snapshot.
-const storedConsentSegments = readCookieSegments();
-const storedConsentSignals = readStoredConsentSignals(storedConsentSegments);
-const storedOpenAiConsent = readStoredVendorConsent(storedConsentSegments, 'o');
+// Read AT MOST ONCE, and only if someone asks. Still once, so Google and vendor defaults keep
+// describing the same persisted snapshot; but no longer unconditionally, because the marker below
+// short-circuits the whole chain and a container consulted on that path would be a cookie read
+// for nothing -- and a read that no test could see.
+let cookieSegmentsLoaded = false;
+let cookieSegmentsCache = [];
+const getCookieSegments = () => {
+  if (!cookieSegmentsLoaded) {
+    cookieSegmentsLoaded = true;
+    cookieSegmentsCache = readCookieSegments();
+  }
+  return cookieSegmentsCache;
+};
 
 // Read once as well, and for the same reason: two reads of the same cookie at two different
-// moments would end up disagreeing.
+// moments would end up disagreeing. This one stays EAGER: it is the first question asked, so
+// deferring it would buy nothing.
 const gpcActive = isGpcActive();
 
 const commandName = (entry) => {
@@ -2418,7 +2455,9 @@ const prepareFacebookDefault = () => {
 };
 
 if (openAiConsentModeEnabled) {
-  prepareOpenAiDefault(storedOpenAiConsent === true);
+  // Reads the container through the shared getter: this vendor default asks its own question
+  // ('o'), which the GPC marker does not answer, so the short-circuit above does not cover it.
+  prepareOpenAiDefault(readStoredVendorConsent(getCookieSegments(), 'o') === true);
 }
 if (facebookConsentModeEnabled) {
   prepareFacebookDefault();
@@ -2441,13 +2480,26 @@ if (data.consentMode) {
   // Process default consent state
   data.settingsTable.forEach(setting => {
     var consentModeState = generateConsentObject(setting, null, false);
-    if (storedConsentSignals) {
-      consentModeState = applyStoredSignals(consentModeState, storedConsentSignals);
-    }
-    // The ORDER of the two blocks IS the precedence: GPC is applied last, so it wins. Swapping
-    // them would let the cookie's bits overwrite the GPC denial.
+    // The precedence is STATED here, as a chain, instead of being an emergent property of the
+    // order of two blocks:
+    //
+    //     1. __gpcactive  ->  denial, and NOTHING else is consulted
+    //     2. else __sdgcm ->  replay of the stored bits
+    //     3. else         ->  regional default; on the US perimeter it is denied
+    //
+    // The first branch is a SHORT-CIRCUIT, not an override applied last. Reading the container and
+    // then overwriting what it said would emit the same values while consulting a cookie whose
+    // answer cannot change the outcome -- a read that costs something and decides nothing. The
+    // difference is invisible in the emitted object, which is why the harness counts the reads.
     if (gpcActive) {
       consentModeState = applyGpcRefusal(consentModeState);
+    } else {
+      const storedConsentSignals = readStoredConsentSignals(getCookieSegments());
+      if (storedConsentSignals) {
+        consentModeState = applyStoredSignals(consentModeState, storedConsentSignals);
+      } else if (isUsRegion(setting.region)) {
+        consentModeState = applyUsDefaultRefusal(consentModeState);
+      }
     }
     // Publish the handoff only when this loop is about to emit a real Google default. An empty
     // settings table therefore leaves the marker absent and lets the served tag keep its legacy

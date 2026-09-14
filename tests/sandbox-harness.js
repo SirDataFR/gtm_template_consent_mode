@@ -66,7 +66,10 @@ function extractJsonSection(open, close) {
 
 function run(opts) {
     const cookies = Object.assign({}, opts.cookies || {});
-    const calls = {defaults: [], defaultStates: [], updates: [], setCookies: [], injected: [], injectionStates: [], successes: 0, failures: 0};
+    // `cookieReads` counts reads PER NAME. Without it a short-circuit can only be checked on the
+    // value it produces, and an implementation that reads the container and then overwrites the
+    // result would pass while consulting a cookie it must never touch.
+    const calls = {defaults: [], defaultStates: [], updates: [], setCookies: [], injected: [], injectionStates: [], cookieReads: {}, successes: 0, failures: 0};
     let listener = null;
     const globals = Object.assign({SDDAN: opts.sddan}, opts.globals || {});
 
@@ -148,7 +151,10 @@ function run(opts) {
         },
         encodeUriComponent: encodeURIComponent,
         makeInteger: (v) => parseInt(v, 10),
-        getCookieValues: (name) => (cookies[name] === undefined ? [] : [cookies[name]]),
+        getCookieValues: (name) => {
+            calls.cookieReads[name] = (calls.cookieReads[name] || 0) + 1;
+            return cookies[name] === undefined ? [] : [cookies[name]];
+        },
         setCookie: (name, value, options, encode) => {
             calls.setCookies.push({name, value, options, encode});
             // `max-age: -1` is the DELETION instruction, not a write. The stub honours it so the
@@ -504,6 +510,114 @@ console.log("\n13. Global Privacy Control takes precedence in the default");
         JSON.stringify(zero.calls.defaults[0]));
 
 
+}
+
+console.log("\n14. The marker SHORT-CIRCUITS the default: nothing else is consulted");
+{
+    // A row granting EVERYTHING, for the same reason as section 13: against an all-denied table a
+    // denial would be indistinguishable from the configured value.
+    const ALL_GRANTED_ROW = {
+        ad_storage: "granted", analytics_storage: "granted", personalization_storage: "granted",
+        functionality_storage: "granted", security_storage: "granted",
+        wait_for_update: 1000, region: "ALL"
+    };
+    const GRANTED = {settingsTable: [ALL_GRANTED_ROW]};
+    const readsOf = (r, name) => (r.calls.cookieReads[name] || 0);
+
+    // Witness: WITHOUT the marker the container IS read. Without it, the count asserted below
+    // would also be satisfied by a harness that reads no cookie at all, or by a template that
+    // stopped reading `__sdgcm` entirely -- a check that cannot fail checks nothing.
+    const temoin = run({sddan: SDDAN_LOCAL, data: GRANTED, cookies: {"__sdgcm": "2.g:1:1111111"}});
+    check("witness -- without the marker the container IS read",
+        readsOf(temoin, "__sdgcm") >= 1, String(readsOf(temoin, "__sdgcm")));
+
+    // THE short-circuit, pinned on the READ rather than on the result. An implementation that
+    // reads the container and then overwrites what it found emits exactly the same values while
+    // consulting a cookie that must never be consulted; only the count separates the two.
+    const court = run({sddan: SDDAN_LOCAL, data: GRANTED, cookies: {"__gpcactive": "1"}});
+    check("the container is NOT consulted when the marker is present",
+        readsOf(court, "__sdgcm") === 0, String(readsOf(court, "__sdgcm")));
+    check("the marker itself is still read", readsOf(court, "__gpcactive") >= 1,
+        String(readsOf(court, "__gpcactive")));
+    const c = court.calls.defaults[0];
+    check("short-circuit denies the five signals an objection covers",
+        c.ad_storage === "denied" && c.ad_user_data === "denied" &&
+        c.ad_personalization === "denied" && c.analytics_storage === "denied" &&
+        c.personalization_storage === "denied", JSON.stringify(c));
+    // FIVE, not seven: an objection to sale and sharing is not a refusal of what is strictly
+    // necessary. Moving the denial to the head of the chain must not change which signals it
+    // covers -- only when it is decided.
+    check("and leaves the two strictly-necessary signals alone",
+        c.functionality_storage === "granted" && c.security_storage === "granted",
+        JSON.stringify(c));
+    check("nothing left to wait for", c.wait_for_update === 0, JSON.stringify(c));
+
+    // Same short-circuit, with a container that would grant EVERYTHING. This is the case where a
+    // post-hoc implementation and a short-circuit diverge on the read while agreeing on the value.
+    const contre = run({
+        sddan: SDDAN_LOCAL, data: GRANTED,
+        cookies: {"__gpcactive": "1", "__sdgcm": "2.g:1:1111111", "euconsent-v2": "x"}
+    });
+    check("an all-granting container is not even read",
+        readsOf(contre, "__sdgcm") === 0, String(readsOf(contre, "__sdgcm")));
+    check("and the result stays denied",
+        contre.calls.defaults[0].ad_storage === "denied" &&
+        contre.calls.defaults[0].analytics_storage === "denied", JSON.stringify(contre.calls.defaults[0]));
+
+    // Marker ABSENT, container present: the second branch keeps behaving exactly as before. The
+    // bits are mixed on purpose -- an all-granted or all-denied string would pass against a
+    // template that ignored the container altogether.
+    const stocke = run({sddan: SDDAN_LOCAL, data: GRANTED, cookies: {"__sdgcm": "2.g:1:1010000"}});
+    const s = stocke.calls.defaults[0];
+    check("without the marker the container is read", readsOf(stocke, "__sdgcm") >= 1,
+        String(readsOf(stocke, "__sdgcm")));
+    check("stored signals still drive the default, signal by signal",
+        s.analytics_storage === "granted" && s.functionality_storage === "denied" &&
+        s.security_storage === "granted" && s.personalization_storage === "denied" &&
+        s.ad_storage === "denied", JSON.stringify(s));
+    check("a known choice leaves nothing to wait for", s.wait_for_update === 0, JSON.stringify(s));
+
+    // Third branch, US perimeter: neither marker nor container, so nothing was ever recorded --
+    // and on that perimeter silence is not agreement. The configured row grants everything, which
+    // is what makes the denial visible.
+    const US_ROW = Object.assign({}, ALL_GRANTED_ROW, {region: "US-CA"});
+    const us = run({sddan: SDDAN_LOCAL, data: {settingsTable: [US_ROW]}});
+    const u = us.calls.defaults[0];
+    check("US perimeter: the stored-nothing default is denied",
+        u.ad_storage === "denied" && u.ad_user_data === "denied" &&
+        u.ad_personalization === "denied" && u.analytics_storage === "denied" &&
+        u.personalization_storage === "denied", JSON.stringify(u));
+    check("US perimeter: strictly-necessary signals keep the configured value",
+        u.functionality_storage === "granted" && u.security_storage === "granted",
+        JSON.stringify(u));
+    // A starting position, NOT a recorded decision: there is still a choice to wait for.
+    check("US perimeter: wait_for_update is preserved", u.wait_for_update === 1000, JSON.stringify(u));
+    check("US perimeter: the region is still carried",
+        JSON.stringify(u.region) === JSON.stringify(["US-CA"]), JSON.stringify(u.region));
+
+    // The plain country value belongs to the same perimeter as its states.
+    const usPlain = run({sddan: SDDAN_LOCAL,
+        data: {settingsTable: [Object.assign({}, ALL_GRANTED_ROW, {region: "US"})]}});
+    check("US perimeter: the country value counts too",
+        usPlain.calls.defaults[0].ad_storage === "denied",
+        JSON.stringify(usPlain.calls.defaults[0]));
+
+    // Outside that perimeter NOTHING changes: the configured regional default stands. Without
+    // this the US rule above would be satisfied by a template denying everything everywhere.
+    const fr = run({sddan: SDDAN_LOCAL,
+        data: {settingsTable: [Object.assign({}, ALL_GRANTED_ROW, {region: "FR"})]}});
+    const f = fr.calls.defaults[0];
+    check("outside the US perimeter the configured default is untouched",
+        f.ad_storage === "granted" && f.analytics_storage === "granted" &&
+        f.personalization_storage === "granted", JSON.stringify(f));
+    check("outside the US perimeter wait_for_update is untouched", f.wait_for_update === 1000,
+        JSON.stringify(f));
+    // `US` must match the perimeter, `USA`-like neighbours must not: the prefix is a perimeter,
+    // not a substring match.
+    const ru = run({sddan: SDDAN_LOCAL,
+        data: {settingsTable: [Object.assign({}, ALL_GRANTED_ROW, {region: "RU"})]}});
+    check("a region merely containing the letters is not the US perimeter",
+        ru.calls.defaults[0].ad_storage === "granted", JSON.stringify(ru.calls.defaults[0]));
 }
 
 console.log("\n15. Cookie deletion: the four preservation rules");
