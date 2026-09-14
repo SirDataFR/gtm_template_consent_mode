@@ -1692,6 +1692,29 @@ ___TEMPLATE_PARAMETERS___
         "type": "TEXT",
         "help": "This field is only available if the option is enabled in your account. Enter the first-party hostname declared in your ABConsent (Sirdata CMP) settings. Do not include \u0027http://\u0027 or \u0027https://\u0027. If unsure, leave it empty.",
         "defaultValue": ""
+      },
+      {
+        "type": "SELECT",
+        "name": "ccpaScopeOverride",
+        "displayName": "US regulation scope override",
+        "simpleValueType": true,
+        "defaultValue": "inherit",
+        "alwaysInSummary": true,
+        "selectItems": [
+          {
+            "value": "inherit",
+            "displayValue": "Inherit CMP configuration"
+          },
+          {
+            "value": "allStates",
+            "displayValue": "Apply to every US state"
+          },
+          {
+            "value": "coveredStates",
+            "displayValue": "Apply to the covered US states only"
+          }
+        ],
+        "help": "Overrides the CMP configuration for this page. Inherit keeps the CMP configuration. Apply to every US state treats any US visitor as covered; covered states only restricts the scope to the states whose law the CMP implements. The scope decides when the US notice applies, which states that notice lists, and where a Global Privacy Control signal is honored. It does not change any vendor consent default."
       }
     ]
   },
@@ -1820,6 +1843,9 @@ const hasFacebookConsentModeOverride = facebookConsentModeEnabled ||
   data.facebookConsentModeOverride === 'disabled';
 const hasOpenAiConsentModeOverride = openAiConsentModeEnabled ||
   data.openAiConsentModeOverride === 'disabled';
+const ccpaScopeForcedToAllStates = data.ccpaScopeOverride === 'allStates';
+const hasCcpaScopeOverride = ccpaScopeForcedToAllStates ||
+  data.ccpaScopeOverride === 'coveredStates';
 
 // Overrides decide activation only. The served CMP owns every subsequent update.
 if (hasFacebookConsentModeOverride) {
@@ -1827,6 +1853,15 @@ if (hasFacebookConsentModeOverride) {
 }
 if (hasOpenAiConsentModeOverride) {
   ABconsentCMP.gtmOpenAiConsentMode = openAiConsentModeEnabled;
+}
+
+// The US scope override decides WHERE the regulation applies, not whether a vendor signal is
+// sent. It travels the same way the two above do, and for the same reason: the server cannot see
+// what the page posts, so it cannot fold this into the served configuration. The CMP resolves it
+// once, and its notice, its list of states and its Global Privacy Control perimeter then read one
+// value. Absent leaves the CMP configuration alone.
+if (hasCcpaScopeOverride) {
+  ABconsentCMP.gtmCcpaApplyToAllStates = ccpaScopeForcedToAllStates;
 }
 
 if (!cmpLoaded) {
@@ -1848,7 +1883,8 @@ if (!cmpLoaded) {
 if (data.consentMode) {
   ABconsentCMP.enableConsentMode = true;
 }
-if (hasFacebookConsentModeOverride || hasOpenAiConsentModeOverride || data.consentMode) {
+if (hasFacebookConsentModeOverride || hasOpenAiConsentModeOverride || hasCcpaScopeOverride ||
+    data.consentMode) {
   setInWindow('ABconsentCMP', ABconsentCMP, true);
 }
 
@@ -2455,9 +2491,17 @@ const prepareFacebookDefault = () => {
 };
 
 if (openAiConsentModeEnabled) {
-  // Reads the container through the shared getter: this vendor default asks its own question
-  // ('o'), which the GPC marker does not answer, so the short-circuit above does not cover it.
-  prepareOpenAiDefault(readStoredVendorConsent(getCookieSegments(), 'o') === true);
+  // The same chain as the Google default below, and the marker wins here too. It does not answer
+  // the 'o' question -- it makes it moot: it records an objection that covers every vendor, not
+  // only the ones whose bit the container happens to carry. The served CMP applies that same
+  // precedence to this vendor, so reading the container here would put the two in disagreement
+  // for one page view.
+  //
+  // The short-circuit is on the READ, exactly as it is below: `&&` leaves the container unread
+  // when the marker is present. That is what separates this from an implementation which reads
+  // the container and then overwrites what it found -- same emitted value, one cookie consulted
+  // whose answer cannot change the outcome.
+  prepareOpenAiDefault(!gpcActive && readStoredVendorConsent(getCookieSegments(), 'o') === true);
 }
 if (facebookConsentModeEnabled) {
   prepareFacebookDefault();

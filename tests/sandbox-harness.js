@@ -137,6 +137,7 @@ function run(opts) {
                 openai: cmp.gtmOpenAiConsentMode,
                 enableConsentMode: cmp.enableConsentMode,
                 googleDefaultSet: cmp.gtmGoogleConsentModeDefaultSet,
+                ccpaAllStates: cmp.gtmCcpaApplyToAllStates,
                 miniStubApis: Object.assign({}, cmp.gtmTemplateMiniStubApis || {})
             });
             if (opts.failInjection && u.indexOf(opts.failInjection) !== -1) {
@@ -1340,6 +1341,85 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     initializedMeta.listener(TC_ALL_GRANTED, true);
     check("initialized Meta callback emits no update",
         JSON.stringify(initializedMetaCalls) === initializedMetaCallsBeforeCallback);
+}
+
+console.log("\n23. The marker reaches the OpenAI default, and the US scope override travels");
+{
+    const readsOf = (r, name) => (r.calls.cookieReads[name] || 0);
+    const GRANTING_CONTAINER = "2.o:1:1";
+    const OPENAI_ON = {openAiConsentModeOverride: "enabled"};
+    const consentOf = (r) => {
+        const consent = named(commandList(r.globals.oaiq.queue), "consent");
+        return consent.length === 1 ? consent[0][1] : JSON.stringify(consent);
+    };
+
+    // Witness: WITHOUT the marker the stored bit decides, and the container IS read. Without it
+    // the two assertions below would also be satisfied by a template that stopped reading the
+    // container at all, or by a harness whose container string says nothing -- a check that
+    // cannot fail checks nothing.
+    const temoin = run({sddan: SDDAN_LOCAL, data: OPENAI_ON,
+        cookies: {"__sdgcm": GRANTING_CONTAINER}});
+    check("witness -- without the marker the stored OpenAI bit is honored",
+        consentOf(temoin) === true, JSON.stringify(consentOf(temoin)));
+    check("witness -- and the container IS read", readsOf(temoin, "__sdgcm") >= 1,
+        String(readsOf(temoin, "__sdgcm")));
+
+    // The marker covers EVERY vendor, not only the ones the container happens to carry a bit
+    // for. The served CMP applies that same precedence to this vendor, so a template that read
+    // the bit here would disagree with it for a whole page view.
+    const court = run({sddan: SDDAN_LOCAL, data: OPENAI_ON,
+        cookies: {"__gpcactive": "1", "__sdgcm": GRANTING_CONTAINER}});
+    check("the marker denies the OpenAI default even when the container grants",
+        consentOf(court) === false, JSON.stringify(consentOf(court)));
+    // Pinned on the READ, exactly as section 14 does for Google: an implementation that reads the
+    // container and then overwrites what it found emits the same value while consulting a cookie
+    // whose answer cannot change the outcome. Only the count separates the two.
+    check("and the container is NOT consulted", readsOf(court, "__sdgcm") === 0,
+        String(readsOf(court, "__sdgcm")));
+
+    // The override has to reach the page even when it is the ONLY thing this tag publishes:
+    // nothing else would write `ABconsentCMP` then, and an override left in a local object is an
+    // override the CMP never sees. `globals` is deliberately NOT seeded here, so the property can
+    // only exist if the template wrote it.
+    const seul = run({sddan: SDDAN_LOCAL, data: {
+        consentMode: false, facebookConsentModeOverride: "inherit",
+        openAiConsentModeOverride: "inherit", ccpaScopeOverride: "allStates"
+    }});
+    check("the scope override alone is published to the page",
+        !!seul.globals.ABconsentCMP && seul.globals.ABconsentCMP.gtmCcpaApplyToAllStates === true,
+        JSON.stringify(seul.globals.ABconsentCMP));
+
+    const restreint = run({sddan: SDDAN_LOCAL, data: {
+        consentMode: false, ccpaScopeOverride: "coveredStates"
+    }});
+    check("restricting the scope to the covered states publishes false",
+        !!restreint.globals.ABconsentCMP &&
+        restreint.globals.ABconsentCMP.gtmCcpaApplyToAllStates === false,
+        JSON.stringify(restreint.globals.ABconsentCMP));
+
+    // Tri-state: absent is NOT false. The CMP separates "the page said nothing" from "the page
+    // said no", and only the first leaves the served configuration in charge.
+    const herite = run({sddan: SDDAN_LOCAL, globals: {ABconsentCMP: {sentinel: true}}, data: {
+        consentMode: false, ccpaScopeOverride: "inherit"
+    }});
+    check("inherit leaves the scope property absent",
+        herite.globals.ABconsentCMP.gtmCcpaApplyToAllStates === undefined,
+        JSON.stringify(herite.globals.ABconsentCMP));
+
+    // Published BEFORE the CMP loads: it is a boot-time decision, and a value posted after /cmp
+    // has started would arrive too late for the CMP to resolve it once.
+    const charge = run({sddan: SDDAN_LOCAL, data: {
+        ccpaScopeOverride: "allStates", loadCmpScripts: true, partnerId: "1020", configId: "public"
+    }});
+    check("the scope override is visible at the first /stub injection",
+        !!charge.calls.injectionStates[0] &&
+        charge.calls.injectionStates[0].ccpaAllStates === true,
+        JSON.stringify(charge.calls.injectionStates[0]));
+
+    // Scope only: it says WHERE the regulation applies, never what a vendor is told.
+    check("the scope override prepares no vendor queue and emits no default",
+        seul.globals.fbq === undefined && seul.globals.oaiq === undefined &&
+        seul.calls.defaults.length === 0, JSON.stringify(seul.calls.defaults));
 }
 
 // Assertion floor: deleting a test section must fail loudly rather than reporting a vacuous green.
