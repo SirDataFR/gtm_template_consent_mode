@@ -832,17 +832,62 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
 
     const parameters = JSON.parse(extractJsonSection(
         "___TEMPLATE_PARAMETERS___", "___SANDBOXED_JS_FOR_WEB_TEMPLATE___"));
-    const group = parameters[0] || {};
-    const selectors = group.subParams || [];
-    check("vendor compatibility stays the first top-level group", group.name === "vendorConsentModes", group.name);
-    check("the group links the official vendor templates",
-        (group.help || "").indexOf("https://github.com/facebook/GoogleTagManager-WebTemplate-For-FacebookPixel") !== -1 &&
-        (group.help || "").indexOf("https://github.com/openai/ads-measurement-pixel-gtm-template") !== -1);
+    const flatten = (params) => params.reduce((all, param) =>
+        all.concat([param], flatten(param.subParams || [])), []);
+    const byName = (name) => flatten(parameters).filter((param) => param.name === name)[0];
+
+    // The form asks for the CMP first and shows nothing else until it has an answer. The two
+    // identifiers are therefore TOP-LEVEL fields rather than members of a section: a condition
+    // naming a field buried inside another section is the one shape no shipped template uses, and
+    // the shape this form was measured getting wrong in the real editor.
+    const topLevel = parameters.map((param) => param.name);
+    check("the form opens on the CMP identifiers, then the three consent modes",
+        JSON.stringify(topLevel) === JSON.stringify(["cmpSection", "partnerId", "configId",
+            "firstPartyHost", "consent Mode", "facebookConsentModeGroup",
+            "openAiConsentModeGroup", "Cookies"]), JSON.stringify(topLevel));
+    const gatedOnCmp = (param) => JSON.stringify((param.enablingConditions || []).map((condition) =>
+        [condition.paramName, condition.type, condition.paramValue])) ===
+        JSON.stringify([["configId", "NOT_EQUALS", ""]]);
+    check("every section below the identifiers waits for the configuration id",
+        parameters.slice(4).every(gatedOnCmp) && parameters.slice(0, 4).every((param) =>
+            param.enablingConditions === undefined),
+        JSON.stringify(parameters.map((param) => [param.name, gatedOnCmp(param)])));
+
+    // ONE condition per field, everywhere. Multiple conditions are read as "any of these", not
+    // "all of these" -- which is how a table that asked for the activation AND the override went
+    // on showing with only the activation ticked. A second condition is therefore never a
+    // narrowing; it is a widening, and the field it widens is the one nobody re-reads.
+    const multiGated = flatten(parameters).filter((param) =>
+        (param.enablingConditions || []).length > 1);
+    check("no field carries more than one enabling condition",
+        multiGated.length === 0, JSON.stringify(multiGated.map((param) =>
+            [param.name, (param.enablingConditions || []).length])));
+
+    // Each vendor has its own section, at the level of Google's, and carries the link to the
+    // official template it coordinates with -- a single shared section could only name both.
+    const VENDOR_SECTIONS = [
+        ["facebookConsentModeGroup", "Facebook Consent Mode", "facebookConsentMode",
+            "Activate Facebook Consent Mode",
+            "https://github.com/facebook/GoogleTagManager-WebTemplate-For-FacebookPixel"],
+        ["openAiConsentModeGroup", "OpenAI/GPT Ads Consent Mode", "openAiConsentMode",
+            "Activate OpenAI/GPT Ads Consent Mode",
+            "https://github.com/openai/ads-measurement-pixel-gtm-template"]];
+    const selectors = VENDOR_SECTIONS.map((section) => byName(section[2]));
+    VENDOR_SECTIONS.forEach((section) => {
+        const vendorGroup = byName(section[0]) || {};
+        const selector = byName(section[2]) || {};
+        check("the " + section[1] + " section is named like Google's and links its template",
+            vendorGroup.type === "GROUP" && vendorGroup.displayName === section[1] &&
+            (vendorGroup.help || "").indexOf(section[4]) !== -1 &&
+            selector.checkboxText === section[3],
+            JSON.stringify([vendorGroup.displayName, selector.checkboxText]));
+    });
     check("both vendor settings are binary checkboxes that default to off",
         selectors.length === 2 && selectors.every((selector) =>
-            selector.type === "CHECKBOX" && selector.defaultValue === false &&
+            selector && selector.type === "CHECKBOX" && selector.defaultValue === false &&
             selector.selectItems === undefined),
-        JSON.stringify(selectors.map((selector) => [selector.name, selector.type, selector.defaultValue])));
+        JSON.stringify(selectors.map((selector) => selector &&
+            [selector.name, selector.type, selector.defaultValue])));
 
     // The page-level settings are binary BY DESIGN, and this guard is what keeps them so. A third
     // "inherit the CMP configuration" state is not a nicety this tag chose to skip: it runs before
@@ -850,8 +895,6 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
     // preparing these defaults. A selector reintroduced on either brings back a state nothing can
     // honour. They are found by name anywhere in the parameter tree, so moving one between groups
     // does not quietly drop it from this check.
-    const flatten = (params) => params.reduce((all, param) =>
-        all.concat([param], flatten(param.subParams || [])), []);
     const PAGE_LEVEL = ["facebookConsentMode", "openAiConsentMode"];
     const pageLevel = flatten(parameters).filter((param) => PAGE_LEVEL.indexOf(param.name) !== -1);
     check("the page-level settings exist and neither is a selector",
@@ -894,26 +937,34 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
 
     // The fine-grained area is an OVERRIDE of the automatic default state, so it hangs off a box
     // that starts unchecked -- which is what makes a container saved against an earlier version
-    // fall back to the automatic path. Gated on the activation box as well: declaring defaults
-    // that Google Consent Mode is switched off for would be a form with no effect.
-    const override = flatten(parameters).filter((param) => param.name === "overrideDefaultConsent")[0];
+    // fall back to the automatic path.
+    const override = byName("overrideDefaultConsent");
     check("the override is a checkbox that starts unchecked",
         override !== undefined && override.type === "CHECKBOX" && override.defaultValue === false,
         JSON.stringify(override && [override.type, override.defaultValue]));
-    const gatedOn = (param) => (param.enablingConditions || []).map((condition) =>
+    const gatedOn = (param) => ((param || {}).enablingConditions || []).map((condition) =>
         condition.paramName + "=" + condition.paramValue).sort().join(",");
-    const fineGrained = flatten(parameters).filter((param) =>
-        param.name === "customConsentSettings" || param.name === "defaultSettings");
-    check("the fine-grained area is gated on both the activation and the override",
-        fineGrained.length === 2 && fineGrained.every((param) =>
-            gatedOn(param) === "consentMode=true,overrideDefaultConsent=true"),
-        JSON.stringify(fineGrained.map((param) => [param.name, gatedOn(param)])));
+    check("the override hangs off the activation, at its own level",
+        gatedOn(override) === "consentMode=true" &&
+        (byName("consent Mode").subParams || []).some((param) => param.name === "consentMode"),
+        gatedOn(override));
+    // The table IS the fine-grained area now. The group that used to wrap it carried the heading
+    // and the condition, and could gate neither: a section cannot hide itself, and the condition
+    // it handed down named a field one level above the table's own. The table carries the heading
+    // and one condition naming its own neighbour, which is the shape the shipped templates use.
+    check("the fine-grained table is gated on the override alone, beside it",
+        gatedOn(byName("customConsentSettings")) === "overrideDefaultConsent=true" &&
+        byName("defaultSettings") === undefined &&
+        (byName("consent Mode").subParams || []).some((param) =>
+            param.name === "customConsentSettings"),
+        JSON.stringify([gatedOn(byName("customConsentSettings")),
+            byName("defaultSettings") !== undefined]));
     // An empty table is a legitimate state rather than a mistake, and the body already treats it
     // as one: the override falls back to the automatic default state when no rule is declared,
     // which the behaviour run below exercises. An editor rule demanding a row would refuse to save
     // exactly that container -- a publisher who checks the box, looks at the rules, and decides the
     // automatic state was right after all would be stuck with a form they cannot leave.
-    const table = flatten(parameters).filter((param) => param.name === "customConsentSettings")[0];
+    const table = byName("customConsentSettings");
     check("the fine-grained table demands no row",
         table !== undefined && (table.valueValidators || []).length === 0,
         JSON.stringify(table && (table.valueValidators || []).map((validator) => validator.type)));
@@ -923,11 +974,15 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
         flatten(parameters).every((param) => param.name !== "settingsTable") &&
         SRC.indexOf("data.settingsTable") === -1);
     check("the fine-grained area keeps its name in the interface",
-        fineGrained.some((param) => param.displayName === "Default Consent Mode Settings"),
-        JSON.stringify(fineGrained.map((param) => param.displayName)));
+        table !== undefined && table.displayName === "Default Consent Mode Settings",
+        JSON.stringify(table && table.displayName));
 
-    const uiCopy = group.displayName + " " + group.help + " " + selectors.map((selector) =>
-        selector.checkboxText + " " + selector.help).join(" ");
+    const uiCopy = VENDOR_SECTIONS.map((section) => {
+        const vendorGroup = byName(section[0]) || {};
+        const selector = byName(section[2]) || {};
+        return [vendorGroup.displayName, vendorGroup.help,
+            selector.checkboxText, selector.help].join(" ");
+    }).join(" ");
     check("wording describes the prepared default and CMP-owned updates",
         uiCopy.indexOf("default") !== -1 &&
         uiCopy.indexOf("the CMP sends every subsequent update") !== -1, uiCopy);

@@ -79,37 +79,67 @@ ___TEMPLATE_PARAMETERS___
 
 [
   {
-    "type": "GROUP",
-    "name": "vendorConsentModes",
-    "displayName": "Meta and OpenAI consent defaults",
-    "groupStyle": "ZIPPY_OPEN",
-    "help": "Compatibility requires the official \u003ca href\u003d\"https://github.com/facebook/GoogleTagManager-WebTemplate-For-FacebookPixel\"\u003eMeta template\u003c/a\u003e or official \u003ca href\u003d\"https://github.com/openai/ads-measurement-pixel-gtm-template\"\u003eOpenAI template\u003c/a\u003e. Custom HTML and third-party templates are not guaranteed. These controls coordinate consent commands; they do not prevent either SDK from being downloaded by another tag.",
-    "subParams": [
+    "type": "LABEL",
+    "name": "cmpSection",
+    "displayName": "\u003cstrong\u003eSirdata CMP\u003c/strong\u003e"
+  },
+  {
+    "alwaysInSummary": true,
+    "valueValidators": [
       {
-        "type": "CHECKBOX",
-        "name": "facebookConsentMode",
-        "checkboxText": "Prepare the Meta consent default",
-        "simpleValueType": true,
-        "defaultValue": false,
-        "alwaysInSummary": true,
-        "help": "This tag prepares the Meta consent default itself, before any CMP script has run, so this setting decides and the CMP configuration is not read. Checked prepares the Meta default and queue for the official template; the CMP sends every subsequent update. Unchecked sends no Meta consent command at all. Custom HTML and third-party templates are not guaranteed. This feature does not prevent the Meta SDK from being downloaded. The GDPR/US regime is unavailable synchronously on the first page, so a marked temporary revoke is queued. It is not equivalent to Limited Data Use; the CMP removes or neutralizes only that marked entry before applying the regional update."
+        "type": "NON_EMPTY"
       },
       {
-        "type": "CHECKBOX",
-        "name": "openAiConsentMode",
-        "checkboxText": "Prepare the OpenAI consent default",
-        "simpleValueType": true,
-        "defaultValue": false,
-        "alwaysInSummary": true,
-        "help": "This tag prepares the OpenAI consent default itself, before any CMP script has run, so this setting decides and the CMP configuration is not read. Checked prepares the OpenAI default and queue for the official template; the CMP sends every subsequent update. Unchecked sends no OpenAI consent command at all. Custom HTML and third-party templates are not guaranteed. This feature controls consent commands only; it does not prevent the OpenAI SDK from being downloaded. A valid stored OpenAI bit supplies the default; absent or malformed state starts with consent false."
+        "type": "POSITIVE_NUMBER"
       }
-    ]
+    ],
+    "displayName": "Your Partner ID",
+    "simpleValueType": true,
+    "name": "partnerId",
+    "type": "TEXT",
+    "help": "Create a free \u003ca href\u003d\"https://www.abconsent.com\"\u003eSirdata CMP account\u003c/a\u003e or get your Partner ID and Configuration ID from your existing account."
+  },
+  {
+    "alwaysInSummary": true,
+    "valueValidators": [
+      {
+        "type": "NON_EMPTY"
+      }
+    ],
+    "displayName": "Your Configuration ID",
+    "simpleValueType": true,
+    "name": "configId",
+    "type": "TEXT"
+  },
+  {
+    "alwaysInSummary": true,
+    "valueValidators": [
+      {
+        "type": "REGEX",
+        "args": [
+          "[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+(?\u003d[\\/\\s?#]|$)"
+        ]
+      }
+    ],
+    "displayName": "Optionnal : first party host",
+    "simpleValueType": true,
+    "name": "firstPartyHost",
+    "type": "TEXT",
+    "help": "This field is only available if the option is enabled in your account. Enter the first-party hostname declared in your ABConsent (Sirdata CMP) settings. Do not include \u0027http://\u0027 or \u0027https://\u0027. If unsure, leave it empty.",
+    "defaultValue": ""
   },
   {
     "type": "GROUP",
     "name": "consent Mode",
     "displayName": "Google Consent Mode",
     "groupStyle": "ZIPPY_OPEN",
+    "enablingConditions": [
+      {
+        "paramName": "configId",
+        "paramValue": "",
+        "type": "NOT_EQUALS"
+      }
+    ],
     "subParams": [
       {
         "help": "Leave this checked to let the template set the Google Consent Mode default state. Every signal starts denied, and a returning visitor\u0027s recorded choice is replayed as soon as the page loads, so no measurement is lost waiting for the banner. Uncheck it only if Google Consent Mode is already handled elsewhere on the page.",
@@ -120,10 +150,10 @@ ___TEMPLATE_PARAMETERS___
         "defaultValue": true
       },
       {
-        "help": "The automatic default state suits most sites and needs no configuration. Check this only to declare your own defaults per country or state below \u2014 they then replace the automatic ones, and a returning visitor\u0027s recorded choice still takes precedence over them.",
+        "help": "The automatic configuration suits most sites and needs no setup. Check this only to declare your own default consent state per country or state below — it then replaces the automatic one, and a returning visitor\u0027s recorded choice still takes precedence over it.",
         "type": "CHECKBOX",
         "name": "overrideDefaultConsent",
-        "checkboxText": "Set the default consent state myself",
+        "checkboxText": "Override the automatic configuration",
         "simpleValueType": true,
         "defaultValue": false,
         "enablingConditions": [
@@ -136,1432 +166,1408 @@ ___TEMPLATE_PARAMETERS___
       },
       {
         "displayName": "Default Consent Mode Settings",
-        "name": "defaultSettings",
-        "groupStyle": "ZIPPY_OPEN",
-        "type": "GROUP",
-        "subParams": [
+        "alwaysInSummary": true,
+        "name": "customConsentSettings",
+        "paramTableColumns": [
           {
-            "alwaysInSummary": true,
-            "name": "customConsentSettings",
-            "paramTableColumns": [
-              {
-                "param": {
-                  "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for advertising purposes.",
-                  "macrosInSelect": false,
-                  "selectItems": [
-                    {
-                      "displayValue": "granted",
-                      "value": "granted"
-                    },
-                    {
-                      "displayValue": "denied",
-                      "value": "denied"
-                    },
-                    {
-                      "displayValue": "not used",
-                      "value": "not used"
-                    }
-                  ],
-                  "displayName": "Advertising",
-                  "defaultValue": "denied",
-                  "simpleValueType": true,
-                  "name": "ad_storage",
-                  "type": "SELECT"
+            "param": {
+              "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for advertising purposes.",
+              "macrosInSelect": false,
+              "selectItems": [
+                {
+                  "displayValue": "granted",
+                  "value": "granted"
                 },
-                "isUnique": false
-              },
-              {
-                "param": {
-                  "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for analytics purposes.",
-                  "macrosInSelect": false,
-                  "selectItems": [
-                    {
-                      "displayValue": "granted",
-                      "value": "granted"
-                    },
-                    {
-                      "displayValue": "denied",
-                      "value": "denied"
-                    },
-                    {
-                      "displayValue": "not used",
-                      "value": "not used"
-                    }
-                  ],
-                  "displayName": "Analytics",
-                  "defaultValue": "denied",
-                  "simpleValueType": true,
-                  "name": "analytics_storage",
-                  "type": "SELECT"
+                {
+                  "displayValue": "denied",
+                  "value": "denied"
                 },
-                "isUnique": false
-              },
-              {
-                "param": {
-                  "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for content personalization purposes.",
-                  "macrosInSelect": false,
-                  "selectItems": [
-                    {
-                      "displayValue": "granted",
-                      "value": "granted"
-                    },
-                    {
-                      "displayValue": "denied",
-                      "value": "denied"
-                    },
-                    {
-                      "displayValue": "not used",
-                      "value": "not used"
-                    }
-                  ],
-                  "displayName": "Personalization",
-                  "defaultValue": "denied",
-                  "simpleValueType": true,
-                  "name": "personalization_storage",
-                  "type": "SELECT"
+                {
+                  "displayValue": "not used",
+                  "value": "not used"
+                }
+              ],
+              "displayName": "Advertising",
+              "defaultValue": "denied",
+              "simpleValueType": true,
+              "name": "ad_storage",
+              "type": "SELECT"
+            },
+            "isUnique": false
+          },
+          {
+            "param": {
+              "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for analytics purposes.",
+              "macrosInSelect": false,
+              "selectItems": [
+                {
+                  "displayValue": "granted",
+                  "value": "granted"
                 },
-                "isUnique": false
-              },
-              {
-                "param": {
-                  "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for functionality purposes.",
-                  "macrosInSelect": false,
-                  "selectItems": [
-                    {
-                      "displayValue": "granted",
-                      "value": "granted"
-                    },
-                    {
-                      "displayValue": "denied",
-                      "value": "denied"
-                    },
-                    {
-                      "displayValue": "not used",
-                      "value": "not used"
-                    }
-                  ],
-                  "displayName": "Functionality",
-                  "defaultValue": "denied",
-                  "simpleValueType": true,
-                  "name": "functionality_storage",
-                  "type": "SELECT"
+                {
+                  "displayValue": "denied",
+                  "value": "denied"
                 },
-                "isUnique": false
-              },
-              {
-                "param": {
-                  "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for security purposes.",
-                  "macrosInSelect": false,
-                  "selectItems": [
-                    {
-                      "displayValue": "granted",
-                      "value": "granted"
-                    },
-                    {
-                      "displayValue": "denied",
-                      "value": "denied"
-                    },
-                    {
-                      "displayValue": "not used",
-                      "value": "not used"
-                    }
-                  ],
-                  "displayName": "Security",
-                  "defaultValue": "denied",
-                  "simpleValueType": true,
-                  "name": "security_storage",
-                  "type": "SELECT"
+                {
+                  "displayValue": "not used",
+                  "value": "not used"
+                }
+              ],
+              "displayName": "Analytics",
+              "defaultValue": "denied",
+              "simpleValueType": true,
+              "name": "analytics_storage",
+              "type": "SELECT"
+            },
+            "isUnique": false
+          },
+          {
+            "param": {
+              "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for content personalization purposes.",
+              "macrosInSelect": false,
+              "selectItems": [
+                {
+                  "displayValue": "granted",
+                  "value": "granted"
                 },
-                "isUnique": false
-              },
-              {
-                "param": {
-                  "help": "How long to wait (in milliseconds) before an \u0027update\u0027 command.",
-                  "valueValidators": [
-                    {
-                      "type": "NON_NEGATIVE_NUMBER"
-                    }
-                  ],
-                  "displayName": "Wait for Update",
-                  "defaultValue": 1000,
-                  "simpleValueType": true,
-                  "name": "wait_for_update",
-                  "valueUnit": "milliseconds",
-                  "type": "TEXT"
+                {
+                  "displayValue": "denied",
+                  "value": "denied"
                 },
-                "isUnique": false
-              },
-              {
-                "param": {
-                  "selectItems": [
-                    {
-                      "displayValue": "ALL",
-                      "value": "ALL"
-                    },
-                    {
-                      "displayValue": "Afghanistan",
-                      "value": "AF"
-                    },
-                    {
-                      "displayValue": "Åland Islands",
-                      "value": "AX"
-                    },
-                    {
-                      "displayValue": "Albania",
-                      "value": "AL"
-                    },
-                    {
-                      "displayValue": "Algeria",
-                      "value": "DZ"
-                    },
-                    {
-                      "displayValue": "American Samoa",
-                      "value": "AS"
-                    },
-                    {
-                      "displayValue": "Andorra",
-                      "value": "AD"
-                    },
-                    {
-                      "displayValue": "Angola",
-                      "value": "AO"
-                    },
-                    {
-                      "displayValue": "Anguilla",
-                      "value": "AI"
-                    },
-                    {
-                      "displayValue": "Antarctica",
-                      "value": "AQ"
-                    },
-                    {
-                      "displayValue": "Antigua and Barbuda",
-                      "value": "AG"
-                    },
-                    {
-                      "displayValue": "Argentina",
-                      "value": "AR"
-                    },
-                    {
-                      "displayValue": "Armenia",
-                      "value": "AM"
-                    },
-                    {
-                      "displayValue": "Aruba",
-                      "value": "AW"
-                    },
-                    {
-                      "displayValue": "Australia",
-                      "value": "AU"
-                    },
-                    {
-                      "displayValue": "Austria",
-                      "value": "AT"
-                    },
-                    {
-                      "displayValue": "Azerbaijan",
-                      "value": "AZ"
-                    },
-                    {
-                      "displayValue": "Bahamas",
-                      "value": "BS"
-                    },
-                    {
-                      "displayValue": "Bahrain",
-                      "value": "BH"
-                    },
-                    {
-                      "displayValue": "Bangladesh",
-                      "value": "BD"
-                    },
-                    {
-                      "displayValue": "Barbados",
-                      "value": "BB"
-                    },
-                    {
-                      "displayValue": "Belarus",
-                      "value": "BY"
-                    },
-                    {
-                      "displayValue": "Belgium",
-                      "value": "BE"
-                    },
-                    {
-                      "displayValue": "Belize",
-                      "value": "BZ"
-                    },
-                    {
-                      "displayValue": "Benin",
-                      "value": "BJ"
-                    },
-                    {
-                      "displayValue": "Bermuda",
-                      "value": "BM"
-                    },
-                    {
-                      "displayValue": "Bhutan",
-                      "value": "BT"
-                    },
-                    {
-                      "displayValue": "Bolivia (Plurinational State of)",
-                      "value": "BO"
-                    },
-                    {
-                      "displayValue": "Bonaire, Sint Eustatius and Saba",
-                      "value": "BQ"
-                    },
-                    {
-                      "displayValue": "Bosnia and Herzegovina",
-                      "value": "BA"
-                    },
-                    {
-                      "displayValue": "Botswana",
-                      "value": "BW"
-                    },
-                    {
-                      "displayValue": "Bouvet Island",
-                      "value": "BV"
-                    },
-                    {
-                      "displayValue": "Brazil",
-                      "value": "BR"
-                    },
-                    {
-                      "displayValue": "British Indian Ocean Territory",
-                      "value": "IO"
-                    },
-                    {
-                      "displayValue": "Brunei Darussalam",
-                      "value": "BN"
-                    },
-                    {
-                      "displayValue": "Bulgaria",
-                      "value": "BG"
-                    },
-                    {
-                      "displayValue": "Burkina Faso",
-                      "value": "BF"
-                    },
-                    {
-                      "displayValue": "Burundi",
-                      "value": "BI"
-                    },
-                    {
-                      "displayValue": "Cabo Verde",
-                      "value": "CV"
-                    },
-                    {
-                      "displayValue": "Cambodia",
-                      "value": "KH"
-                    },
-                    {
-                      "displayValue": "Cameroon",
-                      "value": "CM"
-                    },
-                    {
-                      "displayValue": "Canada",
-                      "value": "CA"
-                    },
-                    {
-                      "displayValue": "Cayman Islands",
-                      "value": "KY"
-                    },
-                    {
-                      "displayValue": "Central African Republic",
-                      "value": "CF"
-                    },
-                    {
-                      "displayValue": "Chad",
-                      "value": "TD"
-                    },
-                    {
-                      "displayValue": "Chile",
-                      "value": "CL"
-                    },
-                    {
-                      "displayValue": "China",
-                      "value": "CN"
-                    },
-                    {
-                      "displayValue": "Christmas Island",
-                      "value": "CX"
-                    },
-                    {
-                      "displayValue": "Cocos (Keeling) Islands",
-                      "value": "CC"
-                    },
-                    {
-                      "displayValue": "Colombia",
-                      "value": "CO"
-                    },
-                    {
-                      "displayValue": "Comoros",
-                      "value": "KM"
-                    },
-                    {
-                      "displayValue": "Congo",
-                      "value": "CG"
-                    },
-                    {
-                      "displayValue": "Congo, Democratic Republic of the",
-                      "value": "CD"
-                    },
-                    {
-                      "displayValue": "Cook Islands",
-                      "value": "CK"
-                    },
-                    {
-                      "displayValue": "Costa Rica",
-                      "value": "CR"
-                    },
-                    {
-                      "displayValue": "Côte d\u0027Ivoire",
-                      "value": "CI"
-                    },
-                    {
-                      "displayValue": "Croatia",
-                      "value": "HR"
-                    },
-                    {
-                      "displayValue": "Cuba",
-                      "value": "CU"
-                    },
-                    {
-                      "displayValue": "Curaçao",
-                      "value": "CW"
-                    },
-                    {
-                      "displayValue": "Cyprus",
-                      "value": "CY"
-                    },
-                    {
-                      "displayValue": "Czechia",
-                      "value": "CZ"
-                    },
-                    {
-                      "displayValue": "Denmark",
-                      "value": "DK"
-                    },
-                    {
-                      "displayValue": "Djibouti",
-                      "value": "DJ"
-                    },
-                    {
-                      "displayValue": "Dominica",
-                      "value": "DM"
-                    },
-                    {
-                      "displayValue": "Dominican Republic",
-                      "value": "DO"
-                    },
-                    {
-                      "displayValue": "Ecuador",
-                      "value": "EC"
-                    },
-                    {
-                      "displayValue": "Egypt",
-                      "value": "EG"
-                    },
-                    {
-                      "displayValue": "El Salvador",
-                      "value": "SV"
-                    },
-                    {
-                      "displayValue": "Equatorial Guinea",
-                      "value": "GQ"
-                    },
-                    {
-                      "displayValue": "Eritrea",
-                      "value": "ER"
-                    },
-                    {
-                      "displayValue": "Estonia",
-                      "value": "EE"
-                    },
-                    {
-                      "displayValue": "Eswatini",
-                      "value": "SZ"
-                    },
-                    {
-                      "displayValue": "Ethiopia",
-                      "value": "ET"
-                    },
-                    {
-                      "displayValue": "Falkland Islands (Malvinas)",
-                      "value": "FK"
-                    },
-                    {
-                      "displayValue": "Faroe Islands",
-                      "value": "FO"
-                    },
-                    {
-                      "displayValue": "Fiji",
-                      "value": "FJ"
-                    },
-                    {
-                      "displayValue": "Finland",
-                      "value": "FI"
-                    },
-                    {
-                      "displayValue": "France",
-                      "value": "FR"
-                    },
-                    {
-                      "displayValue": "French Guiana",
-                      "value": "GF"
-                    },
-                    {
-                      "displayValue": "French Polynesia",
-                      "value": "PF"
-                    },
-                    {
-                      "displayValue": "French Southern Territories",
-                      "value": "TF"
-                    },
-                    {
-                      "displayValue": "Gabon",
-                      "value": "GA"
-                    },
-                    {
-                      "displayValue": "Gambia",
-                      "value": "GM"
-                    },
-                    {
-                      "displayValue": "Georgia",
-                      "value": "GE"
-                    },
-                    {
-                      "displayValue": "Germany",
-                      "value": "DE"
-                    },
-                    {
-                      "displayValue": "Ghana",
-                      "value": "GH"
-                    },
-                    {
-                      "displayValue": "Gibraltar",
-                      "value": "GI"
-                    },
-                    {
-                      "displayValue": "Greece",
-                      "value": "GR"
-                    },
-                    {
-                      "displayValue": "Greenland",
-                      "value": "GL"
-                    },
-                    {
-                      "displayValue": "Grenada",
-                      "value": "GD"
-                    },
-                    {
-                      "displayValue": "Guadeloupe",
-                      "value": "GP"
-                    },
-                    {
-                      "displayValue": "Guam",
-                      "value": "GU"
-                    },
-                    {
-                      "displayValue": "Guatemala",
-                      "value": "GT"
-                    },
-                    {
-                      "displayValue": "Guernsey",
-                      "value": "GG"
-                    },
-                    {
-                      "displayValue": "Guinea",
-                      "value": "GN"
-                    },
-                    {
-                      "displayValue": "Guinea-Bissau",
-                      "value": "GW"
-                    },
-                    {
-                      "displayValue": "Guyana",
-                      "value": "GY"
-                    },
-                    {
-                      "displayValue": "Haiti",
-                      "value": "HT"
-                    },
-                    {
-                      "displayValue": "Heard Island and McDonald Islands",
-                      "value": "HM"
-                    },
-                    {
-                      "displayValue": "Holy See",
-                      "value": "VA"
-                    },
-                    {
-                      "displayValue": "Honduras",
-                      "value": "HN"
-                    },
-                    {
-                      "displayValue": "Hong Kong",
-                      "value": "HK"
-                    },
-                    {
-                      "displayValue": "Hungary",
-                      "value": "HU"
-                    },
-                    {
-                      "displayValue": "Iceland",
-                      "value": "IS"
-                    },
-                    {
-                      "displayValue": "India",
-                      "value": "IN"
-                    },
-                    {
-                      "displayValue": "Indonesia",
-                      "value": "ID"
-                    },
-                    {
-                      "displayValue": "Iran (Islamic Republic of)",
-                      "value": "IR"
-                    },
-                    {
-                      "displayValue": "Iraq",
-                      "value": "IQ"
-                    },
-                    {
-                      "displayValue": "Ireland",
-                      "value": "IE"
-                    },
-                    {
-                      "displayValue": "Isle of Man",
-                      "value": "IM"
-                    },
-                    {
-                      "displayValue": "Israel",
-                      "value": "IL"
-                    },
-                    {
-                      "displayValue": "Italy",
-                      "value": "IT"
-                    },
-                    {
-                      "displayValue": "Jamaica",
-                      "value": "JM"
-                    },
-                    {
-                      "displayValue": "Japan",
-                      "value": "JP"
-                    },
-                    {
-                      "displayValue": "Jersey",
-                      "value": "JE"
-                    },
-                    {
-                      "displayValue": "Jordan",
-                      "value": "JO"
-                    },
-                    {
-                      "displayValue": "Kazakhstan",
-                      "value": "KZ"
-                    },
-                    {
-                      "displayValue": "Kenya",
-                      "value": "KE"
-                    },
-                    {
-                      "displayValue": "Kiribati",
-                      "value": "KI"
-                    },
-                    {
-                      "displayValue": "Korea (Democratic People\u0027s Republic of)",
-                      "value": "KP"
-                    },
-                    {
-                      "displayValue": "Korea, Republic of",
-                      "value": "KR"
-                    },
-                    {
-                      "displayValue": "Kuwait",
-                      "value": "KW"
-                    },
-                    {
-                      "displayValue": "Kyrgyzstan",
-                      "value": "KG"
-                    },
-                    {
-                      "displayValue": "Lao People\u0027s Democratic Republic",
-                      "value": "LA"
-                    },
-                    {
-                      "displayValue": "Latvia",
-                      "value": "LV"
-                    },
-                    {
-                      "displayValue": "Lebanon",
-                      "value": "LB"
-                    },
-                    {
-                      "displayValue": "Lesotho",
-                      "value": "LS"
-                    },
-                    {
-                      "displayValue": "Liberia",
-                      "value": "LR"
-                    },
-                    {
-                      "displayValue": "Libya",
-                      "value": "LY"
-                    },
-                    {
-                      "displayValue": "Liechtenstein",
-                      "value": "LI"
-                    },
-                    {
-                      "displayValue": "Lithuania",
-                      "value": "LT"
-                    },
-                    {
-                      "displayValue": "Luxembourg",
-                      "value": "LU"
-                    },
-                    {
-                      "displayValue": "Macao",
-                      "value": "MO"
-                    },
-                    {
-                      "displayValue": "Madagascar",
-                      "value": "MG"
-                    },
-                    {
-                      "displayValue": "Malawi",
-                      "value": "MW"
-                    },
-                    {
-                      "displayValue": "Malaysia",
-                      "value": "MY"
-                    },
-                    {
-                      "displayValue": "Maldives",
-                      "value": "MV"
-                    },
-                    {
-                      "displayValue": "Mali",
-                      "value": "ML"
-                    },
-                    {
-                      "displayValue": "Malta",
-                      "value": "MT"
-                    },
-                    {
-                      "displayValue": "Marshall Islands",
-                      "value": "MH"
-                    },
-                    {
-                      "displayValue": "Martinique",
-                      "value": "MQ"
-                    },
-                    {
-                      "displayValue": "Mauritania",
-                      "value": "MR"
-                    },
-                    {
-                      "displayValue": "Mauritius",
-                      "value": "MU"
-                    },
-                    {
-                      "displayValue": "Mayotte",
-                      "value": "YT"
-                    },
-                    {
-                      "displayValue": "Mexico",
-                      "value": "MX"
-                    },
-                    {
-                      "displayValue": "Micronesia (Federated States of)",
-                      "value": "FM"
-                    },
-                    {
-                      "displayValue": "Moldova, Republic of",
-                      "value": "MD"
-                    },
-                    {
-                      "displayValue": "Monaco",
-                      "value": "MC"
-                    },
-                    {
-                      "displayValue": "Mongolia",
-                      "value": "MN"
-                    },
-                    {
-                      "displayValue": "Montenegro",
-                      "value": "ME"
-                    },
-                    {
-                      "displayValue": "Montserrat",
-                      "value": "MS"
-                    },
-                    {
-                      "displayValue": "Morocco",
-                      "value": "MA"
-                    },
-                    {
-                      "displayValue": "Mozambique",
-                      "value": "MZ"
-                    },
-                    {
-                      "displayValue": "Myanmar",
-                      "value": "MM"
-                    },
-                    {
-                      "displayValue": "Namibia",
-                      "value": "NA"
-                    },
-                    {
-                      "displayValue": "Nauru",
-                      "value": "NR"
-                    },
-                    {
-                      "displayValue": "Nepal",
-                      "value": "NP"
-                    },
-                    {
-                      "displayValue": "Netherlands, Kingdom of the",
-                      "value": "NL"
-                    },
-                    {
-                      "displayValue": "New Caledonia",
-                      "value": "NC"
-                    },
-                    {
-                      "displayValue": "New Zealand",
-                      "value": "NZ"
-                    },
-                    {
-                      "displayValue": "Nicaragua",
-                      "value": "NI"
-                    },
-                    {
-                      "displayValue": "Niger",
-                      "value": "NE"
-                    },
-                    {
-                      "displayValue": "Nigeria",
-                      "value": "NG"
-                    },
-                    {
-                      "displayValue": "Niue",
-                      "value": "NU"
-                    },
-                    {
-                      "displayValue": "Norfolk Island",
-                      "value": "NF"
-                    },
-                    {
-                      "displayValue": "North Macedonia",
-                      "value": "MK"
-                    },
-                    {
-                      "displayValue": "Northern Mariana Islands",
-                      "value": "MP"
-                    },
-                    {
-                      "displayValue": "Norway",
-                      "value": "NO"
-                    },
-                    {
-                      "displayValue": "Oman",
-                      "value": "OM"
-                    },
-                    {
-                      "displayValue": "Pakistan",
-                      "value": "PK"
-                    },
-                    {
-                      "displayValue": "Palau",
-                      "value": "PW"
-                    },
-                    {
-                      "displayValue": "Palestine, State of",
-                      "value": "PS"
-                    },
-                    {
-                      "displayValue": "Panama",
-                      "value": "PA"
-                    },
-                    {
-                      "displayValue": "Papua New Guinea",
-                      "value": "PG"
-                    },
-                    {
-                      "displayValue": "Paraguay",
-                      "value": "PY"
-                    },
-                    {
-                      "displayValue": "Peru",
-                      "value": "PE"
-                    },
-                    {
-                      "displayValue": "Philippines",
-                      "value": "PH"
-                    },
-                    {
-                      "displayValue": "Pitcairn",
-                      "value": "PN"
-                    },
-                    {
-                      "displayValue": "Poland",
-                      "value": "PL"
-                    },
-                    {
-                      "displayValue": "Portugal",
-                      "value": "PT"
-                    },
-                    {
-                      "displayValue": "Puerto Rico",
-                      "value": "PR"
-                    },
-                    {
-                      "displayValue": "Qatar",
-                      "value": "QA"
-                    },
-                    {
-                      "displayValue": "Réunion",
-                      "value": "RE"
-                    },
-                    {
-                      "displayValue": "Romania",
-                      "value": "RO"
-                    },
-                    {
-                      "displayValue": "Russian Federation",
-                      "value": "RU"
-                    },
-                    {
-                      "displayValue": "Rwanda",
-                      "value": "RW"
-                    },
-                    {
-                      "displayValue": "Saint Barthélemy",
-                      "value": "BL"
-                    },
-                    {
-                      "displayValue": "Saint Helena, Ascension and Tristan da Cunha",
-                      "value": "SH"
-                    },
-                    {
-                      "displayValue": "Saint Kitts and Nevis",
-                      "value": "KN"
-                    },
-                    {
-                      "displayValue": "Saint Lucia",
-                      "value": "LC"
-                    },
-                    {
-                      "displayValue": "Saint Martin (French part)",
-                      "value": "MF"
-                    },
-                    {
-                      "displayValue": "Saint Pierre and Miquelon",
-                      "value": "PM"
-                    },
-                    {
-                      "displayValue": "Saint Vincent and the Grenadines",
-                      "value": "VC"
-                    },
-                    {
-                      "displayValue": "Samoa",
-                      "value": "WS"
-                    },
-                    {
-                      "displayValue": "San Marino",
-                      "value": "SM"
-                    },
-                    {
-                      "displayValue": "Sao Tome and Principe",
-                      "value": "ST"
-                    },
-                    {
-                      "displayValue": "Saudi Arabia",
-                      "value": "SA"
-                    },
-                    {
-                      "displayValue": "Senegal",
-                      "value": "SN"
-                    },
-                    {
-                      "displayValue": "Serbia",
-                      "value": "RS"
-                    },
-                    {
-                      "displayValue": "Seychelles",
-                      "value": "SC"
-                    },
-                    {
-                      "displayValue": "Sierra Leone",
-                      "value": "SL"
-                    },
-                    {
-                      "displayValue": "Singapore",
-                      "value": "SG"
-                    },
-                    {
-                      "displayValue": "Sint Maarten (Dutch part)",
-                      "value": "SX"
-                    },
-                    {
-                      "displayValue": "Slovakia",
-                      "value": "SK"
-                    },
-                    {
-                      "displayValue": "Slovenia",
-                      "value": "SI"
-                    },
-                    {
-                      "displayValue": "Solomon Islands",
-                      "value": "SB"
-                    },
-                    {
-                      "displayValue": "Somalia",
-                      "value": "SO"
-                    },
-                    {
-                      "displayValue": "South Africa",
-                      "value": "ZA"
-                    },
-                    {
-                      "displayValue": "South Georgia and the South Sandwich Islands",
-                      "value": "GS"
-                    },
-                    {
-                      "displayValue": "South Sudan",
-                      "value": "SS"
-                    },
-                    {
-                      "displayValue": "Spain",
-                      "value": "ES"
-                    },
-                    {
-                      "displayValue": "Sri Lanka",
-                      "value": "LK"
-                    },
-                    {
-                      "displayValue": "Sudan",
-                      "value": "SD"
-                    },
-                    {
-                      "displayValue": "Suriname",
-                      "value": "SR"
-                    },
-                    {
-                      "displayValue": "Svalbard and Jan Mayen",
-                      "value": "SJ"
-                    },
-                    {
-                      "displayValue": "Sweden",
-                      "value": "SE"
-                    },
-                    {
-                      "displayValue": "Switzerland",
-                      "value": "CH"
-                    },
-                    {
-                      "displayValue": "Syrian Arab Republic",
-                      "value": "SY"
-                    },
-                    {
-                      "displayValue": "Taiwan, Province of China[note 1]",
-                      "value": "TW"
-                    },
-                    {
-                      "displayValue": "Tajikistan",
-                      "value": "TJ"
-                    },
-                    {
-                      "displayValue": "Tanzania, United Republic of",
-                      "value": "TZ"
-                    },
-                    {
-                      "displayValue": "Thailand",
-                      "value": "TH"
-                    },
-                    {
-                      "displayValue": "Timor-Leste",
-                      "value": "TL"
-                    },
-                    {
-                      "displayValue": "Togo",
-                      "value": "TG"
-                    },
-                    {
-                      "displayValue": "Tokelau",
-                      "value": "TK"
-                    },
-                    {
-                      "displayValue": "Tonga",
-                      "value": "TO"
-                    },
-                    {
-                      "displayValue": "Trinidad and Tobago",
-                      "value": "TT"
-                    },
-                    {
-                      "displayValue": "Tunisia",
-                      "value": "TN"
-                    },
-                    {
-                      "displayValue": "Türkiye",
-                      "value": "TR"
-                    },
-                    {
-                      "displayValue": "Turkmenistan",
-                      "value": "TM"
-                    },
-                    {
-                      "displayValue": "Turks and Caicos Islands",
-                      "value": "TC"
-                    },
-                    {
-                      "displayValue": "Tuvalu",
-                      "value": "TV"
-                    },
-                    {
-                      "displayValue": "Uganda",
-                      "value": "UG"
-                    },
-                    {
-                      "displayValue": "Ukraine",
-                      "value": "UA"
-                    },
-                    {
-                      "displayValue": "United Arab Emirates",
-                      "value": "AE"
-                    },
-                    {
-                      "displayValue": "United Kingdom of Great Britain and Northern Ireland",
-                      "value": "GB"
-                    },
-                    {
-                      "displayValue": "United States Minor Outlying Islands",
-                      "value": "UM"
-                    },
-                    {
-                      "displayValue": "United States of America",
-                      "value": "US"
-                    },
-                    {
-                      "displayValue": "USA (Alabama)",
-                      "value": "US-AL"
-                    },
-                    {
-                      "displayValue": "USA (Alaska)",
-                      "value": "US-AK"
-                    },
-                    {
-                      "displayValue": "USA (American Samoa)",
-                      "value": "US-AS"
-                    },
-                    {
-                      "displayValue": "USA (Arizona)",
-                      "value": "US-AZ"
-                    },
-                    {
-                      "displayValue": "USA (Arkansas)",
-                      "value": "US-AR"
-                    },
-                    {
-                      "displayValue": "USA (California)",
-                      "value": "US-CA"
-                    },
-                    {
-                      "displayValue": "USA (Colorado)",
-                      "value": "US-CO"
-                    },
-                    {
-                      "displayValue": "USA (Connecticut)",
-                      "value": "US-CT"
-                    },
-                    {
-                      "displayValue": "USA (Delaware)",
-                      "value": "US-DE"
-                    },
-                    {
-                      "displayValue": "USA (District of Columbia)",
-                      "value": "US-DC"
-                    },
-                    {
-                      "displayValue": "USA (Florida)",
-                      "value": "US-FL"
-                    },
-                    {
-                      "displayValue": "USA (Georgia)",
-                      "value": "US-GA"
-                    },
-                    {
-                      "displayValue": "USA (Guam)",
-                      "value": "US-GU"
-                    },
-                    {
-                      "displayValue": "USA (Hawaii)",
-                      "value": "US-HI"
-                    },
-                    {
-                      "displayValue": "USA (Idaho)",
-                      "value": "US-ID"
-                    },
-                    {
-                      "displayValue": "USA (Illinois)",
-                      "value": "US-IL"
-                    },
-                    {
-                      "displayValue": "USA (Indiana)",
-                      "value": "US-IN"
-                    },
-                    {
-                      "displayValue": "USA (Iowa)",
-                      "value": "US-IA"
-                    },
-                    {
-                      "displayValue": "USA (Kansas)",
-                      "value": "US-KS"
-                    },
-                    {
-                      "displayValue": "USA (Kentucky)",
-                      "value": "US-KY"
-                    },
-                    {
-                      "displayValue": "USA (Louisiana)",
-                      "value": "US-LA"
-                    },
-                    {
-                      "displayValue": "USA (Maine)",
-                      "value": "US-ME"
-                    },
-                    {
-                      "displayValue": "USA (Maryland)",
-                      "value": "US-MD"
-                    },
-                    {
-                      "displayValue": "USA (Massachusetts)",
-                      "value": "US-MA"
-                    },
-                    {
-                      "displayValue": "USA (Michigan)",
-                      "value": "US-MI"
-                    },
-                    {
-                      "displayValue": "USA (Minnesota)",
-                      "value": "US-MN"
-                    },
-                    {
-                      "displayValue": "USA (Mississippi)",
-                      "value": "US-MS"
-                    },
-                    {
-                      "displayValue": "USA (Missouri)",
-                      "value": "US-MO"
-                    },
-                    {
-                      "displayValue": "USA (Montana)",
-                      "value": "US-MT"
-                    },
-                    {
-                      "displayValue": "USA (Nebraska)",
-                      "value": "US-NE"
-                    },
-                    {
-                      "displayValue": "USA (Nevada)",
-                      "value": "US-NV"
-                    },
-                    {
-                      "displayValue": "USA (New Hampshire)",
-                      "value": "US-NH"
-                    },
-                    {
-                      "displayValue": "USA (New Jersey)",
-                      "value": "US-NJ"
-                    },
-                    {
-                      "displayValue": "USA (New Mexico)",
-                      "value": "US-NM"
-                    },
-                    {
-                      "displayValue": "USA (New York)",
-                      "value": "US-NY"
-                    },
-                    {
-                      "displayValue": "USA (North Carolina)",
-                      "value": "US-NC"
-                    },
-                    {
-                      "displayValue": "USA (North Dakota)",
-                      "value": "US-ND"
-                    },
-                    {
-                      "displayValue": "USA (Northern Mariana Islands)",
-                      "value": "US-MP"
-                    },
-                    {
-                      "displayValue": "USA (Ohio)",
-                      "value": "US-OH"
-                    },
-                    {
-                      "displayValue": "USA (Oklahoma)",
-                      "value": "US-OK"
-                    },
-                    {
-                      "displayValue": "USA (Oregon)",
-                      "value": "US-OR"
-                    },
-                    {
-                      "displayValue": "USA (Pennsylvania)",
-                      "value": "US-PA"
-                    },
-                    {
-                      "displayValue": "USA (Puerto Rico)",
-                      "value": "US-PR"
-                    },
-                    {
-                      "displayValue": "USA (Rhode Island)",
-                      "value": "US-RI"
-                    },
-                    {
-                      "displayValue": "USA (South Carolina)",
-                      "value": "US-SC"
-                    },
-                    {
-                      "displayValue": "USA (South Dakota)",
-                      "value": "US-SD"
-                    },
-                    {
-                      "displayValue": "USA (Tennessee)",
-                      "value": "US-TN"
-                    },
-                    {
-                      "displayValue": "USA (Texas)",
-                      "value": "US-TX"
-                    },
-                    {
-                      "displayValue": "USA (United States Minor Outlying Islands)",
-                      "value": "US-UM"
-                    },
-                    {
-                      "displayValue": "USA (Utah)",
-                      "value": "US-UT"
-                    },
-                    {
-                      "displayValue": "USA (Vermont)",
-                      "value": "US-VT"
-                    },
-                    {
-                      "displayValue": "USA (Virgin Islands)",
-                      "value": "US-VI"
-                    },
-                    {
-                      "displayValue": "USA (Virginia)",
-                      "value": "US-VA"
-                    },
-                    {
-                      "displayValue": "USA (Washington)",
-                      "value": "US-WA"
-                    },
-                    {
-                      "displayValue": "USA (West Virginia)",
-                      "value": "US-WV"
-                    },
-                    {
-                      "displayValue": "USA (Wisconsin)",
-                      "value": "US-WI"
-                    },
-                    {
-                      "displayValue": "USA (Wyoming)",
-                      "value": "US-WY"
-                    },
-                    {
-                      "displayValue": "Uruguay",
-                      "value": "UY"
-                    },
-                    {
-                      "displayValue": "Uzbekistan",
-                      "value": "UZ"
-                    },
-                    {
-                      "displayValue": "Vanuatu",
-                      "value": "VU"
-                    },
-                    {
-                      "displayValue": "Venezuela (Bolivarian Republic of)",
-                      "value": "VE"
-                    },
-                    {
-                      "displayValue": "Viet Nam",
-                      "value": "VN"
-                    },
-                    {
-                      "displayValue": "Virgin Islands (British)",
-                      "value": "VG"
-                    },
-                    {
-                      "displayValue": "Virgin Islands (U.S.)",
-                      "value": "VI"
-                    },
-                    {
-                      "displayValue": "Wallis and Futuna",
-                      "value": "WF"
-                    },
-                    {
-                      "displayValue": "Western Sahara",
-                      "value": "EH"
-                    },
-                    {
-                      "displayValue": "Yemen",
-                      "value": "YE"
-                    },
-                    {
-                      "displayValue": "Zambia",
-                      "value": "ZM"
-                    },
-                    {
-                      "displayValue": "Zimbabwe",
-                      "value": "ZW"
-                    }
-                  ],
-                  "displayName": "Country / State",
-                  "simpleValueType": true,
-                  "name": "region",
-                  "type": "SELECT"
+                {
+                  "displayValue": "not used",
+                  "value": "not used"
+                }
+              ],
+              "displayName": "Personalization",
+              "defaultValue": "denied",
+              "simpleValueType": true,
+              "name": "personalization_storage",
+              "type": "SELECT"
+            },
+            "isUnique": false
+          },
+          {
+            "param": {
+              "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for functionality purposes.",
+              "macrosInSelect": false,
+              "selectItems": [
+                {
+                  "displayValue": "granted",
+                  "value": "granted"
                 },
-                "isUnique": false
-              }
-            ],
-            "editRowTitle": "Edit Rule",
-            "type": "PARAM_TABLE",
-            "newRowButtonText": "Add Rule",
-            "newRowTitle": "Add Rule",
-            "enablingConditions": [
-              {
-                "paramName": "consentMode",
-                "paramValue": true,
-                "type": "EQUALS"
-              },
-              {
-                "paramName": "overrideDefaultConsent",
-                "paramValue": true,
-                "type": "EQUALS"
-              }
-            ],
-            "help": "These rules replace the automatic default state entirely. A visitor whose choice is already recorded is unaffected: that choice is replayed over whatever is set here."
+                {
+                  "displayValue": "denied",
+                  "value": "denied"
+                },
+                {
+                  "displayValue": "not used",
+                  "value": "not used"
+                }
+              ],
+              "displayName": "Functionality",
+              "defaultValue": "denied",
+              "simpleValueType": true,
+              "name": "functionality_storage",
+              "type": "SELECT"
+            },
+            "isUnique": false
+          },
+          {
+            "param": {
+              "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for security purposes.",
+              "macrosInSelect": false,
+              "selectItems": [
+                {
+                  "displayValue": "granted",
+                  "value": "granted"
+                },
+                {
+                  "displayValue": "denied",
+                  "value": "denied"
+                },
+                {
+                  "displayValue": "not used",
+                  "value": "not used"
+                }
+              ],
+              "displayName": "Security",
+              "defaultValue": "denied",
+              "simpleValueType": true,
+              "name": "security_storage",
+              "type": "SELECT"
+            },
+            "isUnique": false
+          },
+          {
+            "param": {
+              "help": "How long to wait (in milliseconds) before an \u0027update\u0027 command.",
+              "valueValidators": [
+                {
+                  "type": "NON_NEGATIVE_NUMBER"
+                }
+              ],
+              "displayName": "Wait for Update",
+              "defaultValue": 1000,
+              "simpleValueType": true,
+              "name": "wait_for_update",
+              "valueUnit": "milliseconds",
+              "type": "TEXT"
+            },
+            "isUnique": false
+          },
+          {
+            "param": {
+              "selectItems": [
+                {
+                  "displayValue": "ALL",
+                  "value": "ALL"
+                },
+                {
+                  "displayValue": "Afghanistan",
+                  "value": "AF"
+                },
+                {
+                  "displayValue": "Åland Islands",
+                  "value": "AX"
+                },
+                {
+                  "displayValue": "Albania",
+                  "value": "AL"
+                },
+                {
+                  "displayValue": "Algeria",
+                  "value": "DZ"
+                },
+                {
+                  "displayValue": "American Samoa",
+                  "value": "AS"
+                },
+                {
+                  "displayValue": "Andorra",
+                  "value": "AD"
+                },
+                {
+                  "displayValue": "Angola",
+                  "value": "AO"
+                },
+                {
+                  "displayValue": "Anguilla",
+                  "value": "AI"
+                },
+                {
+                  "displayValue": "Antarctica",
+                  "value": "AQ"
+                },
+                {
+                  "displayValue": "Antigua and Barbuda",
+                  "value": "AG"
+                },
+                {
+                  "displayValue": "Argentina",
+                  "value": "AR"
+                },
+                {
+                  "displayValue": "Armenia",
+                  "value": "AM"
+                },
+                {
+                  "displayValue": "Aruba",
+                  "value": "AW"
+                },
+                {
+                  "displayValue": "Australia",
+                  "value": "AU"
+                },
+                {
+                  "displayValue": "Austria",
+                  "value": "AT"
+                },
+                {
+                  "displayValue": "Azerbaijan",
+                  "value": "AZ"
+                },
+                {
+                  "displayValue": "Bahamas",
+                  "value": "BS"
+                },
+                {
+                  "displayValue": "Bahrain",
+                  "value": "BH"
+                },
+                {
+                  "displayValue": "Bangladesh",
+                  "value": "BD"
+                },
+                {
+                  "displayValue": "Barbados",
+                  "value": "BB"
+                },
+                {
+                  "displayValue": "Belarus",
+                  "value": "BY"
+                },
+                {
+                  "displayValue": "Belgium",
+                  "value": "BE"
+                },
+                {
+                  "displayValue": "Belize",
+                  "value": "BZ"
+                },
+                {
+                  "displayValue": "Benin",
+                  "value": "BJ"
+                },
+                {
+                  "displayValue": "Bermuda",
+                  "value": "BM"
+                },
+                {
+                  "displayValue": "Bhutan",
+                  "value": "BT"
+                },
+                {
+                  "displayValue": "Bolivia (Plurinational State of)",
+                  "value": "BO"
+                },
+                {
+                  "displayValue": "Bonaire, Sint Eustatius and Saba",
+                  "value": "BQ"
+                },
+                {
+                  "displayValue": "Bosnia and Herzegovina",
+                  "value": "BA"
+                },
+                {
+                  "displayValue": "Botswana",
+                  "value": "BW"
+                },
+                {
+                  "displayValue": "Bouvet Island",
+                  "value": "BV"
+                },
+                {
+                  "displayValue": "Brazil",
+                  "value": "BR"
+                },
+                {
+                  "displayValue": "British Indian Ocean Territory",
+                  "value": "IO"
+                },
+                {
+                  "displayValue": "Brunei Darussalam",
+                  "value": "BN"
+                },
+                {
+                  "displayValue": "Bulgaria",
+                  "value": "BG"
+                },
+                {
+                  "displayValue": "Burkina Faso",
+                  "value": "BF"
+                },
+                {
+                  "displayValue": "Burundi",
+                  "value": "BI"
+                },
+                {
+                  "displayValue": "Cabo Verde",
+                  "value": "CV"
+                },
+                {
+                  "displayValue": "Cambodia",
+                  "value": "KH"
+                },
+                {
+                  "displayValue": "Cameroon",
+                  "value": "CM"
+                },
+                {
+                  "displayValue": "Canada",
+                  "value": "CA"
+                },
+                {
+                  "displayValue": "Cayman Islands",
+                  "value": "KY"
+                },
+                {
+                  "displayValue": "Central African Republic",
+                  "value": "CF"
+                },
+                {
+                  "displayValue": "Chad",
+                  "value": "TD"
+                },
+                {
+                  "displayValue": "Chile",
+                  "value": "CL"
+                },
+                {
+                  "displayValue": "China",
+                  "value": "CN"
+                },
+                {
+                  "displayValue": "Christmas Island",
+                  "value": "CX"
+                },
+                {
+                  "displayValue": "Cocos (Keeling) Islands",
+                  "value": "CC"
+                },
+                {
+                  "displayValue": "Colombia",
+                  "value": "CO"
+                },
+                {
+                  "displayValue": "Comoros",
+                  "value": "KM"
+                },
+                {
+                  "displayValue": "Congo",
+                  "value": "CG"
+                },
+                {
+                  "displayValue": "Congo, Democratic Republic of the",
+                  "value": "CD"
+                },
+                {
+                  "displayValue": "Cook Islands",
+                  "value": "CK"
+                },
+                {
+                  "displayValue": "Costa Rica",
+                  "value": "CR"
+                },
+                {
+                  "displayValue": "Côte d\u0027Ivoire",
+                  "value": "CI"
+                },
+                {
+                  "displayValue": "Croatia",
+                  "value": "HR"
+                },
+                {
+                  "displayValue": "Cuba",
+                  "value": "CU"
+                },
+                {
+                  "displayValue": "Curaçao",
+                  "value": "CW"
+                },
+                {
+                  "displayValue": "Cyprus",
+                  "value": "CY"
+                },
+                {
+                  "displayValue": "Czechia",
+                  "value": "CZ"
+                },
+                {
+                  "displayValue": "Denmark",
+                  "value": "DK"
+                },
+                {
+                  "displayValue": "Djibouti",
+                  "value": "DJ"
+                },
+                {
+                  "displayValue": "Dominica",
+                  "value": "DM"
+                },
+                {
+                  "displayValue": "Dominican Republic",
+                  "value": "DO"
+                },
+                {
+                  "displayValue": "Ecuador",
+                  "value": "EC"
+                },
+                {
+                  "displayValue": "Egypt",
+                  "value": "EG"
+                },
+                {
+                  "displayValue": "El Salvador",
+                  "value": "SV"
+                },
+                {
+                  "displayValue": "Equatorial Guinea",
+                  "value": "GQ"
+                },
+                {
+                  "displayValue": "Eritrea",
+                  "value": "ER"
+                },
+                {
+                  "displayValue": "Estonia",
+                  "value": "EE"
+                },
+                {
+                  "displayValue": "Eswatini",
+                  "value": "SZ"
+                },
+                {
+                  "displayValue": "Ethiopia",
+                  "value": "ET"
+                },
+                {
+                  "displayValue": "Falkland Islands (Malvinas)",
+                  "value": "FK"
+                },
+                {
+                  "displayValue": "Faroe Islands",
+                  "value": "FO"
+                },
+                {
+                  "displayValue": "Fiji",
+                  "value": "FJ"
+                },
+                {
+                  "displayValue": "Finland",
+                  "value": "FI"
+                },
+                {
+                  "displayValue": "France",
+                  "value": "FR"
+                },
+                {
+                  "displayValue": "French Guiana",
+                  "value": "GF"
+                },
+                {
+                  "displayValue": "French Polynesia",
+                  "value": "PF"
+                },
+                {
+                  "displayValue": "French Southern Territories",
+                  "value": "TF"
+                },
+                {
+                  "displayValue": "Gabon",
+                  "value": "GA"
+                },
+                {
+                  "displayValue": "Gambia",
+                  "value": "GM"
+                },
+                {
+                  "displayValue": "Georgia",
+                  "value": "GE"
+                },
+                {
+                  "displayValue": "Germany",
+                  "value": "DE"
+                },
+                {
+                  "displayValue": "Ghana",
+                  "value": "GH"
+                },
+                {
+                  "displayValue": "Gibraltar",
+                  "value": "GI"
+                },
+                {
+                  "displayValue": "Greece",
+                  "value": "GR"
+                },
+                {
+                  "displayValue": "Greenland",
+                  "value": "GL"
+                },
+                {
+                  "displayValue": "Grenada",
+                  "value": "GD"
+                },
+                {
+                  "displayValue": "Guadeloupe",
+                  "value": "GP"
+                },
+                {
+                  "displayValue": "Guam",
+                  "value": "GU"
+                },
+                {
+                  "displayValue": "Guatemala",
+                  "value": "GT"
+                },
+                {
+                  "displayValue": "Guernsey",
+                  "value": "GG"
+                },
+                {
+                  "displayValue": "Guinea",
+                  "value": "GN"
+                },
+                {
+                  "displayValue": "Guinea-Bissau",
+                  "value": "GW"
+                },
+                {
+                  "displayValue": "Guyana",
+                  "value": "GY"
+                },
+                {
+                  "displayValue": "Haiti",
+                  "value": "HT"
+                },
+                {
+                  "displayValue": "Heard Island and McDonald Islands",
+                  "value": "HM"
+                },
+                {
+                  "displayValue": "Holy See",
+                  "value": "VA"
+                },
+                {
+                  "displayValue": "Honduras",
+                  "value": "HN"
+                },
+                {
+                  "displayValue": "Hong Kong",
+                  "value": "HK"
+                },
+                {
+                  "displayValue": "Hungary",
+                  "value": "HU"
+                },
+                {
+                  "displayValue": "Iceland",
+                  "value": "IS"
+                },
+                {
+                  "displayValue": "India",
+                  "value": "IN"
+                },
+                {
+                  "displayValue": "Indonesia",
+                  "value": "ID"
+                },
+                {
+                  "displayValue": "Iran (Islamic Republic of)",
+                  "value": "IR"
+                },
+                {
+                  "displayValue": "Iraq",
+                  "value": "IQ"
+                },
+                {
+                  "displayValue": "Ireland",
+                  "value": "IE"
+                },
+                {
+                  "displayValue": "Isle of Man",
+                  "value": "IM"
+                },
+                {
+                  "displayValue": "Israel",
+                  "value": "IL"
+                },
+                {
+                  "displayValue": "Italy",
+                  "value": "IT"
+                },
+                {
+                  "displayValue": "Jamaica",
+                  "value": "JM"
+                },
+                {
+                  "displayValue": "Japan",
+                  "value": "JP"
+                },
+                {
+                  "displayValue": "Jersey",
+                  "value": "JE"
+                },
+                {
+                  "displayValue": "Jordan",
+                  "value": "JO"
+                },
+                {
+                  "displayValue": "Kazakhstan",
+                  "value": "KZ"
+                },
+                {
+                  "displayValue": "Kenya",
+                  "value": "KE"
+                },
+                {
+                  "displayValue": "Kiribati",
+                  "value": "KI"
+                },
+                {
+                  "displayValue": "Korea (Democratic People\u0027s Republic of)",
+                  "value": "KP"
+                },
+                {
+                  "displayValue": "Korea, Republic of",
+                  "value": "KR"
+                },
+                {
+                  "displayValue": "Kuwait",
+                  "value": "KW"
+                },
+                {
+                  "displayValue": "Kyrgyzstan",
+                  "value": "KG"
+                },
+                {
+                  "displayValue": "Lao People\u0027s Democratic Republic",
+                  "value": "LA"
+                },
+                {
+                  "displayValue": "Latvia",
+                  "value": "LV"
+                },
+                {
+                  "displayValue": "Lebanon",
+                  "value": "LB"
+                },
+                {
+                  "displayValue": "Lesotho",
+                  "value": "LS"
+                },
+                {
+                  "displayValue": "Liberia",
+                  "value": "LR"
+                },
+                {
+                  "displayValue": "Libya",
+                  "value": "LY"
+                },
+                {
+                  "displayValue": "Liechtenstein",
+                  "value": "LI"
+                },
+                {
+                  "displayValue": "Lithuania",
+                  "value": "LT"
+                },
+                {
+                  "displayValue": "Luxembourg",
+                  "value": "LU"
+                },
+                {
+                  "displayValue": "Macao",
+                  "value": "MO"
+                },
+                {
+                  "displayValue": "Madagascar",
+                  "value": "MG"
+                },
+                {
+                  "displayValue": "Malawi",
+                  "value": "MW"
+                },
+                {
+                  "displayValue": "Malaysia",
+                  "value": "MY"
+                },
+                {
+                  "displayValue": "Maldives",
+                  "value": "MV"
+                },
+                {
+                  "displayValue": "Mali",
+                  "value": "ML"
+                },
+                {
+                  "displayValue": "Malta",
+                  "value": "MT"
+                },
+                {
+                  "displayValue": "Marshall Islands",
+                  "value": "MH"
+                },
+                {
+                  "displayValue": "Martinique",
+                  "value": "MQ"
+                },
+                {
+                  "displayValue": "Mauritania",
+                  "value": "MR"
+                },
+                {
+                  "displayValue": "Mauritius",
+                  "value": "MU"
+                },
+                {
+                  "displayValue": "Mayotte",
+                  "value": "YT"
+                },
+                {
+                  "displayValue": "Mexico",
+                  "value": "MX"
+                },
+                {
+                  "displayValue": "Micronesia (Federated States of)",
+                  "value": "FM"
+                },
+                {
+                  "displayValue": "Moldova, Republic of",
+                  "value": "MD"
+                },
+                {
+                  "displayValue": "Monaco",
+                  "value": "MC"
+                },
+                {
+                  "displayValue": "Mongolia",
+                  "value": "MN"
+                },
+                {
+                  "displayValue": "Montenegro",
+                  "value": "ME"
+                },
+                {
+                  "displayValue": "Montserrat",
+                  "value": "MS"
+                },
+                {
+                  "displayValue": "Morocco",
+                  "value": "MA"
+                },
+                {
+                  "displayValue": "Mozambique",
+                  "value": "MZ"
+                },
+                {
+                  "displayValue": "Myanmar",
+                  "value": "MM"
+                },
+                {
+                  "displayValue": "Namibia",
+                  "value": "NA"
+                },
+                {
+                  "displayValue": "Nauru",
+                  "value": "NR"
+                },
+                {
+                  "displayValue": "Nepal",
+                  "value": "NP"
+                },
+                {
+                  "displayValue": "Netherlands, Kingdom of the",
+                  "value": "NL"
+                },
+                {
+                  "displayValue": "New Caledonia",
+                  "value": "NC"
+                },
+                {
+                  "displayValue": "New Zealand",
+                  "value": "NZ"
+                },
+                {
+                  "displayValue": "Nicaragua",
+                  "value": "NI"
+                },
+                {
+                  "displayValue": "Niger",
+                  "value": "NE"
+                },
+                {
+                  "displayValue": "Nigeria",
+                  "value": "NG"
+                },
+                {
+                  "displayValue": "Niue",
+                  "value": "NU"
+                },
+                {
+                  "displayValue": "Norfolk Island",
+                  "value": "NF"
+                },
+                {
+                  "displayValue": "North Macedonia",
+                  "value": "MK"
+                },
+                {
+                  "displayValue": "Northern Mariana Islands",
+                  "value": "MP"
+                },
+                {
+                  "displayValue": "Norway",
+                  "value": "NO"
+                },
+                {
+                  "displayValue": "Oman",
+                  "value": "OM"
+                },
+                {
+                  "displayValue": "Pakistan",
+                  "value": "PK"
+                },
+                {
+                  "displayValue": "Palau",
+                  "value": "PW"
+                },
+                {
+                  "displayValue": "Palestine, State of",
+                  "value": "PS"
+                },
+                {
+                  "displayValue": "Panama",
+                  "value": "PA"
+                },
+                {
+                  "displayValue": "Papua New Guinea",
+                  "value": "PG"
+                },
+                {
+                  "displayValue": "Paraguay",
+                  "value": "PY"
+                },
+                {
+                  "displayValue": "Peru",
+                  "value": "PE"
+                },
+                {
+                  "displayValue": "Philippines",
+                  "value": "PH"
+                },
+                {
+                  "displayValue": "Pitcairn",
+                  "value": "PN"
+                },
+                {
+                  "displayValue": "Poland",
+                  "value": "PL"
+                },
+                {
+                  "displayValue": "Portugal",
+                  "value": "PT"
+                },
+                {
+                  "displayValue": "Puerto Rico",
+                  "value": "PR"
+                },
+                {
+                  "displayValue": "Qatar",
+                  "value": "QA"
+                },
+                {
+                  "displayValue": "Réunion",
+                  "value": "RE"
+                },
+                {
+                  "displayValue": "Romania",
+                  "value": "RO"
+                },
+                {
+                  "displayValue": "Russian Federation",
+                  "value": "RU"
+                },
+                {
+                  "displayValue": "Rwanda",
+                  "value": "RW"
+                },
+                {
+                  "displayValue": "Saint Barthélemy",
+                  "value": "BL"
+                },
+                {
+                  "displayValue": "Saint Helena, Ascension and Tristan da Cunha",
+                  "value": "SH"
+                },
+                {
+                  "displayValue": "Saint Kitts and Nevis",
+                  "value": "KN"
+                },
+                {
+                  "displayValue": "Saint Lucia",
+                  "value": "LC"
+                },
+                {
+                  "displayValue": "Saint Martin (French part)",
+                  "value": "MF"
+                },
+                {
+                  "displayValue": "Saint Pierre and Miquelon",
+                  "value": "PM"
+                },
+                {
+                  "displayValue": "Saint Vincent and the Grenadines",
+                  "value": "VC"
+                },
+                {
+                  "displayValue": "Samoa",
+                  "value": "WS"
+                },
+                {
+                  "displayValue": "San Marino",
+                  "value": "SM"
+                },
+                {
+                  "displayValue": "Sao Tome and Principe",
+                  "value": "ST"
+                },
+                {
+                  "displayValue": "Saudi Arabia",
+                  "value": "SA"
+                },
+                {
+                  "displayValue": "Senegal",
+                  "value": "SN"
+                },
+                {
+                  "displayValue": "Serbia",
+                  "value": "RS"
+                },
+                {
+                  "displayValue": "Seychelles",
+                  "value": "SC"
+                },
+                {
+                  "displayValue": "Sierra Leone",
+                  "value": "SL"
+                },
+                {
+                  "displayValue": "Singapore",
+                  "value": "SG"
+                },
+                {
+                  "displayValue": "Sint Maarten (Dutch part)",
+                  "value": "SX"
+                },
+                {
+                  "displayValue": "Slovakia",
+                  "value": "SK"
+                },
+                {
+                  "displayValue": "Slovenia",
+                  "value": "SI"
+                },
+                {
+                  "displayValue": "Solomon Islands",
+                  "value": "SB"
+                },
+                {
+                  "displayValue": "Somalia",
+                  "value": "SO"
+                },
+                {
+                  "displayValue": "South Africa",
+                  "value": "ZA"
+                },
+                {
+                  "displayValue": "South Georgia and the South Sandwich Islands",
+                  "value": "GS"
+                },
+                {
+                  "displayValue": "South Sudan",
+                  "value": "SS"
+                },
+                {
+                  "displayValue": "Spain",
+                  "value": "ES"
+                },
+                {
+                  "displayValue": "Sri Lanka",
+                  "value": "LK"
+                },
+                {
+                  "displayValue": "Sudan",
+                  "value": "SD"
+                },
+                {
+                  "displayValue": "Suriname",
+                  "value": "SR"
+                },
+                {
+                  "displayValue": "Svalbard and Jan Mayen",
+                  "value": "SJ"
+                },
+                {
+                  "displayValue": "Sweden",
+                  "value": "SE"
+                },
+                {
+                  "displayValue": "Switzerland",
+                  "value": "CH"
+                },
+                {
+                  "displayValue": "Syrian Arab Republic",
+                  "value": "SY"
+                },
+                {
+                  "displayValue": "Taiwan, Province of China[note 1]",
+                  "value": "TW"
+                },
+                {
+                  "displayValue": "Tajikistan",
+                  "value": "TJ"
+                },
+                {
+                  "displayValue": "Tanzania, United Republic of",
+                  "value": "TZ"
+                },
+                {
+                  "displayValue": "Thailand",
+                  "value": "TH"
+                },
+                {
+                  "displayValue": "Timor-Leste",
+                  "value": "TL"
+                },
+                {
+                  "displayValue": "Togo",
+                  "value": "TG"
+                },
+                {
+                  "displayValue": "Tokelau",
+                  "value": "TK"
+                },
+                {
+                  "displayValue": "Tonga",
+                  "value": "TO"
+                },
+                {
+                  "displayValue": "Trinidad and Tobago",
+                  "value": "TT"
+                },
+                {
+                  "displayValue": "Tunisia",
+                  "value": "TN"
+                },
+                {
+                  "displayValue": "Türkiye",
+                  "value": "TR"
+                },
+                {
+                  "displayValue": "Turkmenistan",
+                  "value": "TM"
+                },
+                {
+                  "displayValue": "Turks and Caicos Islands",
+                  "value": "TC"
+                },
+                {
+                  "displayValue": "Tuvalu",
+                  "value": "TV"
+                },
+                {
+                  "displayValue": "Uganda",
+                  "value": "UG"
+                },
+                {
+                  "displayValue": "Ukraine",
+                  "value": "UA"
+                },
+                {
+                  "displayValue": "United Arab Emirates",
+                  "value": "AE"
+                },
+                {
+                  "displayValue": "United Kingdom of Great Britain and Northern Ireland",
+                  "value": "GB"
+                },
+                {
+                  "displayValue": "United States Minor Outlying Islands",
+                  "value": "UM"
+                },
+                {
+                  "displayValue": "United States of America",
+                  "value": "US"
+                },
+                {
+                  "displayValue": "USA (Alabama)",
+                  "value": "US-AL"
+                },
+                {
+                  "displayValue": "USA (Alaska)",
+                  "value": "US-AK"
+                },
+                {
+                  "displayValue": "USA (American Samoa)",
+                  "value": "US-AS"
+                },
+                {
+                  "displayValue": "USA (Arizona)",
+                  "value": "US-AZ"
+                },
+                {
+                  "displayValue": "USA (Arkansas)",
+                  "value": "US-AR"
+                },
+                {
+                  "displayValue": "USA (California)",
+                  "value": "US-CA"
+                },
+                {
+                  "displayValue": "USA (Colorado)",
+                  "value": "US-CO"
+                },
+                {
+                  "displayValue": "USA (Connecticut)",
+                  "value": "US-CT"
+                },
+                {
+                  "displayValue": "USA (Delaware)",
+                  "value": "US-DE"
+                },
+                {
+                  "displayValue": "USA (District of Columbia)",
+                  "value": "US-DC"
+                },
+                {
+                  "displayValue": "USA (Florida)",
+                  "value": "US-FL"
+                },
+                {
+                  "displayValue": "USA (Georgia)",
+                  "value": "US-GA"
+                },
+                {
+                  "displayValue": "USA (Guam)",
+                  "value": "US-GU"
+                },
+                {
+                  "displayValue": "USA (Hawaii)",
+                  "value": "US-HI"
+                },
+                {
+                  "displayValue": "USA (Idaho)",
+                  "value": "US-ID"
+                },
+                {
+                  "displayValue": "USA (Illinois)",
+                  "value": "US-IL"
+                },
+                {
+                  "displayValue": "USA (Indiana)",
+                  "value": "US-IN"
+                },
+                {
+                  "displayValue": "USA (Iowa)",
+                  "value": "US-IA"
+                },
+                {
+                  "displayValue": "USA (Kansas)",
+                  "value": "US-KS"
+                },
+                {
+                  "displayValue": "USA (Kentucky)",
+                  "value": "US-KY"
+                },
+                {
+                  "displayValue": "USA (Louisiana)",
+                  "value": "US-LA"
+                },
+                {
+                  "displayValue": "USA (Maine)",
+                  "value": "US-ME"
+                },
+                {
+                  "displayValue": "USA (Maryland)",
+                  "value": "US-MD"
+                },
+                {
+                  "displayValue": "USA (Massachusetts)",
+                  "value": "US-MA"
+                },
+                {
+                  "displayValue": "USA (Michigan)",
+                  "value": "US-MI"
+                },
+                {
+                  "displayValue": "USA (Minnesota)",
+                  "value": "US-MN"
+                },
+                {
+                  "displayValue": "USA (Mississippi)",
+                  "value": "US-MS"
+                },
+                {
+                  "displayValue": "USA (Missouri)",
+                  "value": "US-MO"
+                },
+                {
+                  "displayValue": "USA (Montana)",
+                  "value": "US-MT"
+                },
+                {
+                  "displayValue": "USA (Nebraska)",
+                  "value": "US-NE"
+                },
+                {
+                  "displayValue": "USA (Nevada)",
+                  "value": "US-NV"
+                },
+                {
+                  "displayValue": "USA (New Hampshire)",
+                  "value": "US-NH"
+                },
+                {
+                  "displayValue": "USA (New Jersey)",
+                  "value": "US-NJ"
+                },
+                {
+                  "displayValue": "USA (New Mexico)",
+                  "value": "US-NM"
+                },
+                {
+                  "displayValue": "USA (New York)",
+                  "value": "US-NY"
+                },
+                {
+                  "displayValue": "USA (North Carolina)",
+                  "value": "US-NC"
+                },
+                {
+                  "displayValue": "USA (North Dakota)",
+                  "value": "US-ND"
+                },
+                {
+                  "displayValue": "USA (Northern Mariana Islands)",
+                  "value": "US-MP"
+                },
+                {
+                  "displayValue": "USA (Ohio)",
+                  "value": "US-OH"
+                },
+                {
+                  "displayValue": "USA (Oklahoma)",
+                  "value": "US-OK"
+                },
+                {
+                  "displayValue": "USA (Oregon)",
+                  "value": "US-OR"
+                },
+                {
+                  "displayValue": "USA (Pennsylvania)",
+                  "value": "US-PA"
+                },
+                {
+                  "displayValue": "USA (Puerto Rico)",
+                  "value": "US-PR"
+                },
+                {
+                  "displayValue": "USA (Rhode Island)",
+                  "value": "US-RI"
+                },
+                {
+                  "displayValue": "USA (South Carolina)",
+                  "value": "US-SC"
+                },
+                {
+                  "displayValue": "USA (South Dakota)",
+                  "value": "US-SD"
+                },
+                {
+                  "displayValue": "USA (Tennessee)",
+                  "value": "US-TN"
+                },
+                {
+                  "displayValue": "USA (Texas)",
+                  "value": "US-TX"
+                },
+                {
+                  "displayValue": "USA (United States Minor Outlying Islands)",
+                  "value": "US-UM"
+                },
+                {
+                  "displayValue": "USA (Utah)",
+                  "value": "US-UT"
+                },
+                {
+                  "displayValue": "USA (Vermont)",
+                  "value": "US-VT"
+                },
+                {
+                  "displayValue": "USA (Virgin Islands)",
+                  "value": "US-VI"
+                },
+                {
+                  "displayValue": "USA (Virginia)",
+                  "value": "US-VA"
+                },
+                {
+                  "displayValue": "USA (Washington)",
+                  "value": "US-WA"
+                },
+                {
+                  "displayValue": "USA (West Virginia)",
+                  "value": "US-WV"
+                },
+                {
+                  "displayValue": "USA (Wisconsin)",
+                  "value": "US-WI"
+                },
+                {
+                  "displayValue": "USA (Wyoming)",
+                  "value": "US-WY"
+                },
+                {
+                  "displayValue": "Uruguay",
+                  "value": "UY"
+                },
+                {
+                  "displayValue": "Uzbekistan",
+                  "value": "UZ"
+                },
+                {
+                  "displayValue": "Vanuatu",
+                  "value": "VU"
+                },
+                {
+                  "displayValue": "Venezuela (Bolivarian Republic of)",
+                  "value": "VE"
+                },
+                {
+                  "displayValue": "Viet Nam",
+                  "value": "VN"
+                },
+                {
+                  "displayValue": "Virgin Islands (British)",
+                  "value": "VG"
+                },
+                {
+                  "displayValue": "Virgin Islands (U.S.)",
+                  "value": "VI"
+                },
+                {
+                  "displayValue": "Wallis and Futuna",
+                  "value": "WF"
+                },
+                {
+                  "displayValue": "Western Sahara",
+                  "value": "EH"
+                },
+                {
+                  "displayValue": "Yemen",
+                  "value": "YE"
+                },
+                {
+                  "displayValue": "Zambia",
+                  "value": "ZM"
+                },
+                {
+                  "displayValue": "Zimbabwe",
+                  "value": "ZW"
+                }
+              ],
+              "displayName": "Country / State",
+              "simpleValueType": true,
+              "name": "region",
+              "type": "SELECT"
+            },
+            "isUnique": false
           }
         ],
+        "editRowTitle": "Edit Rule",
+        "type": "PARAM_TABLE",
+        "newRowButtonText": "Add Rule",
+        "newRowTitle": "Add Rule",
         "enablingConditions": [
-          {
-            "paramName": "consentMode",
-            "paramValue": true,
-            "type": "EQUALS"
-          },
           {
             "paramName": "overrideDefaultConsent",
             "paramValue": true,
             "type": "EQUALS"
           }
-        ]
+        ],
+        "help": "These rules replace the automatic default state entirely. A visitor whose choice is already recorded is unaffected: that choice is replayed over whatever is set here."
       },
       {
         "displayName": "Advanced Consent Mode Settings",
@@ -1605,55 +1611,52 @@ ___TEMPLATE_PARAMETERS___
     ]
   },
   {
-    "displayName": "Sirdata CMP",
-    "name": "cmp",
-    "groupStyle": "ZIPPY_OPEN",
     "type": "GROUP",
+    "name": "facebookConsentModeGroup",
+    "displayName": "Facebook Consent Mode",
+    "help": "Compatibility requires the official \u003ca href\u003d\"https://github.com/facebook/GoogleTagManager-WebTemplate-For-FacebookPixel\"\u003eFacebook template\u003c/a\u003e. Custom HTML and third-party templates are not guaranteed. This control coordinates consent commands; it does not prevent the SDK from being downloaded by another tag.",
+    "groupStyle": "ZIPPY_OPEN",
+    "enablingConditions": [
+      {
+        "paramName": "configId",
+        "paramValue": "",
+        "type": "NOT_EQUALS"
+      }
+    ],
     "subParams": [
       {
-        "alwaysInSummary": true,
-        "valueValidators": [
-          {
-            "type": "NON_EMPTY"
-          },
-          {
-            "type": "POSITIVE_NUMBER"
-          }
-        ],
-        "displayName": "Your Partner ID",
+        "type": "CHECKBOX",
+        "name": "facebookConsentMode",
+        "checkboxText": "Activate Facebook Consent Mode",
         "simpleValueType": true,
-        "name": "partnerId",
-        "type": "TEXT",
-        "help": "Create a free \u003ca href\u003d\"https://www.abconsent.com\"\u003eSirdata CMP account\u003c/a\u003e or get your Partner ID and Configuration ID from your existing account."
-      },
+        "defaultValue": false,
+        "alwaysInSummary": true,
+        "help": "This tag prepares the Facebook consent default itself, before any CMP script has run, so this setting decides and the CMP configuration is not read. Checked prepares the Facebook default and queue for the official template; the CMP sends every subsequent update. Unchecked sends no Facebook consent command at all. Custom HTML and third-party templates are not guaranteed. This feature does not prevent the Facebook SDK from being downloaded. The GDPR/US regime is unavailable synchronously on the first page, so a marked temporary revoke is queued. It is not equivalent to Limited Data Use; the CMP removes or neutralizes only that marked entry before applying the regional update."
+      }
+    ]
+  },
+  {
+    "type": "GROUP",
+    "name": "openAiConsentModeGroup",
+    "displayName": "OpenAI/GPT Ads Consent Mode",
+    "help": "Compatibility requires the official \u003ca href\u003d\"https://github.com/openai/ads-measurement-pixel-gtm-template\"\u003eOpenAI template\u003c/a\u003e. Custom HTML and third-party templates are not guaranteed. This control coordinates consent commands; it does not prevent the SDK from being downloaded by another tag.",
+    "groupStyle": "ZIPPY_OPEN",
+    "enablingConditions": [
       {
-        "alwaysInSummary": true,
-        "valueValidators": [
-          {
-            "type": "NON_EMPTY"
-          }
-        ],
-        "displayName": "Your Configuration ID",
-        "simpleValueType": true,
-        "name": "configId",
-        "type": "TEXT"
-      },
+        "paramName": "configId",
+        "paramValue": "",
+        "type": "NOT_EQUALS"
+      }
+    ],
+    "subParams": [
       {
-        "alwaysInSummary": true,
-        "valueValidators": [
-          {
-            "type": "REGEX",
-            "args": [
-              "[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+(?\u003d[\\/\\s?#]|$)"
-            ]
-          }
-        ],
-        "displayName": "Optionnal : first party host",
+        "type": "CHECKBOX",
+        "name": "openAiConsentMode",
+        "checkboxText": "Activate OpenAI/GPT Ads Consent Mode",
         "simpleValueType": true,
-        "name": "firstPartyHost",
-        "type": "TEXT",
-        "help": "This field is only available if the option is enabled in your account. Enter the first-party hostname declared in your ABConsent (Sirdata CMP) settings. Do not include \u0027http://\u0027 or \u0027https://\u0027. If unsure, leave it empty.",
-        "defaultValue": ""
+        "defaultValue": false,
+        "alwaysInSummary": true,
+        "help": "This tag prepares the OpenAI consent default itself, before any CMP script has run, so this setting decides and the CMP configuration is not read. Checked prepares the OpenAI default and queue for the official template; the CMP sends every subsequent update. Unchecked sends no OpenAI consent command at all. Custom HTML and third-party templates are not guaranteed. This feature controls consent commands only; it does not prevent the OpenAI SDK from being downloaded. A valid stored OpenAI bit supplies the default; absent or malformed state starts with consent false."
       }
     ]
   },
@@ -1749,11 +1752,16 @@ ___TEMPLATE_PARAMETERS___
         ],
         "help": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, the cookies the CMP itself owns (euconsent-v2, sdconsent-v2, usprivacy, __sdgcm, __gpcactive, __sdusnat) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically."
       }
+    ],
+    "enablingConditions": [
+      {
+        "paramName": "configId",
+        "paramValue": "",
+        "type": "NOT_EQUALS"
+      }
     ]
   }
 ]
-
-
 ___SANDBOXED_JS_FOR_WEB_TEMPLATE___
 
 const currentVersion = '1.82';
