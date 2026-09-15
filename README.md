@@ -42,6 +42,14 @@ the function or its queues; otherwise the queues are unified while non-consent c
 order. The CMP controller can remove or neutralize only the marked entry, without deleting publisher
 consent commands.
 
+A function already on the page is never replaced, for either vendor. Where Meta's has to be created,
+it is created the way their own tag template creates it: it reads `fbq.callMethod` on every call and
+hands the call to the SDK as soon as that exists, falling back to the pending list until then. That
+routing is the contract their SDK expects — it attaches `callMethod` to whatever function the page
+already has rather than replacing it — so a function that only ever appends would never reach it,
+and a consent signal sent after the SDK had loaded would queue up behind the events it was meant to
+release. OpenAI's SDK replaces its own function at startup, so a plain pending list is enough there.
+
 ## No publisher queue method is ever executed
 
 OpenAI keeps two names for its pending-command list — `oaiq.q` for the page snippet, `oaiq.queue`
@@ -116,7 +124,8 @@ It extracts the sandboxed JS straight out of `template.tpl` and replays it again
 APIs. It needs nothing but `node` — no dependencies, no install step. CI runs exactly this
 command on Node 20 and 22 for every push to `main` and every pull request. A static guard also
 rejects `try`/`catch` and the bare `arguments` object in the sandboxed section; use named
-parameters or documented template APIs such as `createArgumentsQueue` instead.
+parameters or documented template APIs such as `createArgumentsQueue` instead. It reads the code
+with comments stripped, so a comment may name a construct in order to explain why it is avoided.
 
 It is **not** Google's sandbox: it checks behaviour and these explicit syntax exclusions, not
 permissions or the complete restricted JavaScript subset. **Those still have to be validated in

@@ -1780,7 +1780,6 @@ const getCookieValues = require('getCookieValues');
 const setCookie = require('setCookie');
 const copyFromWindow = require('copyFromWindow');
 const setInWindow = require('setInWindow');
-const createArgumentsQueue = require('createArgumentsQueue');
 
 const ABconsentCMP = copyFromWindow('ABconsentCMP') || {};
 const cmpLoaded = typeof(ABconsentCMP.enableConsentMode) !== 'undefined';
@@ -2456,21 +2455,65 @@ const prepareFacebookDefault = (granted) => {
     setInWindow('ABconsentCMP', ABconsentCMP, true);
     return;
   }
+  // THE FUNCTION MUST ROUTE TO `callMethod` AT CALL TIME, and a generic arguments queue does not.
+  //
+  // Meta's SDK does not replace `fbq`: it attaches `callMethod` to whatever function the page
+  // already has. A function that only ever appends therefore never reaches the SDK, not even once
+  // it has loaded -- so a consent signal sent afterwards is appended BEHIND the events it was meant
+  // to release, and the SDK stops draining at the provisional denial that precedes them. The pixel
+  // is then paused for the rest of the page view, with nothing to indicate it. Measured against the
+  // real SDK: the signal leaves the list when the function routes, and stays in it when it does not.
+  //
+  // This shape is Meta's own: their tag template reads `fbq.callMethod.apply` on every call and
+  // routes there when it is defined, falling back to the list until then. It is not an alternative
+  // to a generic queue, it is the contract their SDK expects.
+  //
+  // An existing function is NEVER replaced. It already carries what the page put on it -- their
+  // `loaded` and `version` flags, and their own routing -- and their snippet exits on `if (f.fbq)`,
+  // so a replacement would silently drop both that state and anything their snippet would have set.
+  //
+  // Meta's own function reads the bare `arguments` object to forward a call of any length. The
+  // static guard on this file rejects that object, so the arguments are named and re-assembled
+  // instead -- the same ladder the OpenAI shim above uses, and with the same limit: an argument
+  // passed explicitly as `undefined` ahead of a defined one is not forwarded. Four covers every
+  // documented Meta command, `dataProcessingOptions` included.
+  if (!copyFromWindow('fbq')) {
+    setInWindow('fbq', function(command, arg1, arg2, arg3) {
+      const forwarded = [command];
+      if (typeof(arg3) !== 'undefined') {
+        forwarded.push(arg1);
+        forwarded.push(arg2);
+        forwarded.push(arg3);
+      } else if (typeof(arg2) !== 'undefined') {
+        forwarded.push(arg1);
+        forwarded.push(arg2);
+      } else if (typeof(arg1) !== 'undefined') {
+        forwarded.push(arg1);
+      }
+      // `null` for the receiver is the vendor's own choice in the same call.
+      if (copyFromWindow('fbq.callMethod.apply')) {
+        callInWindow('fbq.callMethod.apply', null, forwarded);
+      } else {
+        callInWindow('fbq.queue.push', forwarded);
+      }
+    }, true);
+    aliasInWindow('_fbq', 'fbq');
+    aliasInWindow('fbq.push', 'fbq');
+  }
   // Only the CANONICAL list is read. `_fbq` is Meta's own alias of `fbq` -- their page snippet sets
   // it, their own tag template aliases it -- so a DIFFERENT `_fbq.queue` is not a second copy of
   // this pixel's pending work: it belongs to ANOTHER advertiser's pixel, and merging it poured
   // their events into ours. Reading one list also removes the need to ask whether the two are one.
+  //
+  // The provisional entry has to be FIRST, ahead of any `init` or `track` already waiting, or those
+  // events are drained under the previous consent state. The list is therefore rebuilt and put back
+  // whole rather than added to: no method belonging to the page is ever called, and the previous
+  // provisional entry is dropped on the way so running twice leaves exactly one.
   const queue = copyFromWindow('fbq.queue') || [];
   const commands = [];
   appendMetaCommands(commands, queue);
   commands.unshift(['consent', signal, META_TEMPORARY_MARKER]);
-  setInWindow('fbq', undefined, true);
-  createArgumentsQueue('fbq', 'fbq.queue');
-  for (let i = 0; i < commands.length; i++) {
-    callInWindow('fbq.queue.push', commands[i]);
-  }
-  aliasInWindow('_fbq', 'fbq');
-  aliasInWindow('fbq.push', 'fbq');
+  setInWindow('fbq.queue', commands, true);
   ABconsentCMP.gtmTemplateFacebookTemporaryRevoke = true;
   setInWindow('ABconsentCMP', ABconsentCMP, true);
 };
@@ -3006,6 +3049,45 @@ ___WEB_PERMISSIONS___
                   {
                     "type": 8,
                     "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.callMethod.apply"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
                   }
                 ]
               },

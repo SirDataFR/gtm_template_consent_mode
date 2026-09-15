@@ -43,13 +43,64 @@ function extractSandboxedJs(tpl) {
 }
 const SRC = extractSandboxedJs(TPL);
 
+// Strips comments so the syntax guard below reads CODE and not prose. Without this it reddens on
+// the very comment that explains why a construct is avoided -- a check that fails on its own
+// documentation, which is worse than no check: the next reader removes the explanation, not the
+// cause. It follows quotes because the body carries URLs, and `https://` would otherwise be cut at
+// its own `//`; an escaped quote inside a string keeps the string open.
+function stripComments(src) {
+    let out = "";
+    let quote = null;
+    let i = 0;
+    while (i < src.length) {
+        const c = src[i];
+        if (quote) {
+            out += c;
+            if (c === "\\") { out += src[i + 1] === undefined ? "" : src[i + 1]; i += 2; continue; }
+            if (c === quote) { quote = null; }
+            i += 1;
+            continue;
+        }
+        if (c === "\"" || c === "'" || c === "`") { quote = c; out += c; i += 1; continue; }
+        if (c === "/" && src[i + 1] === "/") {
+            while (i < src.length && src[i] !== "\n") { i += 1; }
+            continue;
+        }
+        if (c === "/" && src[i + 1] === "*") {
+            i += 2;
+            while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) { i += 1; }
+            i += 2;
+            continue;
+        }
+        out += c;
+        i += 1;
+    }
+    return out;
+}
+
+// The stripper decides what the guard sees, so it is pinned before being trusted: a false positive
+// here rejects a valid template, a false negative lets a forbidden construct through.
+[
+    ["a line comment goes", "var a = 1; // arguments\n", false],
+    ["a block comment goes", "var a = 1; /* arguments */ var b = 2;", false],
+    ["a URL survives its own slashes", "var u = 'https://x/arguments';", true],
+    ["an escaped quote keeps the string open", "var s = 'a\\' // arguments'; var t = 1;", true],
+    ["real code is kept", "fn(arguments);", true]
+].forEach((c) => {
+    const seen = /(^|[^A-Za-z_$])arguments([^A-Za-z0-9_$]|$)/.test(stripComments(c[1]));
+    if (seen !== c[2]) {
+        throw new Error("stripComments is unreliable: " + c[0] + " -> " + seen);
+    }
+});
+
 function assertGtmSandboxSubset(src) {
+    const code = stripComments(src);
     const forbidden = [
         ["try/catch", /(^|[^A-Za-z_$])(try|catch)([^A-Za-z0-9_$]|$)/],
         ["bare arguments", /(^|[^A-Za-z_$])arguments([^A-Za-z0-9_$]|$)/]
     ];
     forbidden.forEach((entry) => {
-        if (entry[1].test(src)) {
+        if (entry[1].test(code)) {
             throw new Error("GTM sandbox subset forbids " + entry[0]);
         }
     });
@@ -1054,12 +1105,16 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
         rows.some((row) => row[0] === "fbq.callMethod" && row[1] === true && row[2] === false && row[3] === false) &&
         rows.some((row) => row[0] === "oaiq.__oaiqInitialized" && row[1] === true && row[2] === false && row[3] === false),
         JSON.stringify(rows));
-    check("createArgumentsQueue permissions are exact read/write globals",
+    check("the Meta globals stay exact read/write paths",
         rows.some((row) => row[0] === "fbq" && row[1] === true && row[2] === true) &&
         rows.some((row) => row[0] === "fbq.queue" && row[1] === true && row[2] === true),
         JSON.stringify(rows));
-    check("no callMethod.apply permission is needed",
-        !rows.some((row) => row[0] === "fbq.callMethod.apply"), JSON.stringify(rows));
+    // This assertion said the opposite until the routing was fixed: it pinned the ABSENCE of this
+    // permission, which is what a queue that only ever appends needs. The permission is now what
+    // lets the installed function hand a call to the SDK, so its absence is the defect.
+    check("the installed function may hand a call to the SDK",
+        rows.some((row) => row[0] === "fbq.callMethod.apply" && row[1] === true && row[3] === true),
+        JSON.stringify(rows));
     check("no vendor SDK domain was added to inject_script",
         permissionsText.indexOf("connect.facebook.net") === -1 && permissionsText.indexOf("bzrcdn.openai.com") === -1);
     check("template creates no locator iframe or message listener",
@@ -1698,6 +1753,61 @@ console.log("\n23. The privacy marker and the stored bits reach the Meta and Ope
         JSON.stringify(metaConsentOf(metaCourt)));
     check("and the container is NOT consulted for Meta", readsOf(metaCourt, "__sdgcm") === 0,
         String(readsOf(metaCourt, "__sdgcm")));
+
+    // THE FUNCTION INSTALLED FOR A PAGE WITHOUT A PIXEL MUST ROUTE TO THE SDK.
+    //
+    // Meta's SDK attaches `callMethod` to the function already on the page instead of replacing
+    // it, so a function that only appends never reaches the SDK -- and a consent signal sent after
+    // the SDK has loaded lands BEHIND the events it was meant to release. The SDK stops draining at
+    // the provisional denial ahead of them, so the pixel stays paused for the whole page view with
+    // nothing to indicate it. No assertion on the prepared list can see that: the list is correct
+    // either way, and only where a LATER call goes tells the two apart.
+    const neuf = run({sddan: SDDAN_LOCAL, data: META_ON});
+    check("witness -- a page without a pixel gets a function and a list",
+        typeof neuf.globals.fbq === "function" && Array.isArray(neuf.globals.fbq.queue),
+        typeof neuf.globals.fbq);
+    const avantSdk = commandList(neuf.globals.fbq.queue).length;
+    neuf.globals.fbq("track", "BeforeTheSdk");
+    check("before the SDK the call is held in the list",
+        commandList(neuf.globals.fbq.queue).length === avantSdk + 1,
+        JSON.stringify(commandList(neuf.globals.fbq.queue)));
+
+    // The SDK arrives the way it really does: it attaches `callMethod` to the existing function.
+    const recus = [];
+    neuf.globals.fbq.callMethod = function () { recus.push(Array.prototype.slice.call(arguments)); };
+    const apresSdk = commandList(neuf.globals.fbq.queue).length;
+    neuf.globals.fbq("consent", "grant");
+    check("once the SDK is there the call REACHES it",
+        recus.length === 1 && recus[0][0] === "consent" && recus[0][1] === "grant",
+        JSON.stringify(recus));
+    check("a short call arrives SHORT, not padded with undefined",
+        recus[0] && recus[0].length === 2, JSON.stringify(recus));
+    check("and it is NOT appended to the list instead",
+        commandList(neuf.globals.fbq.queue).length === apresSdk,
+        JSON.stringify(commandList(neuf.globals.fbq.queue)));
+    neuf.globals.fbq("dataProcessingOptions", ["LDU"], 0, 0);
+    check("the routed call keeps its exact arity",
+        recus.length === 2 && recus[1].length === 4 && recus[1][3] === 0,
+        JSON.stringify(recus));
+
+    // A function already on the page is never replaced: it carries the flags their snippet set and
+    // their own routing, and their snippet exits on `if (f.fbq)` so nothing would put them back.
+    function pixelEditeur() { pixelEditeur.queue.push(Array.prototype.slice.call(arguments)); }
+    pixelEditeur.queue = [["track", "PageView"]];
+    pixelEditeur.push = pixelEditeur;
+    pixelEditeur.loaded = true;
+    pixelEditeur.version = "2.0";
+    function aliasEtranger() {}
+    const garde = run({sddan: SDDAN_LOCAL, globals: {fbq: pixelEditeur, _fbq: aliasEtranger},
+        data: META_ON});
+    check("an existing pixel function is kept, with its own flags",
+        garde.globals.fbq === pixelEditeur && garde.globals.fbq.loaded === true &&
+        garde.globals.fbq.version === "2.0", typeof garde.globals.fbq);
+    check("and another advertiser's alias is not overwritten",
+        garde.globals._fbq === aliasEtranger);
+    check("witness -- the provisional default still comes first on that page",
+        JSON.stringify(metaConsentOf(garde)) === MARKED("revoke"),
+        JSON.stringify(commandList(garde.globals.fbq.queue)));
 }
 
 // Assertion floor: deleting a test section must fail loudly rather than reporting a vacuous green.
