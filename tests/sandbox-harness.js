@@ -1356,10 +1356,11 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     markedOaiq.q = sharedList;
     markedOaiq.queue = sharedList;
     const marked = run({sddan: SDDAN_LOCAL, globals: {oaiq: markedOaiq}, data: {openAiConsentMode: true}});
-    check("the mark is cleared once the question is answered",
-        marked.globals.oaiq.queue.__sdSharedStorage === undefined &&
-        marked.globals.oaiq.q.__sdSharedStorage === undefined,
-        JSON.stringify([marked.globals.oaiq.queue.__sdSharedStorage, marked.globals.oaiq.q.__sdSharedStorage]));
+    // Assert on the ORIGINAL array, not on what the template publishes afterwards. The published
+    // list is a fresh array that never carried the mark, so reading it there is a check that
+    // cannot fail -- measured: removing the line that clears the mark left it green.
+    check("the mark is cleared from the publisher's own list",
+        sharedList.__sdSharedStorage === undefined, JSON.stringify(sharedList.__sdSharedStorage));
     const markedCommands = commandList(marked.globals.oaiq.queue);
     check("one shared list is read once, not twice",
         named(markedCommands, "measure").length === 1, JSON.stringify(markedCommands));
@@ -1368,12 +1369,17 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     // lists. A publisher who installed the pixel both ways with the same identifier has exactly
     // that, so collapsing them would drop one real set of pending work.
     function twinOaiq() {}
-    twinOaiq.q = [["init", {pixelId: "same"}]];
-    twinOaiq.queue = [["init", {pixelId: "same"}]];
+    const twinQ = [["init", {pixelId: "same"}]];
+    const twinQueue = [["init", {pixelId: "same"}]];
+    twinOaiq.q = twinQ;
+    twinOaiq.queue = twinQueue;
     const twins = run({sddan: SDDAN_LOCAL, globals: {oaiq: twinOaiq}, data: {openAiConsentMode: true}});
     const twinCommands = commandList(twins.globals.oaiq.queue);
     check("distinct lists with identical commands are kept apart",
         named(twinCommands, "init").length === 2, JSON.stringify(twinCommands));
+    check("the mark is cleared on distinct lists too",
+        twinQueue.__sdSharedStorage === undefined && twinQ.__sdSharedStorage === undefined,
+        JSON.stringify([twinQueue.__sdSharedStorage, twinQ.__sdSharedStorage]));
 
     // Meta reads its canonical list alone, so another advertiser's pixel is no longer merged in.
     function ownFbq() { ownFbq.queue.push(Array.prototype.slice.call(arguments)); }
