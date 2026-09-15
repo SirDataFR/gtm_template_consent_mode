@@ -1664,15 +1664,6 @@ ___TEMPLATE_PARAMETERS___
         "type": "TEXT",
         "help": "This field is only available if the option is enabled in your account. Enter the first-party hostname declared in your ABConsent (Sirdata CMP) settings. Do not include \u0027http://\u0027 or \u0027https://\u0027. If unsure, leave it empty.",
         "defaultValue": ""
-      },
-      {
-        "type": "CHECKBOX",
-        "name": "ccpaApplyToAllStates",
-        "checkboxText": "Apply the US regulation to every US state",
-        "simpleValueType": true,
-        "defaultValue": false,
-        "alwaysInSummary": true,
-        "help": "This setting decides the US regulation scope for this page; the CMP configuration is not read. Checked treats any US visitor as covered. Unchecked restricts the scope to the states whose law the CMP implements. The scope decides when the US notice applies, which states that notice lists, and where a Global Privacy Control signal is honored. It does not change any vendor consent default."
       }
     ]
   },
@@ -1797,25 +1788,24 @@ const ABconsentCMP = copyFromWindow('ABconsentCMP') || {};
 const cmpLoaded = typeof(ABconsentCMP.enableConsentMode) !== 'undefined';
 const facebookConsentModeEnabled = data.facebookConsentMode === true;
 const openAiConsentModeEnabled = data.openAiConsentMode === true;
-const ccpaAppliesToAllStates = data.ccpaApplyToAllStates === true;
 
-// These three settings DECIDE. They do not defer to the served CMP configuration, and there is
-// no third state for them to defer WITH -- which is not a simplification but the only thing this
-// tag can honestly offer. It runs before any CMP script, so it cannot read that configuration;
-// and it is itself the one preparing the Meta and OpenAI defaults, so something has to say
-// whether to prepare them at all. A property left absent would hand that question to a script
-// that has not loaded yet, and nobody would answer it in time.
+// These two settings DECIDE. They do not defer to the served CMP configuration, and there is no
+// third state for them to defer WITH -- which is not a simplification but the only thing this tag
+// can honestly offer. It runs before any CMP script, so it cannot read that configuration; and it
+// is itself the one preparing the Meta and OpenAI defaults, so something has to say whether to
+// prepare them at all. A property left absent would hand that question to a script that has not
+// loaded yet, and nobody would answer it in time.
 //
-// Activation only, for all three: once the CMP is up it owns every subsequent update.
+// This is also why the US regulation scope is NOT settable here. That value says WHERE the
+// regulation applies, and this tag never acts on it: it cannot know the visitor's state, and
+// nothing it prepares depends on the answer. Exposing it would have been a pure pass-through
+// whose only effect was to override the CMP configuration from a page that had no opinion -- and
+// an unchecked box would then have silently narrowed the scope a publisher had widened. The
+// setting belongs where the jurisdiction is known, which is the CMP.
+//
+// Activation only, for both: once the CMP is up it owns every subsequent update.
 ABconsentCMP.gtmFacebookConsentMode = facebookConsentModeEnabled;
 ABconsentCMP.gtmOpenAiConsentMode = openAiConsentModeEnabled;
-
-// The US scope override decides WHERE the regulation applies, not whether a vendor signal is
-// sent. It travels the same way the two above do, and for the same reason: the server cannot see
-// what the page posts, so it cannot fold this into the served configuration. The CMP resolves it
-// once, and its notice, its list of states and its Global Privacy Control perimeter then read one
-// value. Absent leaves the CMP configuration alone.
-ABconsentCMP.gtmCcpaApplyToAllStates = ccpaAppliesToAllStates;
 
 if (!cmpLoaded) {
   const copyFromDataLayer = require('copyFromDataLayer');
@@ -2416,11 +2406,12 @@ const appendMetaCommands = (target, source) => {
   }
 };
 
-const prepareFacebookDefault = () => {
+const prepareFacebookDefault = (granted) => {
+  const signal = granted ? 'grant' : 'revoke';
   if (typeof(copyFromWindow('fbq.callMethod')) === 'function') {
-    // The initialized SDK drains commands synchronously. Send only the identifiable temporary
-    // revoke; the CMP's US controller consumes the marker and neutralizes it before its final DPO.
-    callInWindow('fbq', 'consent', 'revoke', META_TEMPORARY_MARKER);
+    // The initialized SDK drains commands synchronously. Send only the identifiable provisional
+    // entry; the CMP's US controller consumes the marker and neutralizes it before its final DPO.
+    callInWindow('fbq', 'consent', signal, META_TEMPORARY_MARKER);
     ABconsentCMP.gtmTemplateFacebookTemporaryRevoke = true;
     setInWindow('ABconsentCMP', ABconsentCMP, true);
     return;
@@ -2431,7 +2422,7 @@ const prepareFacebookDefault = () => {
   const commands = [];
   appendMetaCommands(commands, queue);
   if (!shareStorage) appendMetaCommands(commands, aliasQueue);
-  commands.unshift(['consent', 'revoke', META_TEMPORARY_MARKER]);
+  commands.unshift(['consent', signal, META_TEMPORARY_MARKER]);
   setInWindow('fbq', undefined, true);
   createArgumentsQueue('fbq', 'fbq.queue');
   for (let i = 0; i < commands.length; i++) {
@@ -2457,7 +2448,18 @@ if (openAiConsentModeEnabled) {
   prepareOpenAiDefault(!gpcActive && readStoredVendorConsent(getCookieSegments(), 'o') === true);
 }
 if (facebookConsentModeEnabled) {
-  prepareFacebookDefault();
+  // Same rule as OpenAI above: negative unless the stored state says otherwise, and the privacy
+  // marker wins over the container.
+  //
+  // The mapping is DELIBERATELY one-way -- a positive bit can raise the signal to a grant, a
+  // negative one never lowers it further than the default. The stored Meta bit does not mean the
+  // same thing on both regimes: under GDPR it records a consent, under the US regime it records
+  // the ABSENCE of an objection. The two call for different actions, and only one of them is a
+  // `revoke`: a US objection is expressed by limiting data use, which keeps the pixel sending,
+  // while a `revoke` PAUSES it outright. Reading the bit symmetrically would therefore pause the
+  // pixel for a returning US visitor who objected -- losing their measurement entirely instead of
+  // limiting it. Raising to a grant is safe on both regimes; the CMP resolves the rest.
+  prepareFacebookDefault(!gpcActive && readStoredVendorConsent(getCookieSegments(), 'm') === true);
 }
 if (data.consentMode) {
   gtagSet('developer_id.dOWE1OT', true);

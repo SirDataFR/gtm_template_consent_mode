@@ -137,7 +137,6 @@ function run(opts) {
                 openai: cmp.gtmOpenAiConsentMode,
                 enableConsentMode: cmp.enableConsentMode,
                 googleDefaultSet: cmp.gtmGoogleConsentModeDefaultSet,
-                ccpaAllStates: cmp.gtmCcpaApplyToAllStates,
                 miniStubApis: Object.assign({}, cmp.gtmTemplateMiniStubApis || {})
             });
             if (opts.failInjection && u.indexOf(opts.failInjection) !== -1) {
@@ -847,21 +846,32 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
             selector.selectItems === undefined),
         JSON.stringify(selectors.map((selector) => [selector.name, selector.type, selector.defaultValue])));
 
-    // The three page-level settings are binary BY DESIGN, and this guard is what keeps them so.
-    // A third "inherit the CMP configuration" state is not a nicety this tag chose to skip: it
-    // runs before any CMP script, so there is no configuration for it to read, and it is itself
-    // the one preparing the Meta and OpenAI defaults. A selector reintroduced on any of the three
-    // brings back a state nothing can honour. They are found by name anywhere in the parameter
-    // tree, so moving one between groups does not quietly drop it from this check.
+    // The page-level settings are binary BY DESIGN, and this guard is what keeps them so. A third
+    // "inherit the CMP configuration" state is not a nicety this tag chose to skip: it runs before
+    // any CMP script, so there is no configuration for it to read, and it is itself the one
+    // preparing these defaults. A selector reintroduced on either brings back a state nothing can
+    // honour. They are found by name anywhere in the parameter tree, so moving one between groups
+    // does not quietly drop it from this check.
     const flatten = (params) => params.reduce((all, param) =>
         all.concat([param], flatten(param.subParams || [])), []);
-    const PAGE_LEVEL = ["facebookConsentMode", "openAiConsentMode", "ccpaApplyToAllStates"];
+    const PAGE_LEVEL = ["facebookConsentMode", "openAiConsentMode"];
     const pageLevel = flatten(parameters).filter((param) => PAGE_LEVEL.indexOf(param.name) !== -1);
-    check("the three page-level settings exist and none is a selector",
+    check("the page-level settings exist and neither is a selector",
         pageLevel.length === PAGE_LEVEL.length && pageLevel.every((param) =>
             param.type === "CHECKBOX" && param.defaultValue === false &&
             param.selectItems === undefined),
         JSON.stringify(pageLevel.map((param) => [param.name, param.type, param.defaultValue])));
+
+    // The US regulation scope is NOT a template setting, and its absence is load-bearing: this tag
+    // never acts on it -- it cannot know the visitor's state -- so exposing it would have been a
+    // pure pass-through whose only effect was to override the CMP from a page with no opinion.
+    // An unchecked box would then have silently narrowed a scope the publisher had widened.
+    const scopeParams = flatten(parameters).filter((param) =>
+        String(param.name || "").toLowerCase().indexOf("allstates") !== -1);
+    check("no parameter offers the US regulation scope", scopeParams.length === 0,
+        JSON.stringify(scopeParams.map((param) => param.name)));
+    check("the sandboxed body publishes no US scope property",
+        SRC.indexOf("gtmCcpaApplyToAllStates") === -1);
 
     const uiCopy = group.displayName + " " + group.help + " " + selectors.map((selector) =>
         selector.checkboxText + " " + selector.help).join(" ");
@@ -1368,7 +1378,7 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
         JSON.stringify(initializedMetaCalls) === initializedMetaCallsBeforeCallback);
 }
 
-console.log("\n23. The marker reaches the OpenAI default, and the US scope override travels");
+console.log("\n23. The privacy marker and the stored bits reach the Meta and OpenAI defaults");
 {
     const readsOf = (r, name) => (r.calls.cookieReads[name] || 0);
     const GRANTING_CONTAINER = "2.o:1:1";
@@ -1402,49 +1412,42 @@ console.log("\n23. The marker reaches the OpenAI default, and the US scope overr
     check("and the container is NOT consulted", readsOf(court, "__sdgcm") === 0,
         String(readsOf(court, "__sdgcm")));
 
-    // The scope has to reach the page even when it is the only thing this tag is configured for:
-    // a value left in a local object is a value the CMP never sees. `globals` is deliberately NOT
-    // seeded here and the two vendor settings are off, so the property can only exist if the
-    // template wrote the object itself.
-    const seul = run({sddan: SDDAN_LOCAL, data: {
-        consentMode: false, ccpaApplyToAllStates: true
-    }});
-    check("the scope alone is published to the page",
-        !!seul.globals.ABconsentCMP && seul.globals.ABconsentCMP.gtmCcpaApplyToAllStates === true,
-        JSON.stringify(seul.globals.ABconsentCMP));
+    // Meta follows the SAME rule, with one asymmetry that decides its shape. The stored Meta bit
+    // does not mean the same thing under both regimes -- a consent under GDPR, the ABSENCE of an
+    // objection under the US one -- and only the GDPR reading calls for a `revoke`, which PAUSES
+    // the pixel outright. A US objection is expressed by limiting data use, which keeps it
+    // sending. So the bit may RAISE this default to a grant and never lower it below the
+    // conservative one: a returning US visitor who objected is limited by the CMP, not paused
+    // here. Reading it symmetrically would cost that visitor their whole measurement.
+    const META_ON = {facebookConsentMode: true};
+    const META_GRANTING_CONTAINER = "2.m:1:1";
+    const metaConsentOf = (r) => {
+        const consent = named(commandList(r.globals.fbq.queue), "consent");
+        return consent.length === 1 ? [consent[0][1], consent[0][2]] : consent;
+    };
+    const MARKED = (verb) => JSON.stringify([verb, "__abconsent_temporary__"]);
 
-    const restreint = run({sddan: SDDAN_LOCAL, data: {
-        consentMode: false, ccpaApplyToAllStates: false
-    }});
-    check("restricting the scope to the covered states publishes false",
-        !!restreint.globals.ABconsentCMP &&
-        restreint.globals.ABconsentCMP.gtmCcpaApplyToAllStates === false,
-        JSON.stringify(restreint.globals.ABconsentCMP));
+    const metaSansEtat = run({sddan: SDDAN_LOCAL, data: META_ON});
+    check("without stored state the Meta default stays a marked revoke",
+        JSON.stringify(metaConsentOf(metaSansEtat)) === MARKED("revoke"),
+        JSON.stringify(metaConsentOf(metaSansEtat)));
 
-    // Unset is not silence: it publishes false. Leaving the property absent would hand the scope
-    // back to the served configuration, which is exactly what a page-level setting exists to
-    // replace -- and the CMP would read the two states differently.
-    const parDefaut = run({sddan: SDDAN_LOCAL, globals: {ABconsentCMP: {sentinel: true}}, data: {
-        consentMode: false
-    }});
-    check("an unset scope publishes false rather than leaving the property absent",
-        parDefaut.globals.ABconsentCMP.gtmCcpaApplyToAllStates === false,
-        JSON.stringify(parDefaut.globals.ABconsentCMP));
+    const metaAccorde = run({sddan: SDDAN_LOCAL, data: META_ON,
+        cookies: {"__sdgcm": META_GRANTING_CONTAINER}});
+    check("a granting stored Meta bit raises the default to a marked grant",
+        JSON.stringify(metaConsentOf(metaAccorde)) === MARKED("grant"),
+        JSON.stringify(metaConsentOf(metaAccorde)));
+    check("and the container IS read for Meta", readsOf(metaAccorde, "__sdgcm") >= 1,
+        String(readsOf(metaAccorde, "__sdgcm")));
 
-    // Published BEFORE the CMP loads: it is a boot-time decision, and a value posted after /cmp
-    // has started would arrive too late for the CMP to resolve it once.
-    const charge = run({sddan: SDDAN_LOCAL, data: {
-        ccpaApplyToAllStates: true, loadCmpScripts: true, partnerId: "1020", configId: "public"
-    }});
-    check("the scope override is visible at the first /stub injection",
-        !!charge.calls.injectionStates[0] &&
-        charge.calls.injectionStates[0].ccpaAllStates === true,
-        JSON.stringify(charge.calls.injectionStates[0]));
-
-    // Scope only: it says WHERE the regulation applies, never what a vendor is told.
-    check("the scope override prepares no vendor queue and emits no default",
-        seul.globals.fbq === undefined && seul.globals.oaiq === undefined &&
-        seul.calls.defaults.length === 0, JSON.stringify(seul.calls.defaults));
+    // Same precedence as OpenAI above, and pinned on the READ for the same reason.
+    const metaCourt = run({sddan: SDDAN_LOCAL, data: META_ON,
+        cookies: {"__gpcactive": "1", "__sdgcm": META_GRANTING_CONTAINER}});
+    check("the privacy marker denies the Meta default even when the container grants",
+        JSON.stringify(metaConsentOf(metaCourt)) === MARKED("revoke"),
+        JSON.stringify(metaConsentOf(metaCourt)));
+    check("and the container is NOT consulted for Meta", readsOf(metaCourt, "__sdgcm") === 0,
+        String(readsOf(metaCourt, "__sdgcm")));
 }
 
 // Assertion floor: deleting a test section must fail loudly rather than reporting a vacuous green.

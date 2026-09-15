@@ -25,13 +25,22 @@ publishes `ABconsentCMP.gtmGoogleConsentModeDefaultSet=true` before that first d
 CMP can therefore skip its legacy fallback default while remaining responsible for every update.
 An empty settings table emits neither a Google default nor this handoff marker.
 
-OpenAI reuses the persisted `o` bit when valid, otherwise defaults to `false`. If its SDK is already
-initialized, the template sends that default directly without replacing the function or either queue;
-otherwise its `q` and `queue` files are unified while non-consent commands retain their order. Meta
-starts with a conservative, explicitly marked temporary revoke because the GDPR/US regime is not yet
-known. An initialized Meta SDK receives it directly without replacing `fbq`, `_fbq`, or their queues.
-The CMP controller can remove or neutralize only that marked entry before applying GDPR consent or US
-data-processing options, without deleting publisher consent commands.
+Both vendors start from the same rule: the prepared default is negative unless stored state says
+otherwise, and a stored privacy objection wins over it. OpenAI reuses the persisted `o` bit when
+valid; Meta reuses the persisted `m` bit the same way. Each default is explicitly marked, so the CMP
+can recognise its own provisional entry.
+
+The Meta reading is deliberately one-way — a positive bit raises the default to a grant, a negative
+one never lowers it further. The stored Meta bit does not mean the same thing under both regimes: a
+consent under GDPR, the absence of an objection under the US one. Only the first calls for a
+`revoke`, which pauses the pixel outright, where a US objection limits data use and keeps it
+sending. Reading the bit symmetrically would therefore pause the pixel for a returning US visitor
+who objected, costing them their whole measurement instead of limiting it.
+
+If a vendor SDK is already initialized, the template sends that default directly without replacing
+the function or its queues; otherwise the queues are unified while non-consent commands retain their
+order. The CMP controller can remove or neutralize only the marked entry, without deleting publisher
+consent commands.
 
 When CMP loading is configured, the template installs same-window mini-stubs only for missing CMP
 APIs so synchronous callers can queue work. It then still loads the real `/stub` before `/cmp`.
@@ -43,14 +52,13 @@ preserved.
 These controls do not inject a vendor SDK or prevent another tag from downloading one. Custom HTML
 and third-party templates are not guaranteed to use the compatible queue shapes.
 
-## US regulation scope
+## The US regulation scope is not set here
 
-A checkbox publishes `ABconsentCMP.gtmCcpaApplyToAllStates`. Checked treats any US visitor as
-covered; unchecked restricts the scope to the states whose law the CMP implements. It always
-publishes a value, for the same reason as the two settings above.
-
-The scope decides when the US notice applies, which states that notice lists, and where a Global
-Privacy Control signal is honored. It changes no vendor consent default.
+This tag never acts on it. It cannot know the visitor's state, and nothing it prepares depends on
+the answer, so a setting here would have been a pure pass-through whose only effect was to override
+the CMP from a page that had no opinion — and an unchecked box would then have silently narrowed a
+scope the publisher had widened. The scope belongs where the jurisdiction is known, which is the CMP
+configuration.
 
 ## Before submitting a change
 
