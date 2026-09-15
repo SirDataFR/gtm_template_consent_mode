@@ -108,21 +108,44 @@ fallback are preserved.
 These controls do not inject a vendor SDK or prevent another tag from downloading one. Custom HTML
 and third-party templates are not guaranteed to use the compatible queue shapes.
 
-## The default consent state is automatic, and the CMP is not optional
+## The default consent state is automatic, and geolocated
 
-The template sets the Google Consent Mode default state on its own, and that is the nominal path:
-every signal starts denied, then a returning visitor's recorded choice is replayed from the stored
-container before the page runs, a privacy signal short-circuits the whole chain to a denial, and on
-the US perimeter silence is treated as a refusal rather than as agreement. Nothing has to be
-configured for any of that.
+The template sets the Google Consent Mode default state on its own, and that is the nominal path.
+The state is not one value: it denies where a consent regulation applies and grants everywhere
+else. On top of that, a returning visitor's recorded choice is replayed from the stored container
+before the page runs, a privacy signal short-circuits the whole chain to a denial, and on the US
+perimeter silence is treated as a refusal rather than as agreement. Nothing has to be configured
+for any of that.
+
+The split rests on how Google reads these defaults: **a default with no region is the global
+status, and a region-scoped one overrides it only where it names**. So the restrictive rows do not
+have to enumerate the world — they name the regions where a regulation applies, and every other
+visitor falls through to the global row.
+
+That global row grants, and it has to. A visitor outside every regulated region is never shown a
+notice, so no choice is ever recorded and no update is ever pushed: whatever the default says
+about them, it says for the rest of the page. Denying there throttles Google tags for the rest of
+the world with nothing able to lift it — which is what a single all-denied row did, because the
+served tag it replaced had been the one granting outside the GDPR. `wait_for_update` follows the
+same split: the regulated rows are defaults awaiting an answer, the global row is a default that
+already is the answer, so it waits for nothing.
+
+The regulated list is the CMP's own perimeter rather than one invented here, so a visitor never
+gets a denied default from one and "no regulation applies" from the other. It is wider than the
+EEA — the United Kingdom, Switzerland, Brazil and the French overseas territories have their own
+ISO codes and would not be matched by a neighbour's.
 
 Publishers who need their own regional defaults check a single box, which reveals the same
 per-country rules as before and replaces the automatic state with them — a recorded choice still
-takes precedence over whatever they declare. The box starts unchecked and the rules are stored under
-a new name, so a container upgraded from an earlier version moves to the automatic state instead of
+takes precedence over whatever they declare. Replacing means replacing all of it, the global row
+included: a table that only names regions sets no default outside them at all, which is the
+publisher's call to make. The box starts unchecked and the rules are stored under a
+new name, so a container upgraded from an earlier version moves to the automatic state instead of
 replaying rules nobody reviewed.
 
-Loading the CMP is no longer a choice either: the partner and configuration identifiers are required
+## Loading the CMP is not optional
+
+Loading the CMP is no longer a choice: the partner and configuration identifiers are required
 fields. This tag only ever prepares defaults that the CMP is then responsible for resolving, and it
 installs mini-stub queues the CMP is responsible for taking over. Skipping the load left both
 half-done — defaults posted with nobody to update them, queues with nobody to drain them.

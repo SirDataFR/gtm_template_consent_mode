@@ -339,7 +339,8 @@ function purgeEvent(cookieList) {
 console.log("\n1. With no cookie at all: the ordinary path");
 {
     const r = run({sddan: SDDAN_LOCAL});
-    check("one default set", r.calls.defaults.length === 1);
+    check("three defaults set: the regulated perimeter, the US, and the global one",
+        r.calls.defaults.length === 3, JSON.stringify(r.calls.defaults.map((d) => d.region)));
     check("default all denied", r.calls.defaults[0].ad_storage === "denied" && r.calls.defaults[0].analytics_storage === "denied");
     check("wait_for_update preserved at 1000", r.calls.defaults[0].wait_for_update === 1000, JSON.stringify(r.calls.defaults[0]));
     check("template emits no update", r.calls.updates.length === 0);
@@ -434,8 +435,8 @@ console.log("\n6. The template NEVER writes this cookie -- whatever the scope");
     // WITNESS, and it is load-bearing: without it, a template doing NOTHING at all would satisfy
     // the four assertions above.
     const temoin = run({sddan: SDDAN_LOCAL});
-    check("witness -- it still pushes its default but no update",
-        temoin.calls.defaults.length === 1 && temoin.calls.updates.length === 0);
+    check("witness -- it still pushes its defaults but no update",
+        temoin.calls.defaults.length === 3 && temoin.calls.updates.length === 0);
 }
 
 console.log("\n12. Segmented container: only the segment we own is read");
@@ -1310,22 +1311,22 @@ console.log("\n21. Activation overrides and loader ordering");
     // no default at all would be worse than either mode.
     const automatic = run({sddan: SDDAN_LOCAL, data: {partnerId: "1020", configId: "public"}});
     const auto = automatic.calls.defaults[0] || {};
-    check("the automatic default state is emitted exactly once",
-        automatic.calls.defaults.length === 1, JSON.stringify(automatic.calls.defaults));
+    check("the automatic default state is emitted once per perimeter",
+        automatic.calls.defaults.length === 3, JSON.stringify(automatic.calls.defaults));
     check("the automatic default state denies every signal",
         auto.ad_storage === "denied" && auto.ad_user_data === "denied" &&
         auto.ad_personalization === "denied" && auto.analytics_storage === "denied" &&
         auto.personalization_storage === "denied" && auto.functionality_storage === "denied" &&
         auto.security_storage === "denied", JSON.stringify(auto));
-    // A default awaiting an answer, so there IS something to wait for -- and it applies
-    // everywhere, so it carries no region.
-    check("the automatic default state waits for an update and carries no region",
-        auto.wait_for_update === 1000 && auto.region === undefined, JSON.stringify(auto));
+    // A default awaiting an answer, so there IS something to wait for -- and it names the regions
+    // where a regulation applies, which is what leaves everywhere else to the global row.
+    check("the regulated default waits for an update and names its perimeter",
+        auto.wait_for_update === 1000 && auto.region && auto.region.length > 20,
+        JSON.stringify(auto));
     const emptyOverride = run({sddan: SDDAN_LOCAL, data: Object.assign(withRows([]),
         {partnerId: "1020", configId: "public"})});
     check("an override with no rule falls back to the automatic default state",
-        emptyOverride.calls.defaults.length === 1 &&
-        JSON.stringify(emptyOverride.calls.defaults[0]) === JSON.stringify(auto),
+        JSON.stringify(emptyOverride.calls.defaults) === JSON.stringify(automatic.calls.defaults),
         JSON.stringify(emptyOverride.calls.defaults));
     // Witness: the two runs above would agree just as well if rows were ignored outright. This is
     // what says the override still reaches the emission.
@@ -1875,6 +1876,88 @@ console.log("\n24. A measurement is held out of the queue the pixel drains while
     check("an existing resumption list is kept and appended to",
         named(commandList(repris.globals.ABconsentCMP.openai.preQueue), "measure").length === 2,
         JSON.stringify(commandList(repris.globals.ABconsentCMP.openai.preQueue)));
+}
+
+console.log("\n25. The automatic default grants outside every regulated region");
+{
+    // A default with NO region is the status that applies everywhere; a region-scoped one
+    // overrides it where it names. So the restrictive rows name where a regulation applies, and
+    // everywhere else falls through to the global row -- which GRANTS, and has to.
+    //
+    // A visitor outside every regulated region is never shown a notice, so no choice is recorded
+    // and no update is ever pushed: whatever the default says about them, it says forever. A
+    // single all-denied row therefore throttled Google tags for the rest of the world with
+    // nothing able to lift it.
+    const r = run({sddan: SDDAN_LOCAL});
+    const defauts = r.calls.defaults;
+    check("witness -- three defaults, and the last one is the global status",
+        defauts.length === 3 && defauts[2].region === undefined,
+        JSON.stringify(defauts.map((d) => d.region)));
+
+    const global = defauts[2];
+    check("the global default grants every signal it carries",
+        global.ad_storage === "granted" && global.analytics_storage === "granted" &&
+        global.personalization_storage === "granted" && global.functionality_storage === "granted" &&
+        global.security_storage === "granted", JSON.stringify(global));
+    // These two have no column in the settings table and used to be denied unconditionally, so
+    // the old single row could not have granted them even had it wanted to.
+    check("including the two ad signals the settings table cannot name",
+        global.ad_user_data === "granted" && global.ad_personalization === "granted",
+        JSON.stringify(global));
+    // It IS the answer for those visitors rather than a default awaiting one, so it waits for
+    // nothing -- the same thing the served tag says outside the GDPR. The key is ABSENT rather
+    // than zero: the emitter drops a non-positive wait, and absent is what tells gtag not to hold
+    // tags. Asserted as falsy so a row that started waiting again would redden.
+    check("and it does not make gtag wait for an update",
+        !global.wait_for_update, JSON.stringify(global));
+
+    // The perimeter is the CMP's own, not a list invented in the template: wider than the EEA,
+    // and naming the French overseas territories, which have their own codes.
+    const regule = defauts[0].region;
+    check("the regulated perimeter carries the EEA, the UK, Switzerland and Brazil",
+        ["FR", "DE", "IT", "GB", "CH", "BR"].every((c) => regule.indexOf(c) >= 0),
+        JSON.stringify(regule));
+    check("and the overseas territories a country code would not match",
+        ["MQ", "GP", "RE", "YT", "GF"].every((c) => regule.indexOf(c) >= 0), JSON.stringify(regule));
+    check("it does NOT carry the US, which has its own row",
+        regule.indexOf("US") === -1, JSON.stringify(regule));
+    check("nor a country where no regulation applies",
+        regule.indexOf("IL") === -1 && regule.indexOf("JP") === -1, JSON.stringify(regule));
+    // Kept as a string so `isUsRegion` still reads it, which is what carries the US refusal of
+    // the chain -- a no-op while the row is already denied, and the two cannot disagree.
+    check("the US row names the US and denies",
+        JSON.stringify(defauts[1].region) === JSON.stringify(["US"]) &&
+        defauts[1].ad_storage === "denied", JSON.stringify(defauts[1]));
+
+    // The chain runs per row, so a privacy marker still short-circuits EVERY one of them --
+    // including the global row, which is the only one that grants.
+    const gpc = run({sddan: SDDAN_LOCAL, cookies: {"__gpcactive": "1", "__sdgcm": "2.g:1:1111111"}});
+    check("the privacy marker denies all three defaults",
+        gpc.calls.defaults.length === 3 &&
+        gpc.calls.defaults.every((d) => d.ad_storage === "denied" && d.analytics_storage === "denied" &&
+            d.wait_for_update === 0), JSON.stringify(gpc.calls.defaults));
+
+    // And so does a recorded choice: the container replaces the row's values wherever it applies.
+    const stocke = run({sddan: SDDAN_LOCAL,
+        cookies: {"__sdgcm": "1.1111111", "euconsent-v2": "CP..."}});
+    check("a recorded choice replaces the values on all three",
+        stocke.calls.defaults.length === 3 &&
+        stocke.calls.defaults.every((d) => d.ad_storage === "granted" && d.wait_for_update === 0),
+        JSON.stringify(stocke.calls.defaults));
+
+    // NOTHING changes for a publisher who declares their own table: their rows are emitted as
+    // written, and the two ad signals they cannot name stay denied, exactly as before.
+    const manuel = run({sddan: SDDAN_LOCAL, data: withRows([{ad_storage: "granted",
+        analytics_storage: "granted", personalization_storage: "granted",
+        functionality_storage: "granted", security_storage: "granted",
+        wait_for_update: 1000, region: "ALL"}])});
+    check("a declared table emits its own rows and nothing else",
+        manuel.calls.defaults.length === 1 && manuel.calls.defaults[0].region === undefined,
+        JSON.stringify(manuel.calls.defaults));
+    check("and the two ad signals it cannot name stay denied there",
+        manuel.calls.defaults[0].ad_user_data === "denied" &&
+        manuel.calls.defaults[0].ad_personalization === "denied",
+        JSON.stringify(manuel.calls.defaults[0]));
 }
 
 // Assertion floor: deleting a test section must fail loudly rather than reporting a vacuous green.

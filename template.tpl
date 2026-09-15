@@ -2252,6 +2252,37 @@ const applyUsDefaultRefusal = (consentObject) => {
 // `wait_for_update` stays non-zero HERE, and is zeroed by the two functions above: this is a
 // default awaiting an answer, whereas they run only when an answer already exists. Zeroing it here
 // would tell gtag the answer is in when nobody has answered.
+// The regions where a consent regulation applies, and therefore where the default must refuse
+// until the visitor has answered. It is the CMP's OWN perimeter, not a list invented here: the
+// same countries its server-side determination uses, so a visitor never gets a denied default
+// from one and "no regulation applies" from the other. It is wider than the EEA -- it carries the
+// United Kingdom, Switzerland, Brazil and the French overseas territories, which have their own
+// ISO codes and would not be matched by `FR`.
+//
+// Greece appears once, as `GR`. The CMP's list also carries `EL`, the statistical code for the
+// same country, which is not a region value here and would match nobody.
+const REGULATED_REGIONS = [
+  'AT', 'BE', 'BG', 'BL', 'BR', 'CH', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GB',
+  'GF', 'GP', 'GR', 'HR', 'HU', 'IE', 'IS', 'IT', 'LI', 'LT', 'LU', 'LV', 'MF', 'MQ', 'MT',
+  'NC', 'NL', 'NO', 'PF', 'PL', 'PM', 'PT', 'RE', 'RO', 'SE', 'SI', 'SK', 'WF', 'YT'
+];
+
+// What the tag emits when the publisher has not taken the defaults over -- that is, the nominal
+// case.
+//
+// THE GLOBAL ROW IS THE ONE WITHOUT A REGION, and that is the whole mechanism: a default with no
+// region is the status that applies everywhere, and a region-scoped one overrides it for the
+// regions it names. So the restrictive rows do not have to enumerate the world -- they name where
+// a regulation applies, and everywhere else falls through to the global row.
+//
+// That global row GRANTS, and it has to. A visitor outside every regulated region is never shown
+// a notice, so no choice is ever recorded and no update is ever pushed: whatever the default says
+// about them, it says forever. Denying there would throttle Google tags for the rest of the world
+// with nothing able to lift it -- which is exactly what a single all-denied row did, because the
+// served tag it replaced had been the one granting outside the GDPR.
+//
+// `wait_for_update` follows the same split: the regulated rows are defaults AWAITING an answer,
+// the global row is a default that already is the answer, so it waits for nothing.
 const AUTOMATIC_CONSENT_SETTINGS = [{
   ad_storage: 'denied',
   analytics_storage: 'denied',
@@ -2259,7 +2290,27 @@ const AUTOMATIC_CONSENT_SETTINGS = [{
   functionality_storage: 'denied',
   security_storage: 'denied',
   wait_for_update: 1000,
-  region: 'ALL'
+  region: REGULATED_REGIONS
+}, {
+  // Kept as the STRING 'US', not folded into the list above: `isUsRegion` reads it, so this row
+  // also carries the US refusal of the chain below. Its values are already denied, which makes
+  // that a no-op today -- and keeps the two from disagreeing the day one of them moves.
+  ad_storage: 'denied',
+  analytics_storage: 'denied',
+  personalization_storage: 'denied',
+  functionality_storage: 'denied',
+  security_storage: 'denied',
+  wait_for_update: 1000,
+  region: 'US'
+}, {
+  ad_storage: 'granted',
+  analytics_storage: 'granted',
+  personalization_storage: 'granted',
+  functionality_storage: 'granted',
+  security_storage: 'granted',
+  ad_user_data: 'granted',
+  ad_personalization: 'granted',
+  wait_for_update: 0
 }];
 
 // The override is a CHECKBOX, so "unchecked" and "never set" read the same -- which is what makes
@@ -2286,8 +2337,14 @@ const generateConsentObject = function(setting, tcData, isUpdate, usOptOut) {
     return usGranted === undefined ? hasConsent(tcData, path) : usGranted;
   };
 
-  consentObject.ad_user_data = tcData ? (consented(['vendor', 'consents', 755]) ? 'granted' : 'denied') : 'denied';
-  consentObject.ad_personalization = tcData ? consented(['purpose', 'consents', 1]) && consented(['purpose', 'consents', 3]) ? consentObject.ad_user_data : 'denied' : 'denied';
+  // These two have no column in the settings table, so a row that does not name them keeps the
+  // restrictive value they have always had -- which is every row a publisher can write. A row MAY
+  // name them, and the automatic global row does: outside every regulated region there is nothing
+  // to hold back, and leaving them denied there would throttle personalization for the rest of the
+  // world with no update able to lift it. That is the one place the old single row got wrong and
+  // could not express.
+  consentObject.ad_user_data = tcData ? (consented(['vendor', 'consents', 755]) ? 'granted' : 'denied') : (setting.ad_user_data || 'denied');
+  consentObject.ad_personalization = tcData ? consented(['purpose', 'consents', 1]) && consented(['purpose', 'consents', 3]) ? consentObject.ad_user_data : 'denied' : (setting.ad_personalization || 'denied');
 
   if (setting.ad_storage !== 'not used') {
     consentObject.ad_storage = tcData ? (consented(['purpose', 'consents', 1]) && consented(['purpose', 'consents', 3]) ? 'granted' : 'denied') : setting.ad_storage;
@@ -2328,8 +2385,12 @@ const generateConsentObject = function(setting, tcData, isUpdate, usOptOut) {
     consentObject.wait_for_update = makeInteger(setting.wait_for_update);
   }
 
+  // A row carries either ONE region, as the settings table offers it, or a list -- which is how
+  // the automatic rows name a whole perimeter in a single default instead of one call per country.
+  // `ALL` is the table's way of saying "no region", so it emits no key and lands on the global
+  // status; a row with no region at all does the same, which is what the automatic global row is.
   if (setting.region && setting.region !== 'ALL') {
-    consentObject.region = [setting.region];
+    consentObject.region = typeof(setting.region) === 'string' ? [setting.region] : setting.region;
   }
 
   return consentObject;
