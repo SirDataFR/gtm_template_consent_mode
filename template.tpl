@@ -80,56 +80,28 @@ ___TEMPLATE_PARAMETERS___
 [
   {
     "type": "GROUP",
-    "name": "vendorConsentModeOverrides",
+    "name": "vendorConsentModes",
     "displayName": "Meta and OpenAI consent defaults",
     "groupStyle": "ZIPPY_OPEN",
     "help": "Compatibility requires the official \u003ca href\u003d\"https://github.com/facebook/GoogleTagManager-WebTemplate-For-FacebookPixel\"\u003eMeta template\u003c/a\u003e or official \u003ca href\u003d\"https://github.com/openai/ads-measurement-pixel-gtm-template\"\u003eOpenAI template\u003c/a\u003e. Custom HTML and third-party templates are not guaranteed. These controls coordinate consent commands; they do not prevent either SDK from being downloaded by another tag.",
     "subParams": [
       {
-        "type": "SELECT",
-        "name": "facebookConsentModeOverride",
-        "displayName": "Meta consent mode override",
+        "type": "CHECKBOX",
+        "name": "facebookConsentMode",
+        "checkboxText": "Prepare the Meta consent default",
         "simpleValueType": true,
-        "defaultValue": "inherit",
+        "defaultValue": false,
         "alwaysInSummary": true,
-        "selectItems": [
-          {
-            "value": "inherit",
-            "displayValue": "Inherit CMP configuration"
-          },
-          {
-            "value": "enabled",
-            "displayValue": "Enabled (prepare default; CMP sends updates)"
-          },
-          {
-            "value": "disabled",
-            "displayValue": "Disabled"
-          }
-        ],
-        "help": "Overrides the CMP configuration for this page. Inherit keeps the CMP configuration. Enabled prepares the Meta default and queue for the official template; the CMP sends subsequent updates. Custom HTML and third-party templates are not guaranteed. This feature does not prevent the Meta SDK from being downloaded. The GDPR/US regime is unavailable synchronously on the first page, so a marked temporary revoke is queued. It is not equivalent to Limited Data Use; the CMP removes or neutralizes only that marked entry before applying the regional update."
+        "help": "This tag prepares the Meta consent default itself, before any CMP script has run, so this setting decides and the CMP configuration is not read. Checked prepares the Meta default and queue for the official template; the CMP sends every subsequent update. Unchecked sends no Meta consent command at all. Custom HTML and third-party templates are not guaranteed. This feature does not prevent the Meta SDK from being downloaded. The GDPR/US regime is unavailable synchronously on the first page, so a marked temporary revoke is queued. It is not equivalent to Limited Data Use; the CMP removes or neutralizes only that marked entry before applying the regional update."
       },
       {
-        "type": "SELECT",
-        "name": "openAiConsentModeOverride",
-        "displayName": "OpenAI consent mode override",
+        "type": "CHECKBOX",
+        "name": "openAiConsentMode",
+        "checkboxText": "Prepare the OpenAI consent default",
         "simpleValueType": true,
-        "defaultValue": "inherit",
+        "defaultValue": false,
         "alwaysInSummary": true,
-        "selectItems": [
-          {
-            "value": "inherit",
-            "displayValue": "Inherit CMP configuration"
-          },
-          {
-            "value": "enabled",
-            "displayValue": "Enabled (prepare default; CMP sends updates)"
-          },
-          {
-            "value": "disabled",
-            "displayValue": "Disabled"
-          }
-        ],
-        "help": "Overrides the CMP configuration for this page. Inherit keeps the CMP configuration. Enabled prepares the OpenAI default and queue for the official template; the CMP sends subsequent updates. Custom HTML and third-party templates are not guaranteed. This feature controls consent commands only; it does not prevent the OpenAI SDK from being downloaded. A valid stored OpenAI bit supplies the default; absent or malformed state starts with consent false."
+        "help": "This tag prepares the OpenAI consent default itself, before any CMP script has run, so this setting decides and the CMP configuration is not read. Checked prepares the OpenAI default and queue for the official template; the CMP sends every subsequent update. Unchecked sends no OpenAI consent command at all. Custom HTML and third-party templates are not guaranteed. This feature controls consent commands only; it does not prevent the OpenAI SDK from being downloaded. A valid stored OpenAI bit supplies the default; absent or malformed state starts with consent false."
       }
     ]
   },
@@ -1694,27 +1666,13 @@ ___TEMPLATE_PARAMETERS___
         "defaultValue": ""
       },
       {
-        "type": "SELECT",
-        "name": "ccpaScopeOverride",
-        "displayName": "US regulation scope override",
+        "type": "CHECKBOX",
+        "name": "ccpaApplyToAllStates",
+        "checkboxText": "Apply the US regulation to every US state",
         "simpleValueType": true,
-        "defaultValue": "inherit",
+        "defaultValue": false,
         "alwaysInSummary": true,
-        "selectItems": [
-          {
-            "value": "inherit",
-            "displayValue": "Inherit CMP configuration"
-          },
-          {
-            "value": "allStates",
-            "displayValue": "Apply to every US state"
-          },
-          {
-            "value": "coveredStates",
-            "displayValue": "Apply to the covered US states only"
-          }
-        ],
-        "help": "Overrides the CMP configuration for this page. Inherit keeps the CMP configuration. Apply to every US state treats any US visitor as covered; covered states only restricts the scope to the states whose law the CMP implements. The scope decides when the US notice applies, which states that notice lists, and where a Global Privacy Control signal is honored. It does not change any vendor consent default."
+        "help": "This setting decides the US regulation scope for this page; the CMP configuration is not read. Checked treats any US visitor as covered. Unchecked restricts the scope to the states whose law the CMP implements. The scope decides when the US notice applies, which states that notice lists, and where a Global Privacy Control signal is honored. It does not change any vendor consent default."
       }
     ]
   },
@@ -1837,32 +1795,27 @@ const createArgumentsQueue = require('createArgumentsQueue');
 
 const ABconsentCMP = copyFromWindow('ABconsentCMP') || {};
 const cmpLoaded = typeof(ABconsentCMP.enableConsentMode) !== 'undefined';
-const facebookConsentModeEnabled = data.facebookConsentModeOverride === 'enabled';
-const openAiConsentModeEnabled = data.openAiConsentModeOverride === 'enabled';
-const hasFacebookConsentModeOverride = facebookConsentModeEnabled ||
-  data.facebookConsentModeOverride === 'disabled';
-const hasOpenAiConsentModeOverride = openAiConsentModeEnabled ||
-  data.openAiConsentModeOverride === 'disabled';
-const ccpaScopeForcedToAllStates = data.ccpaScopeOverride === 'allStates';
-const hasCcpaScopeOverride = ccpaScopeForcedToAllStates ||
-  data.ccpaScopeOverride === 'coveredStates';
+const facebookConsentModeEnabled = data.facebookConsentMode === true;
+const openAiConsentModeEnabled = data.openAiConsentMode === true;
+const ccpaAppliesToAllStates = data.ccpaApplyToAllStates === true;
 
-// Overrides decide activation only. The served CMP owns every subsequent update.
-if (hasFacebookConsentModeOverride) {
-  ABconsentCMP.gtmFacebookConsentMode = facebookConsentModeEnabled;
-}
-if (hasOpenAiConsentModeOverride) {
-  ABconsentCMP.gtmOpenAiConsentMode = openAiConsentModeEnabled;
-}
+// These three settings DECIDE. They do not defer to the served CMP configuration, and there is
+// no third state for them to defer WITH -- which is not a simplification but the only thing this
+// tag can honestly offer. It runs before any CMP script, so it cannot read that configuration;
+// and it is itself the one preparing the Meta and OpenAI defaults, so something has to say
+// whether to prepare them at all. A property left absent would hand that question to a script
+// that has not loaded yet, and nobody would answer it in time.
+//
+// Activation only, for all three: once the CMP is up it owns every subsequent update.
+ABconsentCMP.gtmFacebookConsentMode = facebookConsentModeEnabled;
+ABconsentCMP.gtmOpenAiConsentMode = openAiConsentModeEnabled;
 
 // The US scope override decides WHERE the regulation applies, not whether a vendor signal is
 // sent. It travels the same way the two above do, and for the same reason: the server cannot see
 // what the page posts, so it cannot fold this into the served configuration. The CMP resolves it
 // once, and its notice, its list of states and its Global Privacy Control perimeter then read one
 // value. Absent leaves the CMP configuration alone.
-if (hasCcpaScopeOverride) {
-  ABconsentCMP.gtmCcpaApplyToAllStates = ccpaScopeForcedToAllStates;
-}
+ABconsentCMP.gtmCcpaApplyToAllStates = ccpaAppliesToAllStates;
 
 if (!cmpLoaded) {
   const copyFromDataLayer = require('copyFromDataLayer');
@@ -1883,10 +1836,10 @@ if (!cmpLoaded) {
 if (data.consentMode) {
   ABconsentCMP.enableConsentMode = true;
 }
-if (hasFacebookConsentModeOverride || hasOpenAiConsentModeOverride || hasCcpaScopeOverride ||
-    data.consentMode) {
-  setInWindow('ABconsentCMP', ABconsentCMP, true);
-}
+// Unconditional, because the three settings above are now always written: there is always
+// something here for the CMP to read, including when this tag publishes nothing else. A CMP
+// loaded by another tag would otherwise never see them.
+setInWindow('ABconsentCMP', ABconsentCMP, true);
 
 // Cookies owned by this consent setup, exempt by design. Deleting them would destroy the
 // record the deletion is meant to honour, or the mechanism that makes it possible. The rule is

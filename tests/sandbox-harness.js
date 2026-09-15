@@ -837,18 +837,39 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
         "___TEMPLATE_PARAMETERS___", "___SANDBOXED_JS_FOR_WEB_TEMPLATE___"));
     const group = parameters[0] || {};
     const selectors = group.subParams || [];
-    check("vendor compatibility stays the first top-level group", group.name === "vendorConsentModeOverrides", group.name);
+    check("vendor compatibility stays the first top-level group", group.name === "vendorConsentModes", group.name);
     check("the group links the official vendor templates",
         (group.help || "").indexOf("https://github.com/facebook/GoogleTagManager-WebTemplate-For-FacebookPixel") !== -1 &&
         (group.help || "").indexOf("https://github.com/openai/ads-measurement-pixel-gtm-template") !== -1);
-    check("both vendor overrides remain tri-state selectors",
+    check("both vendor settings are binary checkboxes that default to off",
         selectors.length === 2 && selectors.every((selector) =>
-            selector.type === "SELECT" && selector.selectItems.length === 3 && selector.defaultValue === "inherit"));
+            selector.type === "CHECKBOX" && selector.defaultValue === false &&
+            selector.selectItems === undefined),
+        JSON.stringify(selectors.map((selector) => [selector.name, selector.type, selector.defaultValue])));
+
+    // The three page-level settings are binary BY DESIGN, and this guard is what keeps them so.
+    // A third "inherit the CMP configuration" state is not a nicety this tag chose to skip: it
+    // runs before any CMP script, so there is no configuration for it to read, and it is itself
+    // the one preparing the Meta and OpenAI defaults. A selector reintroduced on any of the three
+    // brings back a state nothing can honour. They are found by name anywhere in the parameter
+    // tree, so moving one between groups does not quietly drop it from this check.
+    const flatten = (params) => params.reduce((all, param) =>
+        all.concat([param], flatten(param.subParams || [])), []);
+    const PAGE_LEVEL = ["facebookConsentMode", "openAiConsentMode", "ccpaApplyToAllStates"];
+    const pageLevel = flatten(parameters).filter((param) => PAGE_LEVEL.indexOf(param.name) !== -1);
+    check("the three page-level settings exist and none is a selector",
+        pageLevel.length === PAGE_LEVEL.length && pageLevel.every((param) =>
+            param.type === "CHECKBOX" && param.defaultValue === false &&
+            param.selectItems === undefined),
+        JSON.stringify(pageLevel.map((param) => [param.name, param.type, param.defaultValue])));
+
     const uiCopy = group.displayName + " " + group.help + " " + selectors.map((selector) =>
-        selector.displayName + " " + selector.help + " " + selector.selectItems.map((item) => item.displayValue).join(" ")
-    ).join(" ");
-    check("enabled wording describes defaults and CMP-owned updates",
-        uiCopy.indexOf("default") !== -1 && uiCopy.indexOf("CMP sends updates") !== -1, uiCopy);
+        selector.checkboxText + " " + selector.help).join(" ");
+    check("wording describes the prepared default and CMP-owned updates",
+        uiCopy.indexOf("default") !== -1 &&
+        uiCopy.indexOf("the CMP sends every subsequent update") !== -1, uiCopy);
+    check("wording states that the CMP configuration is not consulted",
+        uiCopy.indexOf("the CMP configuration is not read") !== -1, uiCopy);
     check("UI no longer says GTM owns vendor updates",
         uiCopy.indexOf("GTM owns consent commands") === -1 && uiCopy.indexOf("responsible for updates") === -1, uiCopy);
     check("tooltips keep compatibility and SDK download limits",
@@ -1045,7 +1066,7 @@ console.log("\n21. Activation overrides and loader ordering");
     const publishesVendorUpdateOwnership = (cmp) => Object.keys(cmp).some((key) =>
         key.indexOf("Updates" + "OwnedByGtm") !== -1);
     const enabled = run({sddan: SDDAN_LOCAL, data: {
-        facebookConsentModeOverride: "enabled", openAiConsentModeOverride: "enabled",
+        facebookConsentMode: true, openAiConsentMode: true,
         loadCmpScripts: true, partnerId: "1020", configId: "public"
     }});
     check("enabled publishes activation overrides",
@@ -1082,18 +1103,22 @@ console.log("\n21. Activation overrides and loader ordering");
         SRC.indexOf("require('updateConsentState')") === -1 && enabled.calls.updates.length === 0);
     check("no consent listener is registered when cookie deletion is disabled", enabled.listener === null);
 
-    const inherited = run({sddan: SDDAN_LOCAL, globals: {ABconsentCMP: {sentinel: true}}, data: {
-        consentMode: false, facebookConsentModeOverride: "inherit", openAiConsentModeOverride: "inherit"
-    }});
-    check("inherit leaves activation properties absent",
-        inherited.globals.ABconsentCMP.gtmFacebookConsentMode === undefined &&
-        inherited.globals.ABconsentCMP.gtmOpenAiConsentMode === undefined);
-    check("inherit publishes no vendor update ownership marker",
-        !publishesVendorUpdateOwnership(inherited.globals.ABconsentCMP));
-    check("inherit installs no vendor queue", inherited.globals.fbq === undefined && inherited.globals.oaiq === undefined);
+    // There is no third state, so a setting left alone is not silence: it publishes an explicit
+    // false. `globals` is deliberately NOT seeded and Google Consent Mode is off, so nothing else
+    // in this run would write `ABconsentCMP` -- the object can only exist here because the
+    // template now writes it unconditionally.
+    const unset = run({sddan: SDDAN_LOCAL, data: {consentMode: false}});
+    check("settings left unset publish explicit false to the page, never absent",
+        !!unset.globals.ABconsentCMP &&
+        unset.globals.ABconsentCMP.gtmFacebookConsentMode === false &&
+        unset.globals.ABconsentCMP.gtmOpenAiConsentMode === false,
+        JSON.stringify(unset.globals.ABconsentCMP));
+    check("settings left unset publish no vendor update ownership marker",
+        !publishesVendorUpdateOwnership(unset.globals.ABconsentCMP));
+    check("settings left unset install no vendor queue", unset.globals.fbq === undefined && unset.globals.oaiq === undefined);
 
     const disabled = run({sddan: SDDAN_LOCAL, data: {
-        consentMode: false, facebookConsentModeOverride: "disabled", openAiConsentModeOverride: "disabled"
+        consentMode: false, facebookConsentMode: false, openAiConsentMode: false
     }});
     check("disabled publishes false activation overrides",
         disabled.globals.ABconsentCMP.gtmFacebookConsentMode === false &&
@@ -1153,7 +1178,7 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     missingPushOaiq.q = missingPushOpenAiQueue;
     missingPushOaiq.queue = missingPushOpenAiQueue;
     const missingOpenAiPush = run({sddan: SDDAN_LOCAL, globals: {oaiq: missingPushOaiq},
-        data: {openAiConsentModeOverride: "enabled"}});
+        data: {openAiConsentMode: true}});
     const missingOpenAiPushCommands = commandList(missingOpenAiPush.globals.oaiq.queue);
     check("OpenAI never publishes the storage probe when push is absent",
         missingOpenAiPush.globals.oaiq.queue.indexOf("__sd_queue_storage_probe__") === -1,
@@ -1170,7 +1195,7 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     missingSpliceFbq.push = missingSpliceFbq;
     const missingMetaSplice = run({sddan: SDDAN_LOCAL,
         globals: {fbq: missingSpliceFbq, _fbq: missingSpliceFbq},
-        data: {facebookConsentModeOverride: "enabled"}});
+        data: {facebookConsentMode: true}});
     const missingMetaSpliceCommands = commandList(missingMetaSplice.globals.fbq.queue);
     check("Meta never publishes the storage probe when splice is absent",
         missingMetaSplice.globals.fbq.queue.indexOf("__sd_queue_storage_probe__") === -1,
@@ -1187,7 +1212,7 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     invalidProbeFbq.push = invalidProbeFbq;
     const invalidMetaSplice = run({sddan: SDDAN_LOCAL,
         globals: {fbq: invalidProbeFbq, _fbq: invalidProbeFbq},
-        data: {facebookConsentModeOverride: "enabled"}});
+        data: {facebookConsentMode: true}});
     const invalidMetaCommands = commandList(invalidMetaSplice.globals.fbq.queue);
     check("Meta never publishes the storage probe after invalid cleanup",
         invalidMetaSplice.globals.fbq.queue.indexOf("__sd_queue_storage_probe__") === -1 &&
@@ -1204,7 +1229,7 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     beforeOaiq.q = [["consent", false], ["init", {pixelId: "pixel"}], ["pixelId", "pixel"]];
     beforeOaiq.queue = [["consent", "publisher"], ["measure", "page_viewed"], ["set", "user", {id: "user"}]];
     const openai = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.o:1:1"}, globals: {oaiq: beforeOaiq}, data: {
-        openAiConsentModeOverride: "enabled", handleCookiesDeletion: true,
+        openAiConsentMode: true, handleCookiesDeletion: true,
         loadCmpScripts: true, partnerId: "1020", configId: "public"
     }});
     let openAiCommands = commandList(openai.globals.oaiq.queue);
@@ -1229,7 +1254,7 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
 
     [["2.o:1:0", false], ["2.g:1:1111111", false], ["2.o:1:broken", false]].forEach((fixture) => {
         const result = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": fixture[0]},
-            data: {openAiConsentModeOverride: "enabled"}});
+            data: {openAiConsentMode: true}});
         check("OpenAI conservative default " + fixture[0],
             commandList(result.globals.oaiq.queue)[0][1] === fixture[1]);
     });
@@ -1239,7 +1264,7 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
         ["init", "pixel", {em: "hash"}], ["track", "PageView"]];
     beforeFbq.push = beforeFbq;
     const meta = run({sddan: SDDAN_LOCAL, globals: {fbq: beforeFbq, _fbq: beforeFbq}, data: {
-        facebookConsentModeOverride: "enabled", handleCookiesDeletion: true,
+        facebookConsentMode: true, handleCookiesDeletion: true,
         loadCmpScripts: true, partnerId: "1020", configId: "public"
     }});
     let metaCommands = commandList(meta.globals.fbq.queue);
@@ -1273,7 +1298,7 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     initializedOaiq.__oaiqInitialized = true;
     const initializedOpenAi = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.o:1:1"},
         globals: {oaiq: initializedOaiq}, data: {
-            openAiConsentModeOverride: "enabled", handleCookiesDeletion: true,
+            openAiConsentMode: true, handleCookiesDeletion: true,
             loadCmpScripts: true, partnerId: "1020", configId: "public"
         }});
     check("initialized OpenAI SDK function identity is preserved", initializedOpenAi.globals.oaiq === initializedOaiq);
@@ -1301,7 +1326,7 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     initializedOaiqWithoutStoredConsent.q = [];
     initializedOaiqWithoutStoredConsent.queue = [];
     run({sddan: SDDAN_LOCAL, globals: {oaiq: initializedOaiqWithoutStoredConsent},
-        data: {openAiConsentModeOverride: "enabled"}});
+        data: {openAiConsentMode: true}});
     check("initialized OpenAI receives a conservative false default when storage has no decision",
         JSON.stringify(initializedOpenAiWithoutStoredConsentCalls) === JSON.stringify([["consent", false]]),
         JSON.stringify(initializedOpenAiWithoutStoredConsentCalls));
@@ -1315,7 +1340,7 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     const initializedMetaAliasQueue = [["track", "AliasQueueEvent"]];
     initializedFbqAlias.queue = initializedMetaAliasQueue;
     const initializedMeta = run({sddan: SDDAN_LOCAL, globals: {fbq: initializedFbq, _fbq: initializedFbqAlias}, data: {
-        facebookConsentModeOverride: "enabled", handleCookiesDeletion: true,
+        facebookConsentMode: true, handleCookiesDeletion: true,
         loadCmpScripts: true, partnerId: "1020", configId: "public"
     }});
     check("initialized Meta SDK function identity is preserved", initializedMeta.globals.fbq === initializedFbq);
@@ -1347,7 +1372,7 @@ console.log("\n23. The marker reaches the OpenAI default, and the US scope overr
 {
     const readsOf = (r, name) => (r.calls.cookieReads[name] || 0);
     const GRANTING_CONTAINER = "2.o:1:1";
-    const OPENAI_ON = {openAiConsentModeOverride: "enabled"};
+    const OPENAI_ON = {openAiConsentMode: true};
     const consentOf = (r) => {
         const consent = named(commandList(r.globals.oaiq.queue), "consent");
         return consent.length === 1 ? consent[0][1] : JSON.stringify(consent);
@@ -1377,39 +1402,39 @@ console.log("\n23. The marker reaches the OpenAI default, and the US scope overr
     check("and the container is NOT consulted", readsOf(court, "__sdgcm") === 0,
         String(readsOf(court, "__sdgcm")));
 
-    // The override has to reach the page even when it is the ONLY thing this tag publishes:
-    // nothing else would write `ABconsentCMP` then, and an override left in a local object is an
-    // override the CMP never sees. `globals` is deliberately NOT seeded here, so the property can
-    // only exist if the template wrote it.
+    // The scope has to reach the page even when it is the only thing this tag is configured for:
+    // a value left in a local object is a value the CMP never sees. `globals` is deliberately NOT
+    // seeded here and the two vendor settings are off, so the property can only exist if the
+    // template wrote the object itself.
     const seul = run({sddan: SDDAN_LOCAL, data: {
-        consentMode: false, facebookConsentModeOverride: "inherit",
-        openAiConsentModeOverride: "inherit", ccpaScopeOverride: "allStates"
+        consentMode: false, ccpaApplyToAllStates: true
     }});
-    check("the scope override alone is published to the page",
+    check("the scope alone is published to the page",
         !!seul.globals.ABconsentCMP && seul.globals.ABconsentCMP.gtmCcpaApplyToAllStates === true,
         JSON.stringify(seul.globals.ABconsentCMP));
 
     const restreint = run({sddan: SDDAN_LOCAL, data: {
-        consentMode: false, ccpaScopeOverride: "coveredStates"
+        consentMode: false, ccpaApplyToAllStates: false
     }});
     check("restricting the scope to the covered states publishes false",
         !!restreint.globals.ABconsentCMP &&
         restreint.globals.ABconsentCMP.gtmCcpaApplyToAllStates === false,
         JSON.stringify(restreint.globals.ABconsentCMP));
 
-    // Tri-state: absent is NOT false. The CMP separates "the page said nothing" from "the page
-    // said no", and only the first leaves the served configuration in charge.
-    const herite = run({sddan: SDDAN_LOCAL, globals: {ABconsentCMP: {sentinel: true}}, data: {
-        consentMode: false, ccpaScopeOverride: "inherit"
+    // Unset is not silence: it publishes false. Leaving the property absent would hand the scope
+    // back to the served configuration, which is exactly what a page-level setting exists to
+    // replace -- and the CMP would read the two states differently.
+    const parDefaut = run({sddan: SDDAN_LOCAL, globals: {ABconsentCMP: {sentinel: true}}, data: {
+        consentMode: false
     }});
-    check("inherit leaves the scope property absent",
-        herite.globals.ABconsentCMP.gtmCcpaApplyToAllStates === undefined,
-        JSON.stringify(herite.globals.ABconsentCMP));
+    check("an unset scope publishes false rather than leaving the property absent",
+        parDefaut.globals.ABconsentCMP.gtmCcpaApplyToAllStates === false,
+        JSON.stringify(parDefaut.globals.ABconsentCMP));
 
     // Published BEFORE the CMP loads: it is a boot-time decision, and a value posted after /cmp
     // has started would arrive too late for the CMP to resolve it once.
     const charge = run({sddan: SDDAN_LOCAL, data: {
-        ccpaScopeOverride: "allStates", loadCmpScripts: true, partnerId: "1020", configId: "public"
+        ccpaApplyToAllStates: true, loadCmpScripts: true, partnerId: "1020", configId: "public"
     }});
     check("the scope override is visible at the first /stub injection",
         !!charge.calls.injectionStates[0] &&

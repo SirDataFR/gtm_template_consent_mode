@@ -8,12 +8,17 @@ Open CMP account at <a href="https://cmp.sirdata.io/" target="_blank">here</a>.
 
 ## Meta and OpenAI defaults with CMP-owned updates
 
-The first template group keeps tri-state overrides for the official
+The first template group carries one checkbox per vendor for the official
 [Meta Pixel](https://github.com/facebook/GoogleTagManager-WebTemplate-For-FacebookPixel) and
 [OpenAI Ads Measurement Pixel](https://github.com/openai/ads-measurement-pixel-gtm-template)
-templates. **Enabled** publishes the activation override and prepares the vendor default/file
-before those tags run. The served CMP remains the only producer of later Google, Meta, and OpenAI
-updates. **Disabled** publishes `false`; **Inherit** leaves the CMP configuration authoritative.
+templates. Checked publishes `true` and prepares that vendor's default and queue before those tags
+run; unchecked publishes `false` and sends no consent command for it at all. The served CMP remains
+the only producer of later Google, Meta, and OpenAI updates.
+
+There is no third "inherit the CMP configuration" state, and its absence is deliberate rather than
+a simplification. This tag runs before any CMP script, so it cannot read that configuration; and it
+is itself the one preparing these defaults, so something has to say whether to prepare them. A
+value left unpublished would hand that question to a script that has not loaded yet.
 
 When Google Consent Mode is enabled and at least one default-settings row is emitted, the template
 publishes `ABconsentCMP.gtmGoogleConsentModeDefaultSet=true` before that first default. The served
@@ -37,6 +42,15 @@ preserved.
 
 These controls do not inject a vendor SDK or prevent another tag from downloading one. Custom HTML
 and third-party templates are not guaranteed to use the compatible queue shapes.
+
+## US regulation scope
+
+A checkbox publishes `ABconsentCMP.gtmCcpaApplyToAllStates`. Checked treats any US visitor as
+covered; unchecked restricts the scope to the states whose law the CMP implements. It always
+publishes a value, for the same reason as the two settings above.
+
+The scope decides when the US notice applies, which states that notice lists, and where a Global
+Privacy Control signal is honored. It changes no vendor consent default.
 
 ## Before submitting a change
 
