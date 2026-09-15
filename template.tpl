@@ -2637,40 +2637,47 @@ const installTemplateMiniStubs = () => {
   setInWindow('ABconsentCMP', ABconsentCMP, true);
 };
 
-const loadCmp = () => {
-  if (!data.partnerId || !data.configId) return;
-  const url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/cmp';
-  injectScript(url, function(){data.gtmOnSuccess();}, function(){data.gtmOnFailure();});
-};
-
 const registerCookieDeletionListener = () => {
   if (data.handleCookiesDeletion) {
     callInWindow('__sdcmpapi', 'addEventListener', 2, onUserChoice);
   }
 };
 
-const onRegularStubLoaded = () => {
+// The CMP is requested directly, with no stub request in front of it.
+//
+// That request existed to prepare the page before the CMP arrived: the early command queues, and
+// the consent defaults. This tag now does both itself -- the mini-stubs above, and the prepared
+// defaults further up -- so a stub in front of it would be a round trip spent re-doing what has
+// already been done on this page.
+//
+// `tms=gtm` names the tag manager that did the preparing. It travels with the request so the
+// served script knows a template ran before it, rather than having to infer it from what happens
+// to be defined on the page.
+//
+// The listener is registered BEFORE the request rather than after: the mini-stub queue is already
+// in place, so the command waits there and the CMP drains it on arrival. Waiting for a load event
+// to register it was only ever a consequence of the stub being what installed that queue.
+const loadCmp = () => {
+  if (!data.partnerId || !data.configId) return;
   registerCookieDeletionListener();
-  loadCmp();
+  const url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/cmp?tms=gtm';
+  injectScript(url, function(){data.gtmOnSuccess();}, function(){data.gtmOnFailure();});
 };
 
-const loadRegularStub = () => {
-  const url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/stub';
-  injectScript(url, onRegularStubLoaded, loadCmp);
-};
-
-const loadStub = () => {
+// A first-party host is served by a loader we do not control, so the listener still goes through
+// the callback list it drains. Its failure path falls back to the direct request.
+const loadCmpScript = () => {
   if (!data.firstPartyHost) {
-    loadRegularStub();
+    loadCmp();
     return;
   }
   const sdCmpTemplateCallback = copyFromWindow('sdCmpTemplateCallback') || [];
   sdCmpTemplateCallback.push(registerCookieDeletionListener);
   setInWindow('sdCmpTemplateCallback', sdCmpTemplateCallback);
-  const url = 'https://cdn.sirdata.eu/cmp_loader.js?p='+encodeUriComponent(data.partnerId)+'&c='+encodeUriComponent(data.configId)+'&h='+encodeUriComponent(data.firstPartyHost)+'&cb=sdCmpTemplateCallback';
+  const url = 'https://cdn.sirdata.eu/cmp_loader.js?p='+encodeUriComponent(data.partnerId)+'&c='+encodeUriComponent(data.configId)+'&h='+encodeUriComponent(data.firstPartyHost)+'&cb=sdCmpTemplateCallback&tms=gtm';
   injectScript(url, function(){data.gtmOnSuccess();}, function(){
     data.firstPartyHost = '';
-    loadRegularStub();
+    loadCmp();
   });
 };
 
@@ -2678,7 +2685,7 @@ if (!cmpLoaded && data.partnerId && data.configId) {
   ABconsentCMP.gtmTemplateDefaultConsent = JSON.stringify(defaultConsent);
   setInWindow('ABconsentCMP', ABconsentCMP, true);
   installTemplateMiniStubs();
-  loadStub();
+  loadCmpScript();
 } else {
   registerCookieDeletionListener();
   data.gtmOnSuccess();

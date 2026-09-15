@@ -31,7 +31,7 @@ function extractSandboxedJs(tpl) {
     const src = parts[1].split(CLOSE)[0];
     // Sentinels: symbols the sandboxed body MUST carry. Their absence means the split landed in
     // the wrong place, not that the template is at fault.
-    ["setDefaultConsentState", "CONSENT_MODE_SIGNALS", "onUserChoice", "loadRegularStub"].forEach((s) => {
+    ["setDefaultConsentState", "CONSENT_MODE_SIGNALS", "onUserChoice", "loadCmpScript"].forEach((s) => {
         if (src.indexOf(s) === -1) {
             throw new Error("suspicious sandboxed body: '" + s + "' not found");
         }
@@ -69,7 +69,7 @@ function run(opts) {
     // `cookieReads` counts reads PER NAME. Without it a short-circuit can only be checked on the
     // value it produces, and an implementation that reads the container and then overwrites the
     // result would pass while consulting a cookie it must never touch.
-    const calls = {defaults: [], defaultStates: [], updates: [], setCookies: [], injected: [], injectionStates: [], cookieReads: {}, successes: 0, failures: 0};
+    const calls = {defaults: [], defaultStates: [], updates: [], setCookies: [], injected: [], injectionStates: [], cookieReads: {}, successes: 0, failures: 0, listenerAfterInjections: null};
     let listener = null;
     const globals = Object.assign({SDDAN: opts.sddan}, opts.globals || {});
 
@@ -113,6 +113,10 @@ function run(opts) {
         callInWindow: (name, ...args) => {
             if (name === "__sdcmpapi" && args[0] === "addEventListener") {
                 listener = args[2];
+                // How many requests had already gone out when the listener was registered. The
+                // queue is installed by this tag, so the command can wait in it -- but only if it
+                // is issued before the CMP is asked for.
+                if (calls.listenerAfterInjections === null) { calls.listenerAfterInjections = calls.injected.length; }
             }
             const fn = getPath(name);
             if (typeof fn !== "function") return undefined;
@@ -787,13 +791,13 @@ console.log("\n18. GPC acts on the consent-mode STATUS, never on LOADING the CMP
     const avec = run({sddan: SDDAN_LOCAL, data: CMP, cookies: {"__gpcactive": "1"}});
 
     // Witness: without it, a harness injecting NOTHING would satisfy the equality below.
-    check("witness -- two scripts injected without the marker", sans.calls.injected.length === 2,
+    check("witness -- one script injected without the marker", sans.calls.injected.length === 1,
         JSON.stringify(sans.calls.injected));
-    check("witness -- the stub then the bundle",
-        sans.calls.injected[0].indexOf("/stub") !== -1 && sans.calls.injected[1].indexOf("/cmp") !== -1,
+    check("witness -- and it is the bundle",
+        sans.calls.injected[0].indexOf("/cmp") !== -1,
         JSON.stringify(sans.calls.injected));
 
-    check("the marker removes no script", avec.calls.injected.length === 2,
+    check("the marker removes no script", avec.calls.injected.length === 1,
         JSON.stringify(avec.calls.injected));
     check("and they are exactly the same URLs",
         JSON.stringify(avec.calls.injected) === JSON.stringify(sans.calls.injected),
@@ -1221,7 +1225,7 @@ console.log("\n21. Activation overrides and loader ordering");
         enabled.calls.defaults.length > 0 && enabled.calls.defaultStates[0].googleDefaultSet === true,
         JSON.stringify(enabled.calls.defaultStates));
     const firstState = enabled.calls.injectionStates[0] || {};
-    check("overrides and handoff are visible at the first /stub injection",
+    check("overrides and handoff are visible at the CMP injection",
         firstState.facebook === true && firstState.openai === true &&
         firstState.enableConsentMode === true && firstState.googleDefaultSet === true &&
         firstState.miniStubApis.__tcfapi === true &&
@@ -1287,9 +1291,13 @@ console.log("\n21. Activation overrides and loader ordering");
         handoff.personalization_storage === "denied" && handoff.functionality_storage === "denied" &&
         handoff.security_storage === "denied",
         JSON.stringify(handoff));
-    check("regular loader keeps the real /stub before /cmp",
-        enabled.calls.injected.length === 2 && enabled.calls.injected[0].indexOf("/stub") !== -1 &&
-        enabled.calls.injected[1].indexOf("/cmp") !== -1, JSON.stringify(enabled.calls.injected));
+    // One request, and it is the bundle. The page is prepared by this tag -- queues and defaults
+    // -- so a request in front of the bundle would spend a round trip re-doing that work.
+    check("the loader asks for the bundle and nothing in front of it",
+        enabled.calls.injected.length === 1 && enabled.calls.injected[0].indexOf("/cmp") !== -1,
+        JSON.stringify(enabled.calls.injected));
+    check("the request names the tag manager that prepared the page",
+        enabled.calls.injected[0].indexOf("tms=gtm") !== -1, JSON.stringify(enabled.calls.injected));
     check("regular loader completes GTM exactly once", enabled.calls.successes === 1 && enabled.calls.failures === 0,
         JSON.stringify([enabled.calls.successes, enabled.calls.failures]));
     check("Consent Mode update API is not required or called",
@@ -1324,9 +1332,25 @@ console.log("\n21. Activation overrides and loader ordering");
         handleCookiesDeletion: true, partnerId: "1020", configId: "public"
     }});
     check("Sirdata listener remains only for cookie deletion", typeof deletion.listener === "function");
+    // BEFORE the request, not after it. The queue the command waits in is installed by this tag,
+    // so there is nothing left to wait for; registering it on a load event was only ever a
+    // consequence of that queue arriving with the script.
+    check("the cookie listener is registered before the bundle is asked for",
+        deletion.calls.listenerAfterInjections === 0,
+        JSON.stringify([deletion.calls.listenerAfterInjections, deletion.calls.injected]));
     const beforeUpdates = deletion.calls.updates.length;
     deletion.listener(purgeEvent("_ga"), true);
     check("cookie callback emits no Google update", deletion.calls.updates.length === beforeUpdates);
+
+    // The first-party loader is not ours, so the command cannot be issued before it: it goes into
+    // the callback list that loader drains once the script it serves is in place.
+    const deletionFirstParty = run({sddan: SDDAN_LOCAL, data: {
+        handleCookiesDeletion: true, firstPartyHost: "cmp.example.com", partnerId: "1020", configId: "public"
+    }});
+    check("on the first-party path the listener still arrives, through the callback list",
+        typeof deletionFirstParty.listener === "function" &&
+        deletionFirstParty.calls.listenerAfterInjections === 1,
+        JSON.stringify([deletionFirstParty.calls.listenerAfterInjections, deletionFirstParty.calls.injected]));
 
     const firstParty = run({sddan: SDDAN_LOCAL, data: {
         firstPartyHost: "cmp.example.com", partnerId: "1020", configId: "public"
@@ -1336,24 +1360,18 @@ console.log("\n21. Activation overrides and loader ordering");
         JSON.stringify(firstParty.calls.injected));
     check("first-party loader completes exactly once", firstParty.calls.successes === 1 && firstParty.calls.failures === 0,
         JSON.stringify([firstParty.calls.successes, firstParty.calls.failures]));
+    check("the first-party request names the tag manager too",
+        firstParty.calls.injected[0].indexOf("tms=gtm") !== -1, JSON.stringify(firstParty.calls.injected));
 
     const fallback = run({sddan: SDDAN_LOCAL, failInjection: "cmp_loader.js", data: {
         firstPartyHost: "cmp.example.com", partnerId: "1020", configId: "public"
     }});
-    check("first-party failure falls back to regular /stub then /cmp",
-        fallback.calls.injected.length === 3 && fallback.calls.injected[0].indexOf("cmp_loader.js") !== -1 &&
-        fallback.calls.injected[1].indexOf("/stub") !== -1 && fallback.calls.injected[2].indexOf("/cmp") !== -1,
+    check("first-party failure falls back to the direct bundle request",
+        fallback.calls.injected.length === 2 && fallback.calls.injected[0].indexOf("cmp_loader.js") !== -1 &&
+        fallback.calls.injected[1].indexOf("/cmp") !== -1,
         JSON.stringify(fallback.calls.injected));
     check("fallback completes exactly once", fallback.calls.successes === 1 && fallback.calls.failures === 0,
         JSON.stringify([fallback.calls.successes, fallback.calls.failures]));
-
-    const regularFallback = run({sddan: SDDAN_LOCAL, failInjection: "/stub", data: {
-        partnerId: "1020", configId: "public"
-    }});
-    check("regular stub failure still falls back to /cmp exactly once",
-        regularFallback.calls.injected.length === 2 && regularFallback.calls.injected[0].indexOf("/stub") !== -1 &&
-        regularFallback.calls.injected[1].indexOf("/cmp") !== -1 && regularFallback.calls.successes === 1 &&
-        regularFallback.calls.failures === 0, JSON.stringify(regularFallback.calls));
 
     const cmpFailure = run({sddan: SDDAN_LOCAL, failInjection: "/cmp", data: {
         partnerId: "1020", configId: "public"

@@ -62,11 +62,15 @@ than to a second copy of this one's pending work. Only the canonical `fbq.queue`
 other pixel's commands are no longer merged in.
 
 Once the partner and configuration identifiers are set, the template installs same-window
-mini-stubs only for missing CMP APIs so synchronous callers can queue work. It then still loads the real `/stub` before `/cmp`.
-The real stub is mandatory: it canonicalises those marked mini-stubs, preserves their queues/events,
-and adds iframe locators, `postMessage` bridges, and IE11 bundle selection. The template creates no
-locator iframe or message listener itself. The first-party loader and its regular-host fallback are
-preserved.
+mini-stubs only for missing CMP APIs so synchronous callers can queue work, then asks for the CMP
+bundle directly. The request that used to go in front of it existed to prepare the page — the early
+command queues and the consent defaults — and this tag now does both itself, so that request would
+be a round trip spent re-doing work already done on this page. The bundle takes the marked
+mini-stubs over, preserving their queues and events, and adds the iframe locators, `postMessage`
+bridges and legacy-bundle selection. The template creates no locator iframe or message listener
+itself. The request carries `tms=gtm`, which names the tag manager that prepared the page, so the
+served script is told rather than left to infer it. The first-party loader and its regular-host
+fallback are preserved.
 
 These controls do not inject a vendor SDK or prevent another tag from downloading one. Custom HTML
 and third-party templates are not guaranteed to use the compatible queue shapes.
@@ -87,8 +91,8 @@ replaying rules nobody reviewed.
 
 Loading the CMP is no longer a choice either: the partner and configuration identifiers are required
 fields. This tag only ever prepares defaults that the CMP is then responsible for resolving, and it
-installs mini-stub queues that the real stub is responsible for taking over. Skipping the load left
-both half-done — defaults posted with nobody to update them, queues with nobody to drain them.
+installs mini-stub queues the CMP is responsible for taking over. Skipping the load left both
+half-done — defaults posted with nobody to update them, queues with nobody to drain them.
 
 ## The US regulation scope is not set here
 
