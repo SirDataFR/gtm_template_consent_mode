@@ -1146,13 +1146,13 @@ console.log("\n21. Activation overrides and loader ordering");
     check("Google Consent Mode switched off publishes no default handoff",
         noGoogle.calls.defaults.length === 0 &&
         noGoogle.globals.ABconsentCMP.gtmGoogleConsentModeDefaultSet === undefined &&
-        noGoogle.calls.injectionStates[0].googleDefaultSet === undefined,
+        (noGoogle.calls.injectionStates[0] || {}).googleDefaultSet === undefined,
         JSON.stringify(noGoogle.calls));
     // The nominal path: nothing declared, so the automatic default state is what goes out. A
     // publisher who takes the defaults over but leaves the table empty lands here too -- emitting
     // no default at all would be worse than either mode.
     const automatic = run({sddan: SDDAN_LOCAL, data: {partnerId: "1020", configId: "public"}});
-    const auto = automatic.calls.defaults[0];
+    const auto = automatic.calls.defaults[0] || {};
     check("the automatic default state is emitted exactly once",
         automatic.calls.defaults.length === 1, JSON.stringify(automatic.calls.defaults));
     check("the automatic default state denies every signal",
@@ -1191,6 +1191,15 @@ console.log("\n21. Activation overrides and loader ordering");
     check("rules left over from an earlier configuration are ignored",
         JSON.stringify(staleRows.calls.defaults[0]) === JSON.stringify(auto),
         JSON.stringify(staleRows.calls.defaults[0]));
+    // The snapshot handed to the served CMP is built by side effects inside the emission loop, so
+    // it follows the same resolved list. A loop that never ran would leave every signal at
+    // "not used" and hand over something the CMP cannot act on -- without failing anything else.
+    const handoff = JSON.parse(automatic.globals.ABconsentCMP.gtmTemplateDefaultConsent || "{}");
+    check("the automatic state is handed to the CMP as a real snapshot",
+        handoff.ad_storage === "denied" && handoff.analytics_storage === "denied" &&
+        handoff.personalization_storage === "denied" && handoff.functionality_storage === "denied" &&
+        handoff.security_storage === "denied",
+        JSON.stringify(handoff));
     check("regular loader keeps the real /stub before /cmp",
         enabled.calls.injected.length === 2 && enabled.calls.injected[0].indexOf("/stub") !== -1 &&
         enabled.calls.injected[1].indexOf("/cmp") !== -1, JSON.stringify(enabled.calls.injected));
