@@ -11,7 +11,7 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_NGJ2P",
-  "version": 1.79,
+  "version": 1.82,
   "securityGroups": [],
   "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
@@ -79,13 +79,70 @@ ___TEMPLATE_PARAMETERS___
 
 [
   {
+    "type": "LABEL",
+    "name": "cmpSection",
+    "displayName": "\u003cstrong\u003eSirdata CMP\u003c/strong\u003e"
+  },
+  {
+    "alwaysInSummary": true,
+    "valueValidators": [
+      {
+        "type": "NON_EMPTY"
+      },
+      {
+        "type": "POSITIVE_NUMBER"
+      }
+    ],
+    "displayName": "Your Partner ID",
+    "simpleValueType": true,
+    "name": "partnerId",
+    "type": "TEXT",
+    "help": "Create a free \u003ca href\u003d\"https://www.abconsent.com\"\u003eSirdata CMP account\u003c/a\u003e or get your Partner ID and Configuration ID from your existing account."
+  },
+  {
+    "alwaysInSummary": true,
+    "valueValidators": [
+      {
+        "type": "NON_EMPTY"
+      }
+    ],
+    "displayName": "Your Configuration ID",
+    "simpleValueType": true,
+    "name": "configId",
+    "type": "TEXT"
+  },
+  {
+    "alwaysInSummary": true,
+    "valueValidators": [
+      {
+        "type": "REGEX",
+        "args": [
+          "[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+(?\u003d[\\/\\s?#]|$)"
+        ]
+      }
+    ],
+    "displayName": "Optionnal : first party host",
+    "simpleValueType": true,
+    "name": "firstPartyHost",
+    "type": "TEXT",
+    "help": "This field is only available if the option is enabled in your account. Enter the first-party hostname declared in your ABConsent (Sirdata CMP) settings. Do not include \u0027http://\u0027 or \u0027https://\u0027. If unsure, leave it empty.",
+    "defaultValue": ""
+  },
+  {
     "type": "GROUP",
     "name": "consent Mode",
     "displayName": "Google Consent Mode",
     "groupStyle": "ZIPPY_OPEN",
+    "enablingConditions": [
+      {
+        "paramName": "configId",
+        "paramValue": "",
+        "type": "NOT_EQUALS"
+      }
+    ],
     "subParams": [
       {
-        "help": "Uncheck this if Google Consent Mode is already embedded in your CMP script.",
+        "help": "Leave this checked to let the template set the Google Consent Mode default state. Every signal starts denied, and a returning visitor\u0027s recorded choice is replayed as soon as the page loads, so no measurement is lost waiting for the banner. Uncheck it only if Google Consent Mode is already handled elsewhere on the page.",
         "type": "CHECKBOX",
         "name": "consentMode",
         "checkboxText": "Activate Google Consent Mode",
@@ -93,1425 +150,12 @@ ___TEMPLATE_PARAMETERS___
         "defaultValue": true
       },
       {
-        "displayName": "Default Consent Mode Settings",
-        "name": "defaultSettings",
-        "groupStyle": "ZIPPY_OPEN",
-        "type": "GROUP",
-        "subParams": [
-          {
-            "alwaysInSummary": true,
-            "valueValidators": [
-              {
-                "args": [
-                  1
-                ],
-                "errorMessage": "You must set a default setting.",
-                "type": "TABLE_ROW_COUNT"
-              }
-            ],
-            "name": "settingsTable",
-            "paramTableColumns": [
-              {
-                "param": {
-                  "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for advertising purposes.",
-                  "macrosInSelect": false,
-                  "selectItems": [
-                    {
-                      "displayValue": "granted",
-                      "value": "granted"
-                    },
-                    {
-                      "displayValue": "denied",
-                      "value": "denied"
-                    },
-                    {
-                      "displayValue": "not used",
-                      "value": "not used"
-                    }
-                  ],
-                  "displayName": "Advertising",
-                  "defaultValue": "denied",
-                  "simpleValueType": true,
-                  "name": "ad_storage",
-                  "type": "SELECT"
-                },
-                "isUnique": false
-              },
-              {
-                "param": {
-                  "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for analytics purposes.",
-                  "macrosInSelect": false,
-                  "selectItems": [
-                    {
-                      "displayValue": "granted",
-                      "value": "granted"
-                    },
-                    {
-                      "displayValue": "denied",
-                      "value": "denied"
-                    },
-                    {
-                      "displayValue": "not used",
-                      "value": "not used"
-                    }
-                  ],
-                  "displayName": "Analytics",
-                  "defaultValue": "denied",
-                  "simpleValueType": true,
-                  "name": "analytics_storage",
-                  "type": "SELECT"
-                },
-                "isUnique": false
-              },
-              {
-                "param": {
-                  "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for content personalization purposes.",
-                  "macrosInSelect": false,
-                  "selectItems": [
-                    {
-                      "displayValue": "granted",
-                      "value": "granted"
-                    },
-                    {
-                      "displayValue": "denied",
-                      "value": "denied"
-                    },
-                    {
-                      "displayValue": "not used",
-                      "value": "not used"
-                    }
-                  ],
-                  "displayName": "Personalization",
-                  "defaultValue": "denied",
-                  "simpleValueType": true,
-                  "name": "personalization_storage",
-                  "type": "SELECT"
-                },
-                "isUnique": false
-              },
-              {
-                "param": {
-                  "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for functionality purposes.",
-                  "macrosInSelect": false,
-                  "selectItems": [
-                    {
-                      "displayValue": "granted",
-                      "value": "granted"
-                    },
-                    {
-                      "displayValue": "denied",
-                      "value": "denied"
-                    },
-                    {
-                      "displayValue": "not used",
-                      "value": "not used"
-                    }
-                  ],
-                  "displayName": "Functionality",
-                  "defaultValue": "denied",
-                  "simpleValueType": true,
-                  "name": "functionality_storage",
-                  "type": "SELECT"
-                },
-                "isUnique": false
-              },
-              {
-                "param": {
-                  "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for security purposes.",
-                  "macrosInSelect": false,
-                  "selectItems": [
-                    {
-                      "displayValue": "granted",
-                      "value": "granted"
-                    },
-                    {
-                      "displayValue": "denied",
-                      "value": "denied"
-                    },
-                    {
-                      "displayValue": "not used",
-                      "value": "not used"
-                    }
-                  ],
-                  "displayName": "Security",
-                  "defaultValue": "denied",
-                  "simpleValueType": true,
-                  "name": "security_storage",
-                  "type": "SELECT"
-                },
-                "isUnique": false
-              },
-              {
-                "param": {
-                  "help": "How long to wait (in milliseconds) before an \u0027update\u0027 command.",
-                  "valueValidators": [
-                    {
-                      "type": "NON_NEGATIVE_NUMBER"
-                    }
-                  ],
-                  "displayName": "Wait for Update",
-                  "defaultValue": 1000,
-                  "simpleValueType": true,
-                  "name": "wait_for_update",
-                  "valueUnit": "milliseconds",
-                  "type": "TEXT"
-                },
-                "isUnique": false
-              },
-              {
-                "param": {
-                  "selectItems": [
-                    {
-                      "displayValue": "ALL",
-                      "value": "ALL"
-                    },
-                    {
-                      "displayValue": "Afghanistan",
-                      "value": "AF"
-                    },
-                    {
-                      "displayValue": "Åland Islands",
-                      "value": "AX"
-                    },
-                    {
-                      "displayValue": "Albania",
-                      "value": "AL"
-                    },
-                    {
-                      "displayValue": "Algeria",
-                      "value": "DZ"
-                    },
-                    {
-                      "displayValue": "American Samoa",
-                      "value": "AS"
-                    },
-                    {
-                      "displayValue": "Andorra",
-                      "value": "AD"
-                    },
-                    {
-                      "displayValue": "Angola",
-                      "value": "AO"
-                    },
-                    {
-                      "displayValue": "Anguilla",
-                      "value": "AI"
-                    },
-                    {
-                      "displayValue": "Antarctica",
-                      "value": "AQ"
-                    },
-                    {
-                      "displayValue": "Antigua and Barbuda",
-                      "value": "AG"
-                    },
-                    {
-                      "displayValue": "Argentina",
-                      "value": "AR"
-                    },
-                    {
-                      "displayValue": "Armenia",
-                      "value": "AM"
-                    },
-                    {
-                      "displayValue": "Aruba",
-                      "value": "AW"
-                    },
-                    {
-                      "displayValue": "Australia",
-                      "value": "AU"
-                    },
-                    {
-                      "displayValue": "Austria",
-                      "value": "AT"
-                    },
-                    {
-                      "displayValue": "Azerbaijan",
-                      "value": "AZ"
-                    },
-                    {
-                      "displayValue": "Bahamas",
-                      "value": "BS"
-                    },
-                    {
-                      "displayValue": "Bahrain",
-                      "value": "BH"
-                    },
-                    {
-                      "displayValue": "Bangladesh",
-                      "value": "BD"
-                    },
-                    {
-                      "displayValue": "Barbados",
-                      "value": "BB"
-                    },
-                    {
-                      "displayValue": "Belarus",
-                      "value": "BY"
-                    },
-                    {
-                      "displayValue": "Belgium",
-                      "value": "BE"
-                    },
-                    {
-                      "displayValue": "Belize",
-                      "value": "BZ"
-                    },
-                    {
-                      "displayValue": "Benin",
-                      "value": "BJ"
-                    },
-                    {
-                      "displayValue": "Bermuda",
-                      "value": "BM"
-                    },
-                    {
-                      "displayValue": "Bhutan",
-                      "value": "BT"
-                    },
-                    {
-                      "displayValue": "Bolivia (Plurinational State of)",
-                      "value": "BO"
-                    },
-                    {
-                      "displayValue": "Bonaire, Sint Eustatius and Saba",
-                      "value": "BQ"
-                    },
-                    {
-                      "displayValue": "Bosnia and Herzegovina",
-                      "value": "BA"
-                    },
-                    {
-                      "displayValue": "Botswana",
-                      "value": "BW"
-                    },
-                    {
-                      "displayValue": "Bouvet Island",
-                      "value": "BV"
-                    },
-                    {
-                      "displayValue": "Brazil",
-                      "value": "BR"
-                    },
-                    {
-                      "displayValue": "British Indian Ocean Territory",
-                      "value": "IO"
-                    },
-                    {
-                      "displayValue": "Brunei Darussalam",
-                      "value": "BN"
-                    },
-                    {
-                      "displayValue": "Bulgaria",
-                      "value": "BG"
-                    },
-                    {
-                      "displayValue": "Burkina Faso",
-                      "value": "BF"
-                    },
-                    {
-                      "displayValue": "Burundi",
-                      "value": "BI"
-                    },
-                    {
-                      "displayValue": "Cabo Verde",
-                      "value": "CV"
-                    },
-                    {
-                      "displayValue": "Cambodia",
-                      "value": "KH"
-                    },
-                    {
-                      "displayValue": "Cameroon",
-                      "value": "CM"
-                    },
-                    {
-                      "displayValue": "Canada",
-                      "value": "CA"
-                    },
-                    {
-                      "displayValue": "Cayman Islands",
-                      "value": "KY"
-                    },
-                    {
-                      "displayValue": "Central African Republic",
-                      "value": "CF"
-                    },
-                    {
-                      "displayValue": "Chad",
-                      "value": "TD"
-                    },
-                    {
-                      "displayValue": "Chile",
-                      "value": "CL"
-                    },
-                    {
-                      "displayValue": "China",
-                      "value": "CN"
-                    },
-                    {
-                      "displayValue": "Christmas Island",
-                      "value": "CX"
-                    },
-                    {
-                      "displayValue": "Cocos (Keeling) Islands",
-                      "value": "CC"
-                    },
-                    {
-                      "displayValue": "Colombia",
-                      "value": "CO"
-                    },
-                    {
-                      "displayValue": "Comoros",
-                      "value": "KM"
-                    },
-                    {
-                      "displayValue": "Congo",
-                      "value": "CG"
-                    },
-                    {
-                      "displayValue": "Congo, Democratic Republic of the",
-                      "value": "CD"
-                    },
-                    {
-                      "displayValue": "Cook Islands",
-                      "value": "CK"
-                    },
-                    {
-                      "displayValue": "Costa Rica",
-                      "value": "CR"
-                    },
-                    {
-                      "displayValue": "Côte d\u0027Ivoire",
-                      "value": "CI"
-                    },
-                    {
-                      "displayValue": "Croatia",
-                      "value": "HR"
-                    },
-                    {
-                      "displayValue": "Cuba",
-                      "value": "CU"
-                    },
-                    {
-                      "displayValue": "Curaçao",
-                      "value": "CW"
-                    },
-                    {
-                      "displayValue": "Cyprus",
-                      "value": "CY"
-                    },
-                    {
-                      "displayValue": "Czechia",
-                      "value": "CZ"
-                    },
-                    {
-                      "displayValue": "Denmark",
-                      "value": "DK"
-                    },
-                    {
-                      "displayValue": "Djibouti",
-                      "value": "DJ"
-                    },
-                    {
-                      "displayValue": "Dominica",
-                      "value": "DM"
-                    },
-                    {
-                      "displayValue": "Dominican Republic",
-                      "value": "DO"
-                    },
-                    {
-                      "displayValue": "Ecuador",
-                      "value": "EC"
-                    },
-                    {
-                      "displayValue": "Egypt",
-                      "value": "EG"
-                    },
-                    {
-                      "displayValue": "El Salvador",
-                      "value": "SV"
-                    },
-                    {
-                      "displayValue": "Equatorial Guinea",
-                      "value": "GQ"
-                    },
-                    {
-                      "displayValue": "Eritrea",
-                      "value": "ER"
-                    },
-                    {
-                      "displayValue": "Estonia",
-                      "value": "EE"
-                    },
-                    {
-                      "displayValue": "Eswatini",
-                      "value": "SZ"
-                    },
-                    {
-                      "displayValue": "Ethiopia",
-                      "value": "ET"
-                    },
-                    {
-                      "displayValue": "Falkland Islands (Malvinas)",
-                      "value": "FK"
-                    },
-                    {
-                      "displayValue": "Faroe Islands",
-                      "value": "FO"
-                    },
-                    {
-                      "displayValue": "Fiji",
-                      "value": "FJ"
-                    },
-                    {
-                      "displayValue": "Finland",
-                      "value": "FI"
-                    },
-                    {
-                      "displayValue": "France",
-                      "value": "FR"
-                    },
-                    {
-                      "displayValue": "French Guiana",
-                      "value": "GF"
-                    },
-                    {
-                      "displayValue": "French Polynesia",
-                      "value": "PF"
-                    },
-                    {
-                      "displayValue": "French Southern Territories",
-                      "value": "TF"
-                    },
-                    {
-                      "displayValue": "Gabon",
-                      "value": "GA"
-                    },
-                    {
-                      "displayValue": "Gambia",
-                      "value": "GM"
-                    },
-                    {
-                      "displayValue": "Georgia",
-                      "value": "GE"
-                    },
-                    {
-                      "displayValue": "Germany",
-                      "value": "DE"
-                    },
-                    {
-                      "displayValue": "Ghana",
-                      "value": "GH"
-                    },
-                    {
-                      "displayValue": "Gibraltar",
-                      "value": "GI"
-                    },
-                    {
-                      "displayValue": "Greece",
-                      "value": "GR"
-                    },
-                    {
-                      "displayValue": "Greenland",
-                      "value": "GL"
-                    },
-                    {
-                      "displayValue": "Grenada",
-                      "value": "GD"
-                    },
-                    {
-                      "displayValue": "Guadeloupe",
-                      "value": "GP"
-                    },
-                    {
-                      "displayValue": "Guam",
-                      "value": "GU"
-                    },
-                    {
-                      "displayValue": "Guatemala",
-                      "value": "GT"
-                    },
-                    {
-                      "displayValue": "Guernsey",
-                      "value": "GG"
-                    },
-                    {
-                      "displayValue": "Guinea",
-                      "value": "GN"
-                    },
-                    {
-                      "displayValue": "Guinea-Bissau",
-                      "value": "GW"
-                    },
-                    {
-                      "displayValue": "Guyana",
-                      "value": "GY"
-                    },
-                    {
-                      "displayValue": "Haiti",
-                      "value": "HT"
-                    },
-                    {
-                      "displayValue": "Heard Island and McDonald Islands",
-                      "value": "HM"
-                    },
-                    {
-                      "displayValue": "Holy See",
-                      "value": "VA"
-                    },
-                    {
-                      "displayValue": "Honduras",
-                      "value": "HN"
-                    },
-                    {
-                      "displayValue": "Hong Kong",
-                      "value": "HK"
-                    },
-                    {
-                      "displayValue": "Hungary",
-                      "value": "HU"
-                    },
-                    {
-                      "displayValue": "Iceland",
-                      "value": "IS"
-                    },
-                    {
-                      "displayValue": "India",
-                      "value": "IN"
-                    },
-                    {
-                      "displayValue": "Indonesia",
-                      "value": "ID"
-                    },
-                    {
-                      "displayValue": "Iran (Islamic Republic of)",
-                      "value": "IR"
-                    },
-                    {
-                      "displayValue": "Iraq",
-                      "value": "IQ"
-                    },
-                    {
-                      "displayValue": "Ireland",
-                      "value": "IE"
-                    },
-                    {
-                      "displayValue": "Isle of Man",
-                      "value": "IM"
-                    },
-                    {
-                      "displayValue": "Israel",
-                      "value": "IL"
-                    },
-                    {
-                      "displayValue": "Italy",
-                      "value": "IT"
-                    },
-                    {
-                      "displayValue": "Jamaica",
-                      "value": "JM"
-                    },
-                    {
-                      "displayValue": "Japan",
-                      "value": "JP"
-                    },
-                    {
-                      "displayValue": "Jersey",
-                      "value": "JE"
-                    },
-                    {
-                      "displayValue": "Jordan",
-                      "value": "JO"
-                    },
-                    {
-                      "displayValue": "Kazakhstan",
-                      "value": "KZ"
-                    },
-                    {
-                      "displayValue": "Kenya",
-                      "value": "KE"
-                    },
-                    {
-                      "displayValue": "Kiribati",
-                      "value": "KI"
-                    },
-                    {
-                      "displayValue": "Korea (Democratic People\u0027s Republic of)",
-                      "value": "KP"
-                    },
-                    {
-                      "displayValue": "Korea, Republic of",
-                      "value": "KR"
-                    },
-                    {
-                      "displayValue": "Kuwait",
-                      "value": "KW"
-                    },
-                    {
-                      "displayValue": "Kyrgyzstan",
-                      "value": "KG"
-                    },
-                    {
-                      "displayValue": "Lao People\u0027s Democratic Republic",
-                      "value": "LA"
-                    },
-                    {
-                      "displayValue": "Latvia",
-                      "value": "LV"
-                    },
-                    {
-                      "displayValue": "Lebanon",
-                      "value": "LB"
-                    },
-                    {
-                      "displayValue": "Lesotho",
-                      "value": "LS"
-                    },
-                    {
-                      "displayValue": "Liberia",
-                      "value": "LR"
-                    },
-                    {
-                      "displayValue": "Libya",
-                      "value": "LY"
-                    },
-                    {
-                      "displayValue": "Liechtenstein",
-                      "value": "LI"
-                    },
-                    {
-                      "displayValue": "Lithuania",
-                      "value": "LT"
-                    },
-                    {
-                      "displayValue": "Luxembourg",
-                      "value": "LU"
-                    },
-                    {
-                      "displayValue": "Macao",
-                      "value": "MO"
-                    },
-                    {
-                      "displayValue": "Madagascar",
-                      "value": "MG"
-                    },
-                    {
-                      "displayValue": "Malawi",
-                      "value": "MW"
-                    },
-                    {
-                      "displayValue": "Malaysia",
-                      "value": "MY"
-                    },
-                    {
-                      "displayValue": "Maldives",
-                      "value": "MV"
-                    },
-                    {
-                      "displayValue": "Mali",
-                      "value": "ML"
-                    },
-                    {
-                      "displayValue": "Malta",
-                      "value": "MT"
-                    },
-                    {
-                      "displayValue": "Marshall Islands",
-                      "value": "MH"
-                    },
-                    {
-                      "displayValue": "Martinique",
-                      "value": "MQ"
-                    },
-                    {
-                      "displayValue": "Mauritania",
-                      "value": "MR"
-                    },
-                    {
-                      "displayValue": "Mauritius",
-                      "value": "MU"
-                    },
-                    {
-                      "displayValue": "Mayotte",
-                      "value": "YT"
-                    },
-                    {
-                      "displayValue": "Mexico",
-                      "value": "MX"
-                    },
-                    {
-                      "displayValue": "Micronesia (Federated States of)",
-                      "value": "FM"
-                    },
-                    {
-                      "displayValue": "Moldova, Republic of",
-                      "value": "MD"
-                    },
-                    {
-                      "displayValue": "Monaco",
-                      "value": "MC"
-                    },
-                    {
-                      "displayValue": "Mongolia",
-                      "value": "MN"
-                    },
-                    {
-                      "displayValue": "Montenegro",
-                      "value": "ME"
-                    },
-                    {
-                      "displayValue": "Montserrat",
-                      "value": "MS"
-                    },
-                    {
-                      "displayValue": "Morocco",
-                      "value": "MA"
-                    },
-                    {
-                      "displayValue": "Mozambique",
-                      "value": "MZ"
-                    },
-                    {
-                      "displayValue": "Myanmar",
-                      "value": "MM"
-                    },
-                    {
-                      "displayValue": "Namibia",
-                      "value": "NA"
-                    },
-                    {
-                      "displayValue": "Nauru",
-                      "value": "NR"
-                    },
-                    {
-                      "displayValue": "Nepal",
-                      "value": "NP"
-                    },
-                    {
-                      "displayValue": "Netherlands, Kingdom of the",
-                      "value": "NL"
-                    },
-                    {
-                      "displayValue": "New Caledonia",
-                      "value": "NC"
-                    },
-                    {
-                      "displayValue": "New Zealand",
-                      "value": "NZ"
-                    },
-                    {
-                      "displayValue": "Nicaragua",
-                      "value": "NI"
-                    },
-                    {
-                      "displayValue": "Niger",
-                      "value": "NE"
-                    },
-                    {
-                      "displayValue": "Nigeria",
-                      "value": "NG"
-                    },
-                    {
-                      "displayValue": "Niue",
-                      "value": "NU"
-                    },
-                    {
-                      "displayValue": "Norfolk Island",
-                      "value": "NF"
-                    },
-                    {
-                      "displayValue": "North Macedonia",
-                      "value": "MK"
-                    },
-                    {
-                      "displayValue": "Northern Mariana Islands",
-                      "value": "MP"
-                    },
-                    {
-                      "displayValue": "Norway",
-                      "value": "NO"
-                    },
-                    {
-                      "displayValue": "Oman",
-                      "value": "OM"
-                    },
-                    {
-                      "displayValue": "Pakistan",
-                      "value": "PK"
-                    },
-                    {
-                      "displayValue": "Palau",
-                      "value": "PW"
-                    },
-                    {
-                      "displayValue": "Palestine, State of",
-                      "value": "PS"
-                    },
-                    {
-                      "displayValue": "Panama",
-                      "value": "PA"
-                    },
-                    {
-                      "displayValue": "Papua New Guinea",
-                      "value": "PG"
-                    },
-                    {
-                      "displayValue": "Paraguay",
-                      "value": "PY"
-                    },
-                    {
-                      "displayValue": "Peru",
-                      "value": "PE"
-                    },
-                    {
-                      "displayValue": "Philippines",
-                      "value": "PH"
-                    },
-                    {
-                      "displayValue": "Pitcairn",
-                      "value": "PN"
-                    },
-                    {
-                      "displayValue": "Poland",
-                      "value": "PL"
-                    },
-                    {
-                      "displayValue": "Portugal",
-                      "value": "PT"
-                    },
-                    {
-                      "displayValue": "Puerto Rico",
-                      "value": "PR"
-                    },
-                    {
-                      "displayValue": "Qatar",
-                      "value": "QA"
-                    },
-                    {
-                      "displayValue": "Réunion",
-                      "value": "RE"
-                    },
-                    {
-                      "displayValue": "Romania",
-                      "value": "RO"
-                    },
-                    {
-                      "displayValue": "Russian Federation",
-                      "value": "RU"
-                    },
-                    {
-                      "displayValue": "Rwanda",
-                      "value": "RW"
-                    },
-                    {
-                      "displayValue": "Saint Barthélemy",
-                      "value": "BL"
-                    },
-                    {
-                      "displayValue": "Saint Helena, Ascension and Tristan da Cunha",
-                      "value": "SH"
-                    },
-                    {
-                      "displayValue": "Saint Kitts and Nevis",
-                      "value": "KN"
-                    },
-                    {
-                      "displayValue": "Saint Lucia",
-                      "value": "LC"
-                    },
-                    {
-                      "displayValue": "Saint Martin (French part)",
-                      "value": "MF"
-                    },
-                    {
-                      "displayValue": "Saint Pierre and Miquelon",
-                      "value": "PM"
-                    },
-                    {
-                      "displayValue": "Saint Vincent and the Grenadines",
-                      "value": "VC"
-                    },
-                    {
-                      "displayValue": "Samoa",
-                      "value": "WS"
-                    },
-                    {
-                      "displayValue": "San Marino",
-                      "value": "SM"
-                    },
-                    {
-                      "displayValue": "Sao Tome and Principe",
-                      "value": "ST"
-                    },
-                    {
-                      "displayValue": "Saudi Arabia",
-                      "value": "SA"
-                    },
-                    {
-                      "displayValue": "Senegal",
-                      "value": "SN"
-                    },
-                    {
-                      "displayValue": "Serbia",
-                      "value": "RS"
-                    },
-                    {
-                      "displayValue": "Seychelles",
-                      "value": "SC"
-                    },
-                    {
-                      "displayValue": "Sierra Leone",
-                      "value": "SL"
-                    },
-                    {
-                      "displayValue": "Singapore",
-                      "value": "SG"
-                    },
-                    {
-                      "displayValue": "Sint Maarten (Dutch part)",
-                      "value": "SX"
-                    },
-                    {
-                      "displayValue": "Slovakia",
-                      "value": "SK"
-                    },
-                    {
-                      "displayValue": "Slovenia",
-                      "value": "SI"
-                    },
-                    {
-                      "displayValue": "Solomon Islands",
-                      "value": "SB"
-                    },
-                    {
-                      "displayValue": "Somalia",
-                      "value": "SO"
-                    },
-                    {
-                      "displayValue": "South Africa",
-                      "value": "ZA"
-                    },
-                    {
-                      "displayValue": "South Georgia and the South Sandwich Islands",
-                      "value": "GS"
-                    },
-                    {
-                      "displayValue": "South Sudan",
-                      "value": "SS"
-                    },
-                    {
-                      "displayValue": "Spain",
-                      "value": "ES"
-                    },
-                    {
-                      "displayValue": "Sri Lanka",
-                      "value": "LK"
-                    },
-                    {
-                      "displayValue": "Sudan",
-                      "value": "SD"
-                    },
-                    {
-                      "displayValue": "Suriname",
-                      "value": "SR"
-                    },
-                    {
-                      "displayValue": "Svalbard and Jan Mayen",
-                      "value": "SJ"
-                    },
-                    {
-                      "displayValue": "Sweden",
-                      "value": "SE"
-                    },
-                    {
-                      "displayValue": "Switzerland",
-                      "value": "CH"
-                    },
-                    {
-                      "displayValue": "Syrian Arab Republic",
-                      "value": "SY"
-                    },
-                    {
-                      "displayValue": "Taiwan, Province of China[note 1]",
-                      "value": "TW"
-                    },
-                    {
-                      "displayValue": "Tajikistan",
-                      "value": "TJ"
-                    },
-                    {
-                      "displayValue": "Tanzania, United Republic of",
-                      "value": "TZ"
-                    },
-                    {
-                      "displayValue": "Thailand",
-                      "value": "TH"
-                    },
-                    {
-                      "displayValue": "Timor-Leste",
-                      "value": "TL"
-                    },
-                    {
-                      "displayValue": "Togo",
-                      "value": "TG"
-                    },
-                    {
-                      "displayValue": "Tokelau",
-                      "value": "TK"
-                    },
-                    {
-                      "displayValue": "Tonga",
-                      "value": "TO"
-                    },
-                    {
-                      "displayValue": "Trinidad and Tobago",
-                      "value": "TT"
-                    },
-                    {
-                      "displayValue": "Tunisia",
-                      "value": "TN"
-                    },
-                    {
-                      "displayValue": "Türkiye",
-                      "value": "TR"
-                    },
-                    {
-                      "displayValue": "Turkmenistan",
-                      "value": "TM"
-                    },
-                    {
-                      "displayValue": "Turks and Caicos Islands",
-                      "value": "TC"
-                    },
-                    {
-                      "displayValue": "Tuvalu",
-                      "value": "TV"
-                    },
-                    {
-                      "displayValue": "Uganda",
-                      "value": "UG"
-                    },
-                    {
-                      "displayValue": "Ukraine",
-                      "value": "UA"
-                    },
-                    {
-                      "displayValue": "United Arab Emirates",
-                      "value": "AE"
-                    },
-                    {
-                      "displayValue": "United Kingdom of Great Britain and Northern Ireland",
-                      "value": "GB"
-                    },
-                    {
-                      "displayValue": "United States Minor Outlying Islands",
-                      "value": "UM"
-                    },
-                    {
-                      "displayValue": "United States of America",
-                      "value": "US"
-                    },
-                    {
-                      "displayValue": "USA (Alabama)",
-                      "value": "US-AL"
-                    },
-                    {
-                      "displayValue": "USA (Alaska)",
-                      "value": "US-AK"
-                    },
-                    {
-                      "displayValue": "USA (American Samoa)",
-                      "value": "US-AS"
-                    },
-                    {
-                      "displayValue": "USA (Arizona)",
-                      "value": "US-AZ"
-                    },
-                    {
-                      "displayValue": "USA (Arkansas)",
-                      "value": "US-AR"
-                    },
-                    {
-                      "displayValue": "USA (California)",
-                      "value": "US-CA"
-                    },
-                    {
-                      "displayValue": "USA (Colorado)",
-                      "value": "US-CO"
-                    },
-                    {
-                      "displayValue": "USA (Connecticut)",
-                      "value": "US-CT"
-                    },
-                    {
-                      "displayValue": "USA (Delaware)",
-                      "value": "US-DE"
-                    },
-                    {
-                      "displayValue": "USA (District of Columbia)",
-                      "value": "US-DC"
-                    },
-                    {
-                      "displayValue": "USA (Florida)",
-                      "value": "US-FL"
-                    },
-                    {
-                      "displayValue": "USA (Georgia)",
-                      "value": "US-GA"
-                    },
-                    {
-                      "displayValue": "USA (Guam)",
-                      "value": "US-GU"
-                    },
-                    {
-                      "displayValue": "USA (Hawaii)",
-                      "value": "US-HI"
-                    },
-                    {
-                      "displayValue": "USA (Idaho)",
-                      "value": "US-ID"
-                    },
-                    {
-                      "displayValue": "USA (Illinois)",
-                      "value": "US-IL"
-                    },
-                    {
-                      "displayValue": "USA (Indiana)",
-                      "value": "US-IN"
-                    },
-                    {
-                      "displayValue": "USA (Iowa)",
-                      "value": "US-IA"
-                    },
-                    {
-                      "displayValue": "USA (Kansas)",
-                      "value": "US-KS"
-                    },
-                    {
-                      "displayValue": "USA (Kentucky)",
-                      "value": "US-KY"
-                    },
-                    {
-                      "displayValue": "USA (Louisiana)",
-                      "value": "US-LA"
-                    },
-                    {
-                      "displayValue": "USA (Maine)",
-                      "value": "US-ME"
-                    },
-                    {
-                      "displayValue": "USA (Maryland)",
-                      "value": "US-MD"
-                    },
-                    {
-                      "displayValue": "USA (Massachusetts)",
-                      "value": "US-MA"
-                    },
-                    {
-                      "displayValue": "USA (Michigan)",
-                      "value": "US-MI"
-                    },
-                    {
-                      "displayValue": "USA (Minnesota)",
-                      "value": "US-MN"
-                    },
-                    {
-                      "displayValue": "USA (Mississippi)",
-                      "value": "US-MS"
-                    },
-                    {
-                      "displayValue": "USA (Missouri)",
-                      "value": "US-MO"
-                    },
-                    {
-                      "displayValue": "USA (Montana)",
-                      "value": "US-MT"
-                    },
-                    {
-                      "displayValue": "USA (Nebraska)",
-                      "value": "US-NE"
-                    },
-                    {
-                      "displayValue": "USA (Nevada)",
-                      "value": "US-NV"
-                    },
-                    {
-                      "displayValue": "USA (New Hampshire)",
-                      "value": "US-NH"
-                    },
-                    {
-                      "displayValue": "USA (New Jersey)",
-                      "value": "US-NJ"
-                    },
-                    {
-                      "displayValue": "USA (New Mexico)",
-                      "value": "US-NM"
-                    },
-                    {
-                      "displayValue": "USA (New York)",
-                      "value": "US-NY"
-                    },
-                    {
-                      "displayValue": "USA (North Carolina)",
-                      "value": "US-NC"
-                    },
-                    {
-                      "displayValue": "USA (North Dakota)",
-                      "value": "US-ND"
-                    },
-                    {
-                      "displayValue": "USA (Northern Mariana Islands)",
-                      "value": "US-MP"
-                    },
-                    {
-                      "displayValue": "USA (Ohio)",
-                      "value": "US-OH"
-                    },
-                    {
-                      "displayValue": "USA (Oklahoma)",
-                      "value": "US-OK"
-                    },
-                    {
-                      "displayValue": "USA (Oregon)",
-                      "value": "US-OR"
-                    },
-                    {
-                      "displayValue": "USA (Pennsylvania)",
-                      "value": "US-PA"
-                    },
-                    {
-                      "displayValue": "USA (Puerto Rico)",
-                      "value": "US-PR"
-                    },
-                    {
-                      "displayValue": "USA (Rhode Island)",
-                      "value": "US-RI"
-                    },
-                    {
-                      "displayValue": "USA (South Carolina)",
-                      "value": "US-SC"
-                    },
-                    {
-                      "displayValue": "USA (South Dakota)",
-                      "value": "US-SD"
-                    },
-                    {
-                      "displayValue": "USA (Tennessee)",
-                      "value": "US-TN"
-                    },
-                    {
-                      "displayValue": "USA (Texas)",
-                      "value": "US-TX"
-                    },
-                    {
-                      "displayValue": "USA (United States Minor Outlying Islands)",
-                      "value": "US-UM"
-                    },
-                    {
-                      "displayValue": "USA (Utah)",
-                      "value": "US-UT"
-                    },
-                    {
-                      "displayValue": "USA (Vermont)",
-                      "value": "US-VT"
-                    },
-                    {
-                      "displayValue": "USA (Virgin Islands)",
-                      "value": "US-VI"
-                    },
-                    {
-                      "displayValue": "USA (Virginia)",
-                      "value": "US-VA"
-                    },
-                    {
-                      "displayValue": "USA (Washington)",
-                      "value": "US-WA"
-                    },
-                    {
-                      "displayValue": "USA (West Virginia)",
-                      "value": "US-WV"
-                    },
-                    {
-                      "displayValue": "USA (Wisconsin)",
-                      "value": "US-WI"
-                    },
-                    {
-                      "displayValue": "USA (Wyoming)",
-                      "value": "US-WY"
-                    },
-                    {
-                      "displayValue": "Uruguay",
-                      "value": "UY"
-                    },
-                    {
-                      "displayValue": "Uzbekistan",
-                      "value": "UZ"
-                    },
-                    {
-                      "displayValue": "Vanuatu",
-                      "value": "VU"
-                    },
-                    {
-                      "displayValue": "Venezuela (Bolivarian Republic of)",
-                      "value": "VE"
-                    },
-                    {
-                      "displayValue": "Viet Nam",
-                      "value": "VN"
-                    },
-                    {
-                      "displayValue": "Virgin Islands (British)",
-                      "value": "VG"
-                    },
-                    {
-                      "displayValue": "Virgin Islands (U.S.)",
-                      "value": "VI"
-                    },
-                    {
-                      "displayValue": "Wallis and Futuna",
-                      "value": "WF"
-                    },
-                    {
-                      "displayValue": "Western Sahara",
-                      "value": "EH"
-                    },
-                    {
-                      "displayValue": "Yemen",
-                      "value": "YE"
-                    },
-                    {
-                      "displayValue": "Zambia",
-                      "value": "ZM"
-                    },
-                    {
-                      "displayValue": "Zimbabwe",
-                      "value": "ZW"
-                    }
-                  ],
-                  "displayName": "Country / State",
-                  "simpleValueType": true,
-                  "name": "region",
-                  "type": "SELECT"
-                },
-                "isUnique": false
-              }
-            ],
-            "editRowTitle": "Edit Rule",
-            "type": "PARAM_TABLE",
-            "newRowButtonText": "Add Rule",
-            "newRowTitle": "Add Rule",
-            "enablingConditions": [
-              {
-                "paramName": "consentMode",
-                "paramValue": true,
-                "type": "EQUALS"
-              }
-            ],
-            "help": "If you haven\u0027t defined a specific strategy, it\u0027s recommended to apply the default settings."
-          }
-        ],
+        "help": "The automatic configuration suits most sites and needs no setup. Check this only to declare your own default consent state per country or state below — it then replaces the automatic one, and a returning visitor\u0027s recorded choice still takes precedence over it.",
+        "type": "CHECKBOX",
+        "name": "overrideDefaultConsent",
+        "checkboxText": "Override the automatic configuration",
+        "simpleValueType": true,
+        "defaultValue": false,
         "enablingConditions": [
           {
             "paramName": "consentMode",
@@ -1519,6 +163,1411 @@ ___TEMPLATE_PARAMETERS___
             "type": "EQUALS"
           }
         ]
+      },
+      {
+        "displayName": "Default Consent Mode Settings",
+        "alwaysInSummary": true,
+        "name": "customConsentSettings",
+        "paramTableColumns": [
+          {
+            "param": {
+              "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for advertising purposes.",
+              "macrosInSelect": false,
+              "selectItems": [
+                {
+                  "displayValue": "granted",
+                  "value": "granted"
+                },
+                {
+                  "displayValue": "denied",
+                  "value": "denied"
+                },
+                {
+                  "displayValue": "not used",
+                  "value": "not used"
+                }
+              ],
+              "displayName": "Advertising",
+              "defaultValue": "denied",
+              "simpleValueType": true,
+              "name": "ad_storage",
+              "type": "SELECT"
+            },
+            "isUnique": false
+          },
+          {
+            "param": {
+              "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for analytics purposes.",
+              "macrosInSelect": false,
+              "selectItems": [
+                {
+                  "displayValue": "granted",
+                  "value": "granted"
+                },
+                {
+                  "displayValue": "denied",
+                  "value": "denied"
+                },
+                {
+                  "displayValue": "not used",
+                  "value": "not used"
+                }
+              ],
+              "displayName": "Analytics",
+              "defaultValue": "denied",
+              "simpleValueType": true,
+              "name": "analytics_storage",
+              "type": "SELECT"
+            },
+            "isUnique": false
+          },
+          {
+            "param": {
+              "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for content personalization purposes.",
+              "macrosInSelect": false,
+              "selectItems": [
+                {
+                  "displayValue": "granted",
+                  "value": "granted"
+                },
+                {
+                  "displayValue": "denied",
+                  "value": "denied"
+                },
+                {
+                  "displayValue": "not used",
+                  "value": "not used"
+                }
+              ],
+              "displayName": "Personalization",
+              "defaultValue": "denied",
+              "simpleValueType": true,
+              "name": "personalization_storage",
+              "type": "SELECT"
+            },
+            "isUnique": false
+          },
+          {
+            "param": {
+              "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for functionality purposes.",
+              "macrosInSelect": false,
+              "selectItems": [
+                {
+                  "displayValue": "granted",
+                  "value": "granted"
+                },
+                {
+                  "displayValue": "denied",
+                  "value": "denied"
+                },
+                {
+                  "displayValue": "not used",
+                  "value": "not used"
+                }
+              ],
+              "displayName": "Functionality",
+              "defaultValue": "denied",
+              "simpleValueType": true,
+              "name": "functionality_storage",
+              "type": "SELECT"
+            },
+            "isUnique": false
+          },
+          {
+            "param": {
+              "help": "If set to denied, Google\u0027s tags and pixels won\u0027t read or write cookies for security purposes.",
+              "macrosInSelect": false,
+              "selectItems": [
+                {
+                  "displayValue": "granted",
+                  "value": "granted"
+                },
+                {
+                  "displayValue": "denied",
+                  "value": "denied"
+                },
+                {
+                  "displayValue": "not used",
+                  "value": "not used"
+                }
+              ],
+              "displayName": "Security",
+              "defaultValue": "denied",
+              "simpleValueType": true,
+              "name": "security_storage",
+              "type": "SELECT"
+            },
+            "isUnique": false
+          },
+          {
+            "param": {
+              "help": "How long to wait (in milliseconds) before an \u0027update\u0027 command.",
+              "valueValidators": [
+                {
+                  "type": "NON_NEGATIVE_NUMBER"
+                }
+              ],
+              "displayName": "Wait for Update",
+              "defaultValue": 1000,
+              "simpleValueType": true,
+              "name": "wait_for_update",
+              "valueUnit": "milliseconds",
+              "type": "TEXT"
+            },
+            "isUnique": false
+          },
+          {
+            "param": {
+              "selectItems": [
+                {
+                  "displayValue": "ALL",
+                  "value": "ALL"
+                },
+                {
+                  "displayValue": "Afghanistan",
+                  "value": "AF"
+                },
+                {
+                  "displayValue": "Åland Islands",
+                  "value": "AX"
+                },
+                {
+                  "displayValue": "Albania",
+                  "value": "AL"
+                },
+                {
+                  "displayValue": "Algeria",
+                  "value": "DZ"
+                },
+                {
+                  "displayValue": "American Samoa",
+                  "value": "AS"
+                },
+                {
+                  "displayValue": "Andorra",
+                  "value": "AD"
+                },
+                {
+                  "displayValue": "Angola",
+                  "value": "AO"
+                },
+                {
+                  "displayValue": "Anguilla",
+                  "value": "AI"
+                },
+                {
+                  "displayValue": "Antarctica",
+                  "value": "AQ"
+                },
+                {
+                  "displayValue": "Antigua and Barbuda",
+                  "value": "AG"
+                },
+                {
+                  "displayValue": "Argentina",
+                  "value": "AR"
+                },
+                {
+                  "displayValue": "Armenia",
+                  "value": "AM"
+                },
+                {
+                  "displayValue": "Aruba",
+                  "value": "AW"
+                },
+                {
+                  "displayValue": "Australia",
+                  "value": "AU"
+                },
+                {
+                  "displayValue": "Austria",
+                  "value": "AT"
+                },
+                {
+                  "displayValue": "Azerbaijan",
+                  "value": "AZ"
+                },
+                {
+                  "displayValue": "Bahamas",
+                  "value": "BS"
+                },
+                {
+                  "displayValue": "Bahrain",
+                  "value": "BH"
+                },
+                {
+                  "displayValue": "Bangladesh",
+                  "value": "BD"
+                },
+                {
+                  "displayValue": "Barbados",
+                  "value": "BB"
+                },
+                {
+                  "displayValue": "Belarus",
+                  "value": "BY"
+                },
+                {
+                  "displayValue": "Belgium",
+                  "value": "BE"
+                },
+                {
+                  "displayValue": "Belize",
+                  "value": "BZ"
+                },
+                {
+                  "displayValue": "Benin",
+                  "value": "BJ"
+                },
+                {
+                  "displayValue": "Bermuda",
+                  "value": "BM"
+                },
+                {
+                  "displayValue": "Bhutan",
+                  "value": "BT"
+                },
+                {
+                  "displayValue": "Bolivia (Plurinational State of)",
+                  "value": "BO"
+                },
+                {
+                  "displayValue": "Bonaire, Sint Eustatius and Saba",
+                  "value": "BQ"
+                },
+                {
+                  "displayValue": "Bosnia and Herzegovina",
+                  "value": "BA"
+                },
+                {
+                  "displayValue": "Botswana",
+                  "value": "BW"
+                },
+                {
+                  "displayValue": "Bouvet Island",
+                  "value": "BV"
+                },
+                {
+                  "displayValue": "Brazil",
+                  "value": "BR"
+                },
+                {
+                  "displayValue": "British Indian Ocean Territory",
+                  "value": "IO"
+                },
+                {
+                  "displayValue": "Brunei Darussalam",
+                  "value": "BN"
+                },
+                {
+                  "displayValue": "Bulgaria",
+                  "value": "BG"
+                },
+                {
+                  "displayValue": "Burkina Faso",
+                  "value": "BF"
+                },
+                {
+                  "displayValue": "Burundi",
+                  "value": "BI"
+                },
+                {
+                  "displayValue": "Cabo Verde",
+                  "value": "CV"
+                },
+                {
+                  "displayValue": "Cambodia",
+                  "value": "KH"
+                },
+                {
+                  "displayValue": "Cameroon",
+                  "value": "CM"
+                },
+                {
+                  "displayValue": "Canada",
+                  "value": "CA"
+                },
+                {
+                  "displayValue": "Cayman Islands",
+                  "value": "KY"
+                },
+                {
+                  "displayValue": "Central African Republic",
+                  "value": "CF"
+                },
+                {
+                  "displayValue": "Chad",
+                  "value": "TD"
+                },
+                {
+                  "displayValue": "Chile",
+                  "value": "CL"
+                },
+                {
+                  "displayValue": "China",
+                  "value": "CN"
+                },
+                {
+                  "displayValue": "Christmas Island",
+                  "value": "CX"
+                },
+                {
+                  "displayValue": "Cocos (Keeling) Islands",
+                  "value": "CC"
+                },
+                {
+                  "displayValue": "Colombia",
+                  "value": "CO"
+                },
+                {
+                  "displayValue": "Comoros",
+                  "value": "KM"
+                },
+                {
+                  "displayValue": "Congo",
+                  "value": "CG"
+                },
+                {
+                  "displayValue": "Congo, Democratic Republic of the",
+                  "value": "CD"
+                },
+                {
+                  "displayValue": "Cook Islands",
+                  "value": "CK"
+                },
+                {
+                  "displayValue": "Costa Rica",
+                  "value": "CR"
+                },
+                {
+                  "displayValue": "Côte d\u0027Ivoire",
+                  "value": "CI"
+                },
+                {
+                  "displayValue": "Croatia",
+                  "value": "HR"
+                },
+                {
+                  "displayValue": "Cuba",
+                  "value": "CU"
+                },
+                {
+                  "displayValue": "Curaçao",
+                  "value": "CW"
+                },
+                {
+                  "displayValue": "Cyprus",
+                  "value": "CY"
+                },
+                {
+                  "displayValue": "Czechia",
+                  "value": "CZ"
+                },
+                {
+                  "displayValue": "Denmark",
+                  "value": "DK"
+                },
+                {
+                  "displayValue": "Djibouti",
+                  "value": "DJ"
+                },
+                {
+                  "displayValue": "Dominica",
+                  "value": "DM"
+                },
+                {
+                  "displayValue": "Dominican Republic",
+                  "value": "DO"
+                },
+                {
+                  "displayValue": "Ecuador",
+                  "value": "EC"
+                },
+                {
+                  "displayValue": "Egypt",
+                  "value": "EG"
+                },
+                {
+                  "displayValue": "El Salvador",
+                  "value": "SV"
+                },
+                {
+                  "displayValue": "Equatorial Guinea",
+                  "value": "GQ"
+                },
+                {
+                  "displayValue": "Eritrea",
+                  "value": "ER"
+                },
+                {
+                  "displayValue": "Estonia",
+                  "value": "EE"
+                },
+                {
+                  "displayValue": "Eswatini",
+                  "value": "SZ"
+                },
+                {
+                  "displayValue": "Ethiopia",
+                  "value": "ET"
+                },
+                {
+                  "displayValue": "Falkland Islands (Malvinas)",
+                  "value": "FK"
+                },
+                {
+                  "displayValue": "Faroe Islands",
+                  "value": "FO"
+                },
+                {
+                  "displayValue": "Fiji",
+                  "value": "FJ"
+                },
+                {
+                  "displayValue": "Finland",
+                  "value": "FI"
+                },
+                {
+                  "displayValue": "France",
+                  "value": "FR"
+                },
+                {
+                  "displayValue": "French Guiana",
+                  "value": "GF"
+                },
+                {
+                  "displayValue": "French Polynesia",
+                  "value": "PF"
+                },
+                {
+                  "displayValue": "French Southern Territories",
+                  "value": "TF"
+                },
+                {
+                  "displayValue": "Gabon",
+                  "value": "GA"
+                },
+                {
+                  "displayValue": "Gambia",
+                  "value": "GM"
+                },
+                {
+                  "displayValue": "Georgia",
+                  "value": "GE"
+                },
+                {
+                  "displayValue": "Germany",
+                  "value": "DE"
+                },
+                {
+                  "displayValue": "Ghana",
+                  "value": "GH"
+                },
+                {
+                  "displayValue": "Gibraltar",
+                  "value": "GI"
+                },
+                {
+                  "displayValue": "Greece",
+                  "value": "GR"
+                },
+                {
+                  "displayValue": "Greenland",
+                  "value": "GL"
+                },
+                {
+                  "displayValue": "Grenada",
+                  "value": "GD"
+                },
+                {
+                  "displayValue": "Guadeloupe",
+                  "value": "GP"
+                },
+                {
+                  "displayValue": "Guam",
+                  "value": "GU"
+                },
+                {
+                  "displayValue": "Guatemala",
+                  "value": "GT"
+                },
+                {
+                  "displayValue": "Guernsey",
+                  "value": "GG"
+                },
+                {
+                  "displayValue": "Guinea",
+                  "value": "GN"
+                },
+                {
+                  "displayValue": "Guinea-Bissau",
+                  "value": "GW"
+                },
+                {
+                  "displayValue": "Guyana",
+                  "value": "GY"
+                },
+                {
+                  "displayValue": "Haiti",
+                  "value": "HT"
+                },
+                {
+                  "displayValue": "Heard Island and McDonald Islands",
+                  "value": "HM"
+                },
+                {
+                  "displayValue": "Holy See",
+                  "value": "VA"
+                },
+                {
+                  "displayValue": "Honduras",
+                  "value": "HN"
+                },
+                {
+                  "displayValue": "Hong Kong",
+                  "value": "HK"
+                },
+                {
+                  "displayValue": "Hungary",
+                  "value": "HU"
+                },
+                {
+                  "displayValue": "Iceland",
+                  "value": "IS"
+                },
+                {
+                  "displayValue": "India",
+                  "value": "IN"
+                },
+                {
+                  "displayValue": "Indonesia",
+                  "value": "ID"
+                },
+                {
+                  "displayValue": "Iran (Islamic Republic of)",
+                  "value": "IR"
+                },
+                {
+                  "displayValue": "Iraq",
+                  "value": "IQ"
+                },
+                {
+                  "displayValue": "Ireland",
+                  "value": "IE"
+                },
+                {
+                  "displayValue": "Isle of Man",
+                  "value": "IM"
+                },
+                {
+                  "displayValue": "Israel",
+                  "value": "IL"
+                },
+                {
+                  "displayValue": "Italy",
+                  "value": "IT"
+                },
+                {
+                  "displayValue": "Jamaica",
+                  "value": "JM"
+                },
+                {
+                  "displayValue": "Japan",
+                  "value": "JP"
+                },
+                {
+                  "displayValue": "Jersey",
+                  "value": "JE"
+                },
+                {
+                  "displayValue": "Jordan",
+                  "value": "JO"
+                },
+                {
+                  "displayValue": "Kazakhstan",
+                  "value": "KZ"
+                },
+                {
+                  "displayValue": "Kenya",
+                  "value": "KE"
+                },
+                {
+                  "displayValue": "Kiribati",
+                  "value": "KI"
+                },
+                {
+                  "displayValue": "Korea (Democratic People\u0027s Republic of)",
+                  "value": "KP"
+                },
+                {
+                  "displayValue": "Korea, Republic of",
+                  "value": "KR"
+                },
+                {
+                  "displayValue": "Kuwait",
+                  "value": "KW"
+                },
+                {
+                  "displayValue": "Kyrgyzstan",
+                  "value": "KG"
+                },
+                {
+                  "displayValue": "Lao People\u0027s Democratic Republic",
+                  "value": "LA"
+                },
+                {
+                  "displayValue": "Latvia",
+                  "value": "LV"
+                },
+                {
+                  "displayValue": "Lebanon",
+                  "value": "LB"
+                },
+                {
+                  "displayValue": "Lesotho",
+                  "value": "LS"
+                },
+                {
+                  "displayValue": "Liberia",
+                  "value": "LR"
+                },
+                {
+                  "displayValue": "Libya",
+                  "value": "LY"
+                },
+                {
+                  "displayValue": "Liechtenstein",
+                  "value": "LI"
+                },
+                {
+                  "displayValue": "Lithuania",
+                  "value": "LT"
+                },
+                {
+                  "displayValue": "Luxembourg",
+                  "value": "LU"
+                },
+                {
+                  "displayValue": "Macao",
+                  "value": "MO"
+                },
+                {
+                  "displayValue": "Madagascar",
+                  "value": "MG"
+                },
+                {
+                  "displayValue": "Malawi",
+                  "value": "MW"
+                },
+                {
+                  "displayValue": "Malaysia",
+                  "value": "MY"
+                },
+                {
+                  "displayValue": "Maldives",
+                  "value": "MV"
+                },
+                {
+                  "displayValue": "Mali",
+                  "value": "ML"
+                },
+                {
+                  "displayValue": "Malta",
+                  "value": "MT"
+                },
+                {
+                  "displayValue": "Marshall Islands",
+                  "value": "MH"
+                },
+                {
+                  "displayValue": "Martinique",
+                  "value": "MQ"
+                },
+                {
+                  "displayValue": "Mauritania",
+                  "value": "MR"
+                },
+                {
+                  "displayValue": "Mauritius",
+                  "value": "MU"
+                },
+                {
+                  "displayValue": "Mayotte",
+                  "value": "YT"
+                },
+                {
+                  "displayValue": "Mexico",
+                  "value": "MX"
+                },
+                {
+                  "displayValue": "Micronesia (Federated States of)",
+                  "value": "FM"
+                },
+                {
+                  "displayValue": "Moldova, Republic of",
+                  "value": "MD"
+                },
+                {
+                  "displayValue": "Monaco",
+                  "value": "MC"
+                },
+                {
+                  "displayValue": "Mongolia",
+                  "value": "MN"
+                },
+                {
+                  "displayValue": "Montenegro",
+                  "value": "ME"
+                },
+                {
+                  "displayValue": "Montserrat",
+                  "value": "MS"
+                },
+                {
+                  "displayValue": "Morocco",
+                  "value": "MA"
+                },
+                {
+                  "displayValue": "Mozambique",
+                  "value": "MZ"
+                },
+                {
+                  "displayValue": "Myanmar",
+                  "value": "MM"
+                },
+                {
+                  "displayValue": "Namibia",
+                  "value": "NA"
+                },
+                {
+                  "displayValue": "Nauru",
+                  "value": "NR"
+                },
+                {
+                  "displayValue": "Nepal",
+                  "value": "NP"
+                },
+                {
+                  "displayValue": "Netherlands, Kingdom of the",
+                  "value": "NL"
+                },
+                {
+                  "displayValue": "New Caledonia",
+                  "value": "NC"
+                },
+                {
+                  "displayValue": "New Zealand",
+                  "value": "NZ"
+                },
+                {
+                  "displayValue": "Nicaragua",
+                  "value": "NI"
+                },
+                {
+                  "displayValue": "Niger",
+                  "value": "NE"
+                },
+                {
+                  "displayValue": "Nigeria",
+                  "value": "NG"
+                },
+                {
+                  "displayValue": "Niue",
+                  "value": "NU"
+                },
+                {
+                  "displayValue": "Norfolk Island",
+                  "value": "NF"
+                },
+                {
+                  "displayValue": "North Macedonia",
+                  "value": "MK"
+                },
+                {
+                  "displayValue": "Northern Mariana Islands",
+                  "value": "MP"
+                },
+                {
+                  "displayValue": "Norway",
+                  "value": "NO"
+                },
+                {
+                  "displayValue": "Oman",
+                  "value": "OM"
+                },
+                {
+                  "displayValue": "Pakistan",
+                  "value": "PK"
+                },
+                {
+                  "displayValue": "Palau",
+                  "value": "PW"
+                },
+                {
+                  "displayValue": "Palestine, State of",
+                  "value": "PS"
+                },
+                {
+                  "displayValue": "Panama",
+                  "value": "PA"
+                },
+                {
+                  "displayValue": "Papua New Guinea",
+                  "value": "PG"
+                },
+                {
+                  "displayValue": "Paraguay",
+                  "value": "PY"
+                },
+                {
+                  "displayValue": "Peru",
+                  "value": "PE"
+                },
+                {
+                  "displayValue": "Philippines",
+                  "value": "PH"
+                },
+                {
+                  "displayValue": "Pitcairn",
+                  "value": "PN"
+                },
+                {
+                  "displayValue": "Poland",
+                  "value": "PL"
+                },
+                {
+                  "displayValue": "Portugal",
+                  "value": "PT"
+                },
+                {
+                  "displayValue": "Puerto Rico",
+                  "value": "PR"
+                },
+                {
+                  "displayValue": "Qatar",
+                  "value": "QA"
+                },
+                {
+                  "displayValue": "Réunion",
+                  "value": "RE"
+                },
+                {
+                  "displayValue": "Romania",
+                  "value": "RO"
+                },
+                {
+                  "displayValue": "Russian Federation",
+                  "value": "RU"
+                },
+                {
+                  "displayValue": "Rwanda",
+                  "value": "RW"
+                },
+                {
+                  "displayValue": "Saint Barthélemy",
+                  "value": "BL"
+                },
+                {
+                  "displayValue": "Saint Helena, Ascension and Tristan da Cunha",
+                  "value": "SH"
+                },
+                {
+                  "displayValue": "Saint Kitts and Nevis",
+                  "value": "KN"
+                },
+                {
+                  "displayValue": "Saint Lucia",
+                  "value": "LC"
+                },
+                {
+                  "displayValue": "Saint Martin (French part)",
+                  "value": "MF"
+                },
+                {
+                  "displayValue": "Saint Pierre and Miquelon",
+                  "value": "PM"
+                },
+                {
+                  "displayValue": "Saint Vincent and the Grenadines",
+                  "value": "VC"
+                },
+                {
+                  "displayValue": "Samoa",
+                  "value": "WS"
+                },
+                {
+                  "displayValue": "San Marino",
+                  "value": "SM"
+                },
+                {
+                  "displayValue": "Sao Tome and Principe",
+                  "value": "ST"
+                },
+                {
+                  "displayValue": "Saudi Arabia",
+                  "value": "SA"
+                },
+                {
+                  "displayValue": "Senegal",
+                  "value": "SN"
+                },
+                {
+                  "displayValue": "Serbia",
+                  "value": "RS"
+                },
+                {
+                  "displayValue": "Seychelles",
+                  "value": "SC"
+                },
+                {
+                  "displayValue": "Sierra Leone",
+                  "value": "SL"
+                },
+                {
+                  "displayValue": "Singapore",
+                  "value": "SG"
+                },
+                {
+                  "displayValue": "Sint Maarten (Dutch part)",
+                  "value": "SX"
+                },
+                {
+                  "displayValue": "Slovakia",
+                  "value": "SK"
+                },
+                {
+                  "displayValue": "Slovenia",
+                  "value": "SI"
+                },
+                {
+                  "displayValue": "Solomon Islands",
+                  "value": "SB"
+                },
+                {
+                  "displayValue": "Somalia",
+                  "value": "SO"
+                },
+                {
+                  "displayValue": "South Africa",
+                  "value": "ZA"
+                },
+                {
+                  "displayValue": "South Georgia and the South Sandwich Islands",
+                  "value": "GS"
+                },
+                {
+                  "displayValue": "South Sudan",
+                  "value": "SS"
+                },
+                {
+                  "displayValue": "Spain",
+                  "value": "ES"
+                },
+                {
+                  "displayValue": "Sri Lanka",
+                  "value": "LK"
+                },
+                {
+                  "displayValue": "Sudan",
+                  "value": "SD"
+                },
+                {
+                  "displayValue": "Suriname",
+                  "value": "SR"
+                },
+                {
+                  "displayValue": "Svalbard and Jan Mayen",
+                  "value": "SJ"
+                },
+                {
+                  "displayValue": "Sweden",
+                  "value": "SE"
+                },
+                {
+                  "displayValue": "Switzerland",
+                  "value": "CH"
+                },
+                {
+                  "displayValue": "Syrian Arab Republic",
+                  "value": "SY"
+                },
+                {
+                  "displayValue": "Taiwan, Province of China[note 1]",
+                  "value": "TW"
+                },
+                {
+                  "displayValue": "Tajikistan",
+                  "value": "TJ"
+                },
+                {
+                  "displayValue": "Tanzania, United Republic of",
+                  "value": "TZ"
+                },
+                {
+                  "displayValue": "Thailand",
+                  "value": "TH"
+                },
+                {
+                  "displayValue": "Timor-Leste",
+                  "value": "TL"
+                },
+                {
+                  "displayValue": "Togo",
+                  "value": "TG"
+                },
+                {
+                  "displayValue": "Tokelau",
+                  "value": "TK"
+                },
+                {
+                  "displayValue": "Tonga",
+                  "value": "TO"
+                },
+                {
+                  "displayValue": "Trinidad and Tobago",
+                  "value": "TT"
+                },
+                {
+                  "displayValue": "Tunisia",
+                  "value": "TN"
+                },
+                {
+                  "displayValue": "Türkiye",
+                  "value": "TR"
+                },
+                {
+                  "displayValue": "Turkmenistan",
+                  "value": "TM"
+                },
+                {
+                  "displayValue": "Turks and Caicos Islands",
+                  "value": "TC"
+                },
+                {
+                  "displayValue": "Tuvalu",
+                  "value": "TV"
+                },
+                {
+                  "displayValue": "Uganda",
+                  "value": "UG"
+                },
+                {
+                  "displayValue": "Ukraine",
+                  "value": "UA"
+                },
+                {
+                  "displayValue": "United Arab Emirates",
+                  "value": "AE"
+                },
+                {
+                  "displayValue": "United Kingdom of Great Britain and Northern Ireland",
+                  "value": "GB"
+                },
+                {
+                  "displayValue": "United States Minor Outlying Islands",
+                  "value": "UM"
+                },
+                {
+                  "displayValue": "United States of America",
+                  "value": "US"
+                },
+                {
+                  "displayValue": "USA (Alabama)",
+                  "value": "US-AL"
+                },
+                {
+                  "displayValue": "USA (Alaska)",
+                  "value": "US-AK"
+                },
+                {
+                  "displayValue": "USA (American Samoa)",
+                  "value": "US-AS"
+                },
+                {
+                  "displayValue": "USA (Arizona)",
+                  "value": "US-AZ"
+                },
+                {
+                  "displayValue": "USA (Arkansas)",
+                  "value": "US-AR"
+                },
+                {
+                  "displayValue": "USA (California)",
+                  "value": "US-CA"
+                },
+                {
+                  "displayValue": "USA (Colorado)",
+                  "value": "US-CO"
+                },
+                {
+                  "displayValue": "USA (Connecticut)",
+                  "value": "US-CT"
+                },
+                {
+                  "displayValue": "USA (Delaware)",
+                  "value": "US-DE"
+                },
+                {
+                  "displayValue": "USA (District of Columbia)",
+                  "value": "US-DC"
+                },
+                {
+                  "displayValue": "USA (Florida)",
+                  "value": "US-FL"
+                },
+                {
+                  "displayValue": "USA (Georgia)",
+                  "value": "US-GA"
+                },
+                {
+                  "displayValue": "USA (Guam)",
+                  "value": "US-GU"
+                },
+                {
+                  "displayValue": "USA (Hawaii)",
+                  "value": "US-HI"
+                },
+                {
+                  "displayValue": "USA (Idaho)",
+                  "value": "US-ID"
+                },
+                {
+                  "displayValue": "USA (Illinois)",
+                  "value": "US-IL"
+                },
+                {
+                  "displayValue": "USA (Indiana)",
+                  "value": "US-IN"
+                },
+                {
+                  "displayValue": "USA (Iowa)",
+                  "value": "US-IA"
+                },
+                {
+                  "displayValue": "USA (Kansas)",
+                  "value": "US-KS"
+                },
+                {
+                  "displayValue": "USA (Kentucky)",
+                  "value": "US-KY"
+                },
+                {
+                  "displayValue": "USA (Louisiana)",
+                  "value": "US-LA"
+                },
+                {
+                  "displayValue": "USA (Maine)",
+                  "value": "US-ME"
+                },
+                {
+                  "displayValue": "USA (Maryland)",
+                  "value": "US-MD"
+                },
+                {
+                  "displayValue": "USA (Massachusetts)",
+                  "value": "US-MA"
+                },
+                {
+                  "displayValue": "USA (Michigan)",
+                  "value": "US-MI"
+                },
+                {
+                  "displayValue": "USA (Minnesota)",
+                  "value": "US-MN"
+                },
+                {
+                  "displayValue": "USA (Mississippi)",
+                  "value": "US-MS"
+                },
+                {
+                  "displayValue": "USA (Missouri)",
+                  "value": "US-MO"
+                },
+                {
+                  "displayValue": "USA (Montana)",
+                  "value": "US-MT"
+                },
+                {
+                  "displayValue": "USA (Nebraska)",
+                  "value": "US-NE"
+                },
+                {
+                  "displayValue": "USA (Nevada)",
+                  "value": "US-NV"
+                },
+                {
+                  "displayValue": "USA (New Hampshire)",
+                  "value": "US-NH"
+                },
+                {
+                  "displayValue": "USA (New Jersey)",
+                  "value": "US-NJ"
+                },
+                {
+                  "displayValue": "USA (New Mexico)",
+                  "value": "US-NM"
+                },
+                {
+                  "displayValue": "USA (New York)",
+                  "value": "US-NY"
+                },
+                {
+                  "displayValue": "USA (North Carolina)",
+                  "value": "US-NC"
+                },
+                {
+                  "displayValue": "USA (North Dakota)",
+                  "value": "US-ND"
+                },
+                {
+                  "displayValue": "USA (Northern Mariana Islands)",
+                  "value": "US-MP"
+                },
+                {
+                  "displayValue": "USA (Ohio)",
+                  "value": "US-OH"
+                },
+                {
+                  "displayValue": "USA (Oklahoma)",
+                  "value": "US-OK"
+                },
+                {
+                  "displayValue": "USA (Oregon)",
+                  "value": "US-OR"
+                },
+                {
+                  "displayValue": "USA (Pennsylvania)",
+                  "value": "US-PA"
+                },
+                {
+                  "displayValue": "USA (Puerto Rico)",
+                  "value": "US-PR"
+                },
+                {
+                  "displayValue": "USA (Rhode Island)",
+                  "value": "US-RI"
+                },
+                {
+                  "displayValue": "USA (South Carolina)",
+                  "value": "US-SC"
+                },
+                {
+                  "displayValue": "USA (South Dakota)",
+                  "value": "US-SD"
+                },
+                {
+                  "displayValue": "USA (Tennessee)",
+                  "value": "US-TN"
+                },
+                {
+                  "displayValue": "USA (Texas)",
+                  "value": "US-TX"
+                },
+                {
+                  "displayValue": "USA (United States Minor Outlying Islands)",
+                  "value": "US-UM"
+                },
+                {
+                  "displayValue": "USA (Utah)",
+                  "value": "US-UT"
+                },
+                {
+                  "displayValue": "USA (Vermont)",
+                  "value": "US-VT"
+                },
+                {
+                  "displayValue": "USA (Virgin Islands)",
+                  "value": "US-VI"
+                },
+                {
+                  "displayValue": "USA (Virginia)",
+                  "value": "US-VA"
+                },
+                {
+                  "displayValue": "USA (Washington)",
+                  "value": "US-WA"
+                },
+                {
+                  "displayValue": "USA (West Virginia)",
+                  "value": "US-WV"
+                },
+                {
+                  "displayValue": "USA (Wisconsin)",
+                  "value": "US-WI"
+                },
+                {
+                  "displayValue": "USA (Wyoming)",
+                  "value": "US-WY"
+                },
+                {
+                  "displayValue": "Uruguay",
+                  "value": "UY"
+                },
+                {
+                  "displayValue": "Uzbekistan",
+                  "value": "UZ"
+                },
+                {
+                  "displayValue": "Vanuatu",
+                  "value": "VU"
+                },
+                {
+                  "displayValue": "Venezuela (Bolivarian Republic of)",
+                  "value": "VE"
+                },
+                {
+                  "displayValue": "Viet Nam",
+                  "value": "VN"
+                },
+                {
+                  "displayValue": "Virgin Islands (British)",
+                  "value": "VG"
+                },
+                {
+                  "displayValue": "Virgin Islands (U.S.)",
+                  "value": "VI"
+                },
+                {
+                  "displayValue": "Wallis and Futuna",
+                  "value": "WF"
+                },
+                {
+                  "displayValue": "Western Sahara",
+                  "value": "EH"
+                },
+                {
+                  "displayValue": "Yemen",
+                  "value": "YE"
+                },
+                {
+                  "displayValue": "Zambia",
+                  "value": "ZM"
+                },
+                {
+                  "displayValue": "Zimbabwe",
+                  "value": "ZW"
+                }
+              ],
+              "displayName": "Country / State",
+              "simpleValueType": true,
+              "name": "region",
+              "type": "SELECT"
+            },
+            "isUnique": false
+          }
+        ],
+        "editRowTitle": "Edit Rule",
+        "type": "PARAM_TABLE",
+        "newRowButtonText": "Add Rule",
+        "newRowTitle": "Add Rule",
+        "enablingConditions": [
+          {
+            "paramName": "overrideDefaultConsent",
+            "paramValue": true,
+            "type": "EQUALS"
+          }
+        ],
+        "help": "These rules replace the automatic default state entirely. A visitor whose choice is already recorded is unaffected: that choice is replayed over whatever is set here."
       },
       {
         "displayName": "Advanced Consent Mode Settings",
@@ -1562,81 +1611,52 @@ ___TEMPLATE_PARAMETERS___
     ]
   },
   {
-    "displayName": "Sirdata CMP",
-    "name": "cmp",
-    "groupStyle": "ZIPPY_OPEN",
     "type": "GROUP",
+    "name": "facebookConsentModeGroup",
+    "displayName": "Facebook Consent Mode",
+    "help": "Compatibility requires the official \u003ca href\u003d\"https://github.com/facebook/GoogleTagManager-WebTemplate-For-FacebookPixel\"\u003eFacebook template\u003c/a\u003e. Custom HTML and third-party templates are not guaranteed. This control coordinates consent commands; it does not prevent the SDK from being downloaded by another tag.",
+    "groupStyle": "ZIPPY_OPEN",
+    "enablingConditions": [
+      {
+        "paramName": "configId",
+        "paramValue": "",
+        "type": "NOT_EQUALS"
+      }
+    ],
     "subParams": [
       {
-        "help": "Create a free \u003ca href\u003d\"https://www.abconsent.com\"\u003eSirdata CMP account\u003c/a\u003e or get your partner Id and Config ID from your existing account.",
-        "simpleValueType": true,
-        "name": "loadCmpScripts",
-        "checkboxText": "Load ABconsent/Sirdata CMP",
         "type": "CHECKBOX",
-        "alwaysInSummary": true,
-        "defaultValue": true
-      },
-      {
-        "alwaysInSummary": true,
-        "valueValidators": [
-          {
-            "type": "POSITIVE_NUMBER"
-          }
-        ],
-        "enablingConditions": [
-          {
-            "paramName": "loadCmpScripts",
-            "type": "EQUALS",
-            "paramValue": true
-          }
-        ],
-        "displayName": "Your Partner ID",
+        "name": "facebookConsentMode",
+        "checkboxText": "Activate Facebook Consent Mode",
         "simpleValueType": true,
-        "name": "partnerId",
-        "type": "TEXT"
-      },
-      {
+        "defaultValue": false,
         "alwaysInSummary": true,
-        "valueValidators": [
-          {
-            "type": "NON_EMPTY"
-          }
-        ],
-        "enablingConditions": [
-          {
-            "paramName": "loadCmpScripts",
-            "type": "EQUALS",
-            "paramValue": true
-          }
-        ],
-        "displayName": "Your Configuration ID",
-        "simpleValueType": true,
-        "name": "configId",
-        "type": "TEXT"
-      },
+        "help": "This tag prepares the Facebook consent default itself, before any CMP script has run, so this setting decides and the CMP configuration is not read. Checked prepares the Facebook default and queue for the official template; the CMP sends every subsequent update. Unchecked sends no Facebook consent command at all. Custom HTML and third-party templates are not guaranteed. This feature does not prevent the Facebook SDK from being downloaded. The GDPR/US regime is unavailable synchronously on the first page, so a marked temporary revoke is queued. It is not equivalent to Limited Data Use; the CMP removes or neutralizes only that marked entry before applying the regional update."
+      }
+    ]
+  },
+  {
+    "type": "GROUP",
+    "name": "openAiConsentModeGroup",
+    "displayName": "OpenAI/GPT Ads Consent Mode",
+    "help": "Compatibility requires the official \u003ca href\u003d\"https://github.com/openai/ads-measurement-pixel-gtm-template\"\u003eOpenAI template\u003c/a\u003e. Custom HTML and third-party templates are not guaranteed. This control coordinates consent commands; it does not prevent the SDK from being downloaded by another tag.",
+    "groupStyle": "ZIPPY_OPEN",
+    "enablingConditions": [
       {
-        "alwaysInSummary": true,
-        "valueValidators": [
-          {
-            "type": "REGEX",
-            "args": [
-              "[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+(?\u003d[\\/\\s?#]|$)"
-            ]
-          }
-        ],
-        "enablingConditions": [
-          {
-            "paramName": "loadCmpScripts",
-            "type": "EQUALS",
-            "paramValue": true
-          }
-        ],
-        "displayName": "Optionnal : first party host",
+        "paramName": "configId",
+        "paramValue": "",
+        "type": "NOT_EQUALS"
+      }
+    ],
+    "subParams": [
+      {
+        "type": "CHECKBOX",
+        "name": "openAiConsentMode",
+        "checkboxText": "Activate OpenAI/GPT Ads Consent Mode",
         "simpleValueType": true,
-        "name": "firstPartyHost",
-        "type": "TEXT",
-        "help": "This field is only available if the option is enabled in your account. Enter the first-party hostname declared in your ABConsent (Sirdata CMP) settings. Do not include \u0027http://\u0027 or \u0027https://\u0027. If unsure, leave it empty.",
-        "defaultValue": ""
+        "defaultValue": false,
+        "alwaysInSummary": true,
+        "help": "This tag prepares the OpenAI consent default itself, before any CMP script has run, so this setting decides and the CMP configuration is not read. Checked prepares the OpenAI default and queue for the official template; the CMP sends every subsequent update. Unchecked sends no OpenAI consent command at all. Custom HTML and third-party templates are not guaranteed. This feature controls consent commands only; it does not prevent the OpenAI SDK from being downloaded. A valid stored OpenAI bit supplies the default; absent or malformed state starts with consent false."
       }
     ]
   },
@@ -1647,7 +1667,7 @@ ___TEMPLATE_PARAMETERS___
     "groupStyle": "ZIPPY_OPEN",
     "subParams": [
       {
-        "help": "This feature is experimental and may not function in all scenarios. It only targets cookies accessible via JavaScript (i.e., not HttpOnly) and cannot delete third-party cookies. We strongly recommend verifying the result and manually handling cookie deletion when necessary. \u003cbr\u003e\u003cbr\u003eNote: This option requires the \u003ca href\u003d\"https://www.abconsent.com\\\"\u003eABConsent CMP (Sirdata CMP)\u003c/a\u003e to be loaded on the page or through the previous option.",
+        "help": "This feature is experimental and may not function in all scenarios. It only targets cookies accessible via JavaScript (i.e., not HttpOnly) and cannot delete third-party cookies. We strongly recommend verifying the result and manually handling cookie deletion when necessary. \u003cbr\u003e\u003cbr\u003eNote: This option requires the \u003ca href\u003d\"https://www.abconsent.com\\\"\u003eABConsent CMP (Sirdata CMP)\u003c/a\u003e to be loaded on the page, which this tag now always does.",
         "simpleValueType": true,
         "name": "handleCookiesDeletion",
         "checkboxText": "Attempt to automatically delete first-party JavaScript cookies when consent is withdrawn",
@@ -1732,32 +1752,60 @@ ___TEMPLATE_PARAMETERS___
         ],
         "help": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, the cookies the CMP itself owns (euconsent-v2, sdconsent-v2, usprivacy, __sdgcm, __gpcactive, __sdusnat) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically."
       }
+    ],
+    "enablingConditions": [
+      {
+        "paramName": "configId",
+        "paramValue": "",
+        "type": "NOT_EQUALS"
+      }
     ]
   }
 ]
-
-
 ___SANDBOXED_JS_FOR_WEB_TEMPLATE___
 
-const currentVersion = '1.81';
+const currentVersion = '1.82';
 
 const callInWindow = require('callInWindow');
+const aliasInWindow = require('aliasInWindow');
 const gtagSet = require('gtagSet');
 const log = require('logToConsole');
 const makeTableMap = require('makeTableMap');
 const setDefaultConsentState = require('setDefaultConsentState');
-const updateConsentState = require('updateConsentState');
 const injectScript = require('injectScript');
 const encodeUriComponent = require('encodeUriComponent');
 const makeInteger = require('makeInteger');
+const JSON = require('JSON');
 const getCookieValues = require('getCookieValues');
 const setCookie = require('setCookie');
 const copyFromWindow = require('copyFromWindow');
 const setInWindow = require('setInWindow');
 
 const ABconsentCMP = copyFromWindow('ABconsentCMP') || {};
-var cmpLoaded = false;
-if (typeof (ABconsentCMP.enableConsentMode) == 'undefined') {
+const cmpLoaded = typeof(ABconsentCMP.enableConsentMode) !== 'undefined';
+const facebookConsentModeEnabled = data.facebookConsentMode === true;
+const openAiConsentModeEnabled = data.openAiConsentMode === true;
+
+// These settings DECIDE -- the two below and the Consent Mode switch further down. They do not
+// defer to the served CMP configuration, and there is no third state for them to defer WITH --
+// which is not a simplification but the only thing this tag can honestly offer. It runs before
+// any CMP script, so it cannot read that configuration; and it is itself the one preparing the
+// Meta and OpenAI defaults, so something has to say whether to prepare them at all. A property
+// left absent would hand that question to a script that has not loaded yet, and nobody would
+// answer it in time.
+//
+// This is also why the US regulation scope is NOT settable here. That value says WHERE the
+// regulation applies, and this tag never acts on it: it cannot know the visitor's state, and
+// nothing it prepares depends on the answer. Exposing it would have been a pure pass-through
+// whose only effect was to override the CMP configuration from a page that had no opinion -- and
+// an unchecked box would then have silently narrowed the scope a publisher had widened. The
+// setting belongs where the jurisdiction is known, which is the CMP.
+//
+// Activation only, for both: once the CMP is up it owns every subsequent update.
+ABconsentCMP.gtmFacebookConsentMode = facebookConsentModeEnabled;
+ABconsentCMP.gtmOpenAiConsentMode = openAiConsentModeEnabled;
+
+if (!cmpLoaded) {
   const copyFromDataLayer = require('copyFromDataLayer');
   const eventName = copyFromDataLayer('event');
   const getContainerVersion = require('getContainerVersion');
@@ -1769,13 +1817,24 @@ if (typeof (ABconsentCMP.enableConsentMode) == 'undefined') {
   }
   ABconsentCMP.gtmTemplateVersion = currentVersion;
   ABconsentCMP.gtmTemplateTrigger = eventName;
-  if (data.consentMode) {
-    ABconsentCMP.enableConsentMode = false;
-  }
 } else {
-  cmpLoaded = true;
   log('CMP loaded already');
 }
+
+// Written on BOTH branches, and the `false` is the load-bearing half. Unticking the box means
+// Google Consent Mode is OFF -- not "defer to whatever the CMP has stored" -- so leaving the
+// property absent would be the wrong answer: the served script resolves an absent value to its own
+// stored flag, and a publisher who switched Consent Mode off here would keep getting the default
+// and the updates from a configuration they no longer control from this page.
+//
+// It also keeps the three activation settings on one rule. This one differs from the two vendor
+// modes only in the property it lands on: that property doubles as "the CMP owns the updates", and
+// the two meanings agree -- ticked delegates them, unticked leaves nothing to delegate.
+ABconsentCMP.enableConsentMode = data.consentMode === true;
+// Unconditional, because the three settings above are now always written: there is always
+// something here for the CMP to read, including when this tag publishes nothing else. A CMP
+// loaded by another tag would otherwise never see them.
+setInWindow('ABconsentCMP', ABconsentCMP, true);
 
 // Cookies owned by this consent setup, exempt by design. Deleting them would destroy the
 // record the deletion is meant to honour, or the mechanism that makes it possible. The rule is
@@ -2106,14 +2165,20 @@ const findSegmentBits = (segments, id) => {
 // The segment's VERSION is deliberately not consulted. A later version appends bits, so reading
 // the first seven is correct whether the segment is v1 or newer. That is the whole point: this
 // template survives a format extension without being republished.
-const readStoredConsentSignals = () => {
-  const bits = findSegmentBits(readCookieSegments(), CONSENT_MODE_SEGMENT_ID);
+const readStoredConsentSignals = (segments) => {
+  const bits = findSegmentBits(segments, CONSENT_MODE_SEGMENT_ID);
   if (!isBits(bits) || bits.length < CONSENT_MODE_SIGNALS.length) return undefined;
   const signals = {};
   for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
     signals[CONSENT_MODE_SIGNALS[i]] = bits[i] === '1' ? 'granted' : 'denied';
   }
   return signals;
+};
+
+const readStoredVendorConsent = (segments, id) => {
+  const bits = findSegmentBits(segments, id);
+  if (!isBits(bits) || bits.length < 1) return undefined;
+  return bits[0] === '1';
 };
 
 // Stored signals replace the configured values, but NOT the emission rule: a signal marked
@@ -2150,6 +2215,112 @@ const applyGpcRefusal = (consentObject) => {
   return consentObject;
 };
 
+// The US perimeter: the country value and every state value the settings table can carry. Matched
+// on the `US-` prefix rather than against a list of states, so a state added to the parameters
+// tomorrow is covered without a second edit here -- and `RU`, which merely contains the letters,
+// is not.
+const isUsRegion = (region) => {
+  if (typeof(region) !== 'string') return false;
+  return region === 'US' || region.indexOf('US-') === 0;
+};
+
+// The starting position on that perimeter when NOTHING was ever recorded -- no marker, no
+// container. Silence there is not agreement, so the five signals an objection to sale and sharing
+// covers start denied; `functionality_storage` and `security_storage` are not among them and keep
+// the configured value, as everywhere else in this file.
+//
+// Unlike the two functions above, `wait_for_update` is NOT zeroed: this is a default awaiting a
+// choice, not a choice already made. Zeroing it would tell gtag the answer is in when nobody has
+// answered.
+const applyUsDefaultRefusal = (consentObject) => {
+  for (let i = 0; i < GPC_DENIED_SIGNALS.length; i++) {
+    const name = GPC_DENIED_SIGNALS[i];
+    if (consentObject[name] !== undefined) {
+      consentObject[name] = 'denied';
+    }
+  }
+  return consentObject;
+};
+
+// What the tag emits when the publisher has not taken the defaults over -- that is, the nominal
+// case. Every signal starts DENIED and the chain further down raises it: a returning visitor's
+// recorded choice is replayed from the container, a privacy marker short-circuits to denial, and
+// the US perimeter refuses where nothing was ever recorded. These are the values the fine-grained
+// area has always shipped with; what the automatic path removes is the obligation to restate them,
+// never the ability to.
+//
+// `wait_for_update` stays non-zero HERE, and is zeroed by the two functions above: this is a
+// default awaiting an answer, whereas they run only when an answer already exists. Zeroing it here
+// would tell gtag the answer is in when nobody has answered.
+// The regions where a consent regulation applies, and therefore where the default must refuse
+// until the visitor has answered. It is the CMP's OWN perimeter, not a list invented here: the
+// same countries its server-side determination uses, so a visitor never gets a denied default
+// from one and "no regulation applies" from the other. It is wider than the EEA -- it carries the
+// United Kingdom, Switzerland, Brazil and the French overseas territories, which have their own
+// ISO codes and would not be matched by `FR`.
+//
+// Greece appears once, as `GR`. The CMP's list also carries `EL`, the statistical code for the
+// same country, which is not a region value here and would match nobody.
+const REGULATED_REGIONS = [
+  'AT', 'BE', 'BG', 'BL', 'BR', 'CH', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GB',
+  'GF', 'GP', 'GR', 'HR', 'HU', 'IE', 'IS', 'IT', 'LI', 'LT', 'LU', 'LV', 'MF', 'MQ', 'MT',
+  'NC', 'NL', 'NO', 'PF', 'PL', 'PM', 'PT', 'RE', 'RO', 'SE', 'SI', 'SK', 'WF', 'YT'
+];
+
+// What the tag emits when the publisher has not taken the defaults over -- that is, the nominal
+// case.
+//
+// THE GLOBAL ROW IS THE ONE WITHOUT A REGION, and that is the whole mechanism: a default with no
+// region is the status that applies everywhere, and a region-scoped one overrides it for the
+// regions it names. So the restrictive rows do not have to enumerate the world -- they name where
+// a regulation applies, and everywhere else falls through to the global row.
+//
+// That global row GRANTS, and it has to. A visitor outside every regulated region is never shown
+// a notice, so no choice is ever recorded and no update is ever pushed: whatever the default says
+// about them, it says forever. Denying there would throttle Google tags for the rest of the world
+// with nothing able to lift it -- which is exactly what a single all-denied row did, because the
+// served tag it replaced had been the one granting outside the GDPR.
+//
+// `wait_for_update` follows the same split: the regulated rows are defaults AWAITING an answer,
+// the global row is a default that already is the answer, so it waits for nothing.
+const AUTOMATIC_CONSENT_SETTINGS = [{
+  ad_storage: 'denied',
+  analytics_storage: 'denied',
+  personalization_storage: 'denied',
+  functionality_storage: 'denied',
+  security_storage: 'denied',
+  wait_for_update: 1000,
+  region: REGULATED_REGIONS
+}, {
+  // Kept as the STRING 'US', not folded into the list above: `isUsRegion` reads it, so this row
+  // also carries the US refusal of the chain below. Its values are already denied, which makes
+  // that a no-op today -- and keeps the two from disagreeing the day one of them moves.
+  ad_storage: 'denied',
+  analytics_storage: 'denied',
+  personalization_storage: 'denied',
+  functionality_storage: 'denied',
+  security_storage: 'denied',
+  wait_for_update: 1000,
+  region: 'US'
+}, {
+  ad_storage: 'granted',
+  analytics_storage: 'granted',
+  personalization_storage: 'granted',
+  functionality_storage: 'granted',
+  security_storage: 'granted',
+  ad_user_data: 'granted',
+  ad_personalization: 'granted',
+  wait_for_update: 0
+}];
+
+// The override is a CHECKBOX, so "unchecked" and "never set" read the same -- which is what makes
+// a container saved against an earlier version land on the automatic path instead of carrying
+// rows nobody reviewed. The row count is part of the condition as well: an override declared with
+// an empty table would emit NO default at all, which is worse than either mode, and the automatic
+// state is the right thing to fall back to rather than silence.
+const consentSettings = (data.overrideDefaultConsent === true && data.customConsentSettings &&
+    data.customConsentSettings.length > 0) ? data.customConsentSettings : AUTOMATIC_CONSENT_SETTINGS;
+
 // generate object
 const generateConsentObject = function(setting, tcData, isUpdate, usOptOut) {
   let consentObject = {};
@@ -2166,8 +2337,14 @@ const generateConsentObject = function(setting, tcData, isUpdate, usOptOut) {
     return usGranted === undefined ? hasConsent(tcData, path) : usGranted;
   };
 
-  consentObject.ad_user_data = tcData ? (consented(['vendor', 'consents', 755]) ? 'granted' : 'denied') : 'denied';
-  consentObject.ad_personalization = tcData ? consented(['purpose', 'consents', 1]) && consented(['purpose', 'consents', 3]) ? consentObject.ad_user_data : 'denied' : 'denied';
+  // These two have no column in the settings table, so a row that does not name them keeps the
+  // restrictive value they have always had -- which is every row a publisher can write. A row MAY
+  // name them, and the automatic global row does: outside every regulated region there is nothing
+  // to hold back, and leaving them denied there would throttle personalization for the rest of the
+  // world with no update able to lift it. That is the one place the old single row got wrong and
+  // could not express.
+  consentObject.ad_user_data = tcData ? (consented(['vendor', 'consents', 755]) ? 'granted' : 'denied') : (setting.ad_user_data || 'denied');
+  consentObject.ad_personalization = tcData ? consented(['purpose', 'consents', 1]) && consented(['purpose', 'consents', 3]) ? consentObject.ad_user_data : 'denied' : (setting.ad_personalization || 'denied');
 
   if (setting.ad_storage !== 'not used') {
     consentObject.ad_storage = tcData ? (consented(['purpose', 'consents', 1]) && consented(['purpose', 'consents', 3]) ? 'granted' : 'denied') : setting.ad_storage;
@@ -2193,14 +2370,14 @@ const generateConsentObject = function(setting, tcData, isUpdate, usOptOut) {
   if (setting.functionality_storage !== 'not used') {
     consentObject.functionality_storage = tcData && hasConsent(tcData, ['purpose', 'consents', 1]) ? 'granted' : setting.functionality_storage;
     if (!isUpdate) {
-      defaultConsent.functionality_storage = (data.settingsTable.length == 1 || (setting.region && setting.region === 'ALL')) ? setting.functionality_storage : (defaultConsent.functionality_storage == 'not used' ? setting.functionality_storage : defaultConsent.functionality_storage);
+      defaultConsent.functionality_storage = (consentSettings.length == 1 || (setting.region && setting.region === 'ALL')) ? setting.functionality_storage : (defaultConsent.functionality_storage == 'not used' ? setting.functionality_storage : defaultConsent.functionality_storage);
     }
   }
 
   if (setting.security_storage !== 'not used') {
     consentObject.security_storage = tcData && hasConsent(tcData, ['purpose', 'consents', 1]) ? 'granted' : setting.security_storage;
     if (!isUpdate) {
-      defaultConsent.security_storage = (data.settingsTable.length == 1 || (setting.region && setting.region === 'ALL')) ? setting.security_storage : (defaultConsent.security_storage == 'not used' ? setting.security_storage : defaultConsent.security_storage);
+      defaultConsent.security_storage = (consentSettings.length == 1 || (setting.region && setting.region === 'ALL')) ? setting.security_storage : (defaultConsent.security_storage == 'not used' ? setting.security_storage : defaultConsent.security_storage);
     }
   }
 
@@ -2208,8 +2385,12 @@ const generateConsentObject = function(setting, tcData, isUpdate, usOptOut) {
     consentObject.wait_for_update = makeInteger(setting.wait_for_update);
   }
 
+  // A row carries either ONE region, as the settings table offers it, or a list -- which is how
+  // the automatic rows name a whole perimeter in a single default instead of one call per country.
+  // `ALL` is the table's way of saying "no region", so it emits no key and lands on the global
+  // status; a row with no region at all does the same, which is what the automatic global row is.
   if (setting.region && setting.region !== 'ALL') {
-    consentObject.region = [setting.region];
+    consentObject.region = typeof(setting.region) === 'string' ? [setting.region] : setting.region;
   }
 
   return consentObject;
@@ -2223,108 +2404,260 @@ let defaultConsent = {
   'security_storage': 'not used'
 };
 
-// Read ONCE, before the default is set: this is the last moment at which the cookie still carries
-// what the visitor chose on the previous load, with nothing rewritten in between.
-const storedConsentSignals = readStoredConsentSignals();
+// Read AT MOST ONCE, and only if someone asks. Still once, so Google and vendor defaults keep
+// describing the same persisted snapshot; but no longer unconditionally, because the marker below
+// short-circuits the whole chain and a container consulted on that path would be a cookie read
+// for nothing -- and a read that no test could see.
+let cookieSegmentsLoaded = false;
+let cookieSegmentsCache = [];
+const getCookieSegments = () => {
+  if (!cookieSegmentsLoaded) {
+    cookieSegmentsLoaded = true;
+    cookieSegmentsCache = readCookieSegments();
+  }
+  return cookieSegmentsCache;
+};
 
 // Read once as well, and for the same reason: two reads of the same cookie at two different
-// moments would end up disagreeing.
+// moments would end up disagreeing. This one stays EAGER: it is the first question asked, so
+// deferring it would buy nothing.
 const gpcActive = isGpcActive();
 
-// What was actually PUSHED -- the `default` first, then every `update`. This is the comparison
-// reference, never the cookie: comparing against the cookie would open a race between what is read
-// and what has just been written.
-//
-// The `default` IS a push, exactly like an `update`, so deduplication does not depend on the
-// cookie: it is the emitted default that seeds it (below).
-//
-// The cookie seeds NOTHING, deliberately. gtag state does not survive from one page view to the
-// next: the cookie does not say what gtag knows HERE, it says what the visitor chose. Its role is
-// to ENTER the computation of the default (applyStoredSignals), not to attest to a push. Seeding
-// it with a signal the default did not emit would assert that gtag knows a value it was never
-// told -- and the update carrying that value would be dropped, leaving this visitor's tags off on
-// a consent that was in fact granted.
-let lastPushedSignals = {};
+const commandName = (entry) => {
+  if (!entry || typeof(entry) === 'string' || typeof(entry.length) !== 'number' ||
+      entry.length < 1 || typeof(entry[0]) !== 'string') return '';
+  return entry[0];
+};
 
-// Collects what is actually EMITTED as the default, during the loop that sets it -- never
-// reconstructed afterwards from the settings table.
+// Two names can point at ONE pending-command list or at two, and the answer decides whether
+// copying both duplicates every pending command or copying one loses the other's. So it has to be
+// asked -- but NEVER by running the page's own code. A queue method the publisher replaced can
+// throw, and this sandbox has no way to contain that: the template would stop mid-way, and
+// anything it had already written would stay behind for the SDK to drain as a real command.
 //
-// A signal is kept only if it means the SAME thing for EVERY visitor. The table may carry several
-// rows, including regional rows that override the global row for their visitors only
-// (`consentObject.region`, set by generateConsentObject): the template does not know which one
-// gtag applied. Skipping an update on a guess would leave Google tags running under a state this
-// visitor never chose, so only the unanimous is kept, and the ambiguous is pushed as an update,
-// which is the safe direction.
-let emittedDefault = {};
-let emittedCount = {};
-let emittedRows = 0;
-let hasGlobalRow = false;
+// The mark is therefore a NAMED PROPERTY, written and read back through paths this template holds
+// permissions for. Nothing of the publisher's runs, and `length` never moves -- so an SDK draining
+// the list cannot see the mark whatever happens next, which is stronger than cleaning up after it.
+const QUEUE_STORAGE_MARK = '__sdSharedStorage';
+const queuesShareStorage = (probePath, observedPath) => {
+  const probeQueue = copyFromWindow(probePath);
+  const observedQueue = copyFromWindow(observedPath);
+  if (!probeQueue || !observedQueue || typeof(probeQueue.length) !== 'number' ||
+      typeof(observedQueue.length) !== 'number') return false;
+  // Read the mark BY ITS OWN PATH, never off the copied array above: `copyFromWindow` hands back a
+  // COPY of an array, and a copy does not carry non-index properties. Reading it off `observedQueue`
+  // would answer "not shared" for every list, silently and always.
+  setInWindow(probePath + '.' + QUEUE_STORAGE_MARK, true, true);
+  const shared = copyFromWindow(observedPath + '.' + QUEUE_STORAGE_MARK) === true;
+  setInWindow(probePath + '.' + QUEUE_STORAGE_MARK, undefined, true);
+  return shared;
+};
 
-const recordEmittedDefault = (consentObject) => {
-  emittedRows = emittedRows + 1;
-  if (!consentObject.region) {
-    hasGlobalRow = true;
+const appendOpenAiCommands = (target, source) => {
+  if (!source || typeof(source.length) !== 'number') return;
+  for (let i = 0; i < source.length; i++) {
+    if (commandName(source[i]) !== 'consent') {
+      target.push(source[i]);
+    }
   }
-  for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
-    const name = CONSENT_MODE_SIGNALS[i];
-    const value = consentObject[name];
-    if (value !== undefined) {
-      if (emittedCount[name] === undefined) {
-        emittedDefault[name] = value;
-        emittedCount[name] = 1;
+};
+
+const isOpenAiMeasure = (command) => {
+  return command === 'measure' || command === 'measureSingle';
+};
+
+// The OpenAI pixel DROPS a measurement it receives while consent is denied — it does not hold it,
+// and it never replays it. Anything handed to it before the visitor answers is therefore lost for
+// good rather than delayed, which is the opposite of how the other vendors behave.
+//
+// So a measurement is kept OUT of the queue the pixel drains and parked on the resumption point the
+// consent script reads, which replays it once consent is granted. Measured on a real page: the
+// pixel replaces its own function ~765 ms before the consent script lands, so the script cannot
+// capture what it never saw — this is the only place that still can.
+//
+// Only while the stored default is a refusal: under a stored grant the pixel accepts them, and
+// holding them back would delay what already works.
+const holdOpenAiMeasurements = (commands) => {
+  const kept = [];
+  const held = [];
+  for (let i = 0; i < commands.length; i++) {
+    if (isOpenAiMeasure(commandName(commands[i]))) {
+      held.push(commands[i]);
+    } else {
+      kept.push(commands[i]);
+    }
+  }
+  if (held.length > 0) {
+    for (let j = 0; j < held.length; j++) {
+      ABconsentCMP.openai.preQueue.push(held[j]);
+    }
+    setInWindow('ABconsentCMP', ABconsentCMP, true);
+  }
+  return kept;
+};
+
+const prepareOpenAiDefault = (granted) => {
+  if (copyFromWindow('oaiq.__oaiqInitialized') === true) {
+    // The initialized SDK owns its function and both queue identities. Its public command API can
+    // receive the persisted default directly without taking ownership of later CMP updates.
+    callInWindow('oaiq', 'consent', granted);
+    return;
+  }
+  const shareStorage = queuesShareStorage('oaiq.queue', 'oaiq.q');
+  const q = copyFromWindow('oaiq.q') || [];
+  const queue = copyFromWindow('oaiq.queue') || [];
+  let commands = [];
+  appendOpenAiCommands(commands, q);
+  if (!shareStorage) appendOpenAiCommands(commands, queue);
+  if (!granted) {
+    // The list is created before the function that fills it, and it is created EMPTY rather than
+    // replaced: the consent script keeps an array it already finds, so a page that loaded it first
+    // does not lose what it holds.
+    ABconsentCMP.openai = ABconsentCMP.openai || {};
+    if (!ABconsentCMP.openai.preQueue) {
+      ABconsentCMP.openai.preQueue = [];
+    }
+    setInWindow('ABconsentCMP', ABconsentCMP, true);
+    commands = holdOpenAiMeasurements(commands);
+  }
+  setInWindow('oaiq', function(command, arg1, arg2, arg3) {
+    if (command === 'consent') return;
+    const queuedArguments = [command];
+    if (typeof(arg3) !== 'undefined') {
+      queuedArguments.push(arg1);
+      queuedArguments.push(arg2);
+      queuedArguments.push(arg3);
+    } else if (typeof(arg2) !== 'undefined') {
+      queuedArguments.push(arg1);
+      queuedArguments.push(arg2);
+    } else if (typeof(arg1) !== 'undefined') {
+      queuedArguments.push(arg1);
+    }
+    if (!granted && isOpenAiMeasure(command)) {
+      // A LITERAL path, never a concatenation: it is what the declared permission names, and
+      // what a reader greps for.
+      callInWindow('ABconsentCMP.openai.preQueue.push', queuedArguments);
+      return;
+    }
+    callInWindow('oaiq.queue.push', queuedArguments);
+  }, true);
+  commands.unshift(['consent', granted]);
+  setInWindow('oaiq.queue', commands, true);
+  aliasInWindow('oaiq.q', 'oaiq.queue');
+};
+
+const META_TEMPORARY_MARKER = '__abconsent_temporary__';
+const appendMetaCommands = (target, source) => {
+  if (!source || typeof(source.length) !== 'number') return;
+  for (let i = 0; i < source.length; i++) {
+    const entry = source[i];
+    if (!(commandName(entry) === 'consent' && entry[2] === META_TEMPORARY_MARKER)) {
+      target.push(entry);
+    }
+  }
+};
+
+const prepareFacebookDefault = (granted) => {
+  const signal = granted ? 'grant' : 'revoke';
+  if (typeof(copyFromWindow('fbq.callMethod')) === 'function') {
+    // The initialized SDK drains commands synchronously. Send only the identifiable provisional
+    // entry; the CMP's US controller consumes the marker and neutralizes it before its final DPO.
+    callInWindow('fbq', 'consent', signal, META_TEMPORARY_MARKER);
+    ABconsentCMP.gtmTemplateFacebookTemporaryRevoke = true;
+    setInWindow('ABconsentCMP', ABconsentCMP, true);
+    return;
+  }
+  // THE FUNCTION MUST ROUTE TO `callMethod` AT CALL TIME, and a generic arguments queue does not.
+  //
+  // Meta's SDK does not replace `fbq`: it attaches `callMethod` to whatever function the page
+  // already has. A function that only ever appends therefore never reaches the SDK, not even once
+  // it has loaded -- so a consent signal sent afterwards is appended BEHIND the events it was meant
+  // to release, and the SDK stops draining at the provisional denial that precedes them. The pixel
+  // is then paused for the rest of the page view, with nothing to indicate it. Measured against the
+  // real SDK: the signal leaves the list when the function routes, and stays in it when it does not.
+  //
+  // This shape is Meta's own: their tag template reads `fbq.callMethod.apply` on every call and
+  // routes there when it is defined, falling back to the list until then. It is not an alternative
+  // to a generic queue, it is the contract their SDK expects.
+  //
+  // An existing function is NEVER replaced. It already carries what the page put on it -- their
+  // `loaded` and `version` flags, and their own routing -- and their snippet exits on `if (f.fbq)`,
+  // so a replacement would silently drop both that state and anything their snippet would have set.
+  //
+  // Meta's own function reads the bare `arguments` object to forward a call of any length. The
+  // static guard on this file rejects that object, so the arguments are named and re-assembled
+  // instead -- the same ladder the OpenAI shim above uses, and with the same limit: an argument
+  // passed explicitly as `undefined` ahead of a defined one is not forwarded. Four covers every
+  // documented Meta command, `dataProcessingOptions` included.
+  if (!copyFromWindow('fbq')) {
+    setInWindow('fbq', function(command, arg1, arg2, arg3) {
+      const forwarded = [command];
+      if (typeof(arg3) !== 'undefined') {
+        forwarded.push(arg1);
+        forwarded.push(arg2);
+        forwarded.push(arg3);
+      } else if (typeof(arg2) !== 'undefined') {
+        forwarded.push(arg1);
+        forwarded.push(arg2);
+      } else if (typeof(arg1) !== 'undefined') {
+        forwarded.push(arg1);
+      }
+      // `null` for the receiver is the vendor's own choice in the same call.
+      if (copyFromWindow('fbq.callMethod.apply')) {
+        callInWindow('fbq.callMethod.apply', null, forwarded);
       } else {
-        emittedCount[name] = emittedCount[name] + 1;
-        if (emittedDefault[name] !== value) {
-          // Two rows disagree: which one applies is unknowable here. Sticky.
-          emittedDefault[name] = undefined;
-        }
+        callInWindow('fbq.queue.push', forwarded);
       }
-    }
+    }, true);
+    aliasInWindow('_fbq', 'fbq');
+    aliasInWindow('fbq.push', 'fbq');
   }
+  // Only the CANONICAL list is read. `_fbq` is Meta's own alias of `fbq` -- their page snippet sets
+  // it, their own tag template aliases it -- so a DIFFERENT `_fbq.queue` is not a second copy of
+  // this pixel's pending work: it belongs to ANOTHER advertiser's pixel, and merging it poured
+  // their events into ours. Reading one list also removes the need to ask whether the two are one.
+  //
+  // The provisional entry has to be FIRST, ahead of any `init` or `track` already waiting, or those
+  // events are drained under the previous consent state. The list is therefore rebuilt and put back
+  // whole rather than added to: no method belonging to the page is ever called, and the previous
+  // provisional entry is dropped on the way so running twice leaves exactly one.
+  const queue = copyFromWindow('fbq.queue') || [];
+  const commands = [];
+  appendMetaCommands(commands, queue);
+  commands.unshift(['consent', signal, META_TEMPORARY_MARKER]);
+  setInWindow('fbq.queue', commands, true);
+  ABconsentCMP.gtmTemplateFacebookTemporaryRevoke = true;
+  setInWindow('ABconsentCMP', ABconsentCMP, true);
 };
 
-// Three conditions, each ruling out a case where the visitor did NOT receive the value one would
-// assume:
-//  - a global row must exist, otherwise a visitor outside every region received no default at all;
-//  - every row must emit the signal (a row marking it "not used" does not set it for the visitors
-//    of its region);
-//  - and they must agree on the value.
-const seedFromEmittedDefaults = () => {
-  if (hasGlobalRow) {
-    for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
-      const name = CONSENT_MODE_SIGNALS[i];
-      if (emittedCount[name] === emittedRows && emittedDefault[name] !== undefined) {
-        lastPushedSignals[name] = emittedDefault[name];
-      }
-    }
-  }
-};
-
-// Compared signal by signal over the keys PRESENT, never by object equality: the emitted object
-// does not always carry the same keys ("not used"), and gtag state is cumulative -- a subset with
-// the same values is not a difference.
-const differsFromLastPushed = (signals) => {
-  for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
-    const name = CONSENT_MODE_SIGNALS[i];
-    if (signals[name] !== undefined && lastPushedSignals[name] !== signals[name]) {
-      return true;
-    }
-  }
-  return false;
-};
-
-// MERGES, does not replace: the last value pushed for a signal must stay known even when a later
-// push does not mention it.
-const rememberPushed = (signals) => {
-  for (let i = 0; i < CONSENT_MODE_SIGNALS.length; i++) {
-    const name = CONSENT_MODE_SIGNALS[i];
-    if (signals[name] !== undefined) {
-      lastPushedSignals[name] = signals[name];
-    }
-  }
-};
-
-if (data.consentMode && !ABconsentCMP.enableConsentMode) {
+if (openAiConsentModeEnabled) {
+  // The same chain as the Google default below, and the marker wins here too. It does not answer
+  // the 'o' question -- it makes it moot: it records an objection that covers every vendor, not
+  // only the ones whose bit the container happens to carry. The served CMP applies that same
+  // precedence to this vendor, so reading the container here would put the two in disagreement
+  // for one page view.
+  //
+  // The short-circuit is on the READ, exactly as it is below: `&&` leaves the container unread
+  // when the marker is present. That is what separates this from an implementation which reads
+  // the container and then overwrites what it found -- same emitted value, one cookie consulted
+  // whose answer cannot change the outcome.
+  prepareOpenAiDefault(!gpcActive && readStoredVendorConsent(getCookieSegments(), 'o') === true);
+}
+if (facebookConsentModeEnabled) {
+  // Same rule as OpenAI above: negative unless the stored state says otherwise, and the privacy
+  // marker wins over the container.
+  //
+  // The mapping is DELIBERATELY one-way -- a positive bit can raise the signal to a grant, a
+  // negative one never lowers it further than the default. The stored Meta bit does not mean the
+  // same thing on both regimes: under GDPR it records a consent, under the US regime it records
+  // the ABSENCE of an objection. The two call for different actions, and only one of them is a
+  // `revoke`: a US objection is expressed by limiting data use, which keeps the pixel sending,
+  // while a `revoke` PAUSES it outright. Reading the bit symmetrically would therefore pause the
+  // pixel for a returning US visitor who objected -- losing their measurement entirely instead of
+  // limiting it. Raising to a grant is safe on both regimes; the CMP resolves the rest.
+  prepareFacebookDefault(!gpcActive && readStoredVendorConsent(getCookieSegments(), 'm') === true);
+}
+if (data.consentMode) {
   gtagSet('developer_id.dOWE1OT', true);
 
   // Advanced settings
@@ -2340,101 +2673,184 @@ if (data.consentMode && !ABconsentCMP.enableConsentMode) {
   }
 
   // Process default consent state
-  data.settingsTable.forEach(setting => {
+  consentSettings.forEach(setting => {
     var consentModeState = generateConsentObject(setting, null, false);
-    if (storedConsentSignals) {
-      consentModeState = applyStoredSignals(consentModeState, storedConsentSignals);
-    }
-    // The ORDER of the two blocks IS the precedence: GPC is applied last, so it wins. Swapping
-    // them would let the cookie's bits overwrite the GPC denial.
+    // The precedence is STATED here, as a chain, instead of being an emergent property of the
+    // order of two blocks:
+    //
+    //     1. __gpcactive  ->  denial, and NOTHING else is consulted
+    //     2. else __sdgcm ->  replay of the stored bits
+    //     3. else         ->  regional default; on the US perimeter it is denied
+    //
+    // The first branch is a SHORT-CIRCUIT, not an override applied last. Reading the container and
+    // then overwriting what it said would emit the same values while consulting a cookie whose
+    // answer cannot change the outcome -- a read that costs something and decides nothing. The
+    // difference is invisible in the emitted object, which is why the harness counts the reads.
     if (gpcActive) {
       consentModeState = applyGpcRefusal(consentModeState);
+    } else {
+      const storedConsentSignals = readStoredConsentSignals(getCookieSegments());
+      if (storedConsentSignals) {
+        consentModeState = applyStoredSignals(consentModeState, storedConsentSignals);
+      } else if (isUsRegion(setting.region)) {
+        consentModeState = applyUsDefaultRefusal(consentModeState);
+      }
+    }
+    // Publish the handoff only when this loop is about to emit a real Google default -- so it
+    // follows the activation box, the only thing that can now leave the default to the served tag
+    // and its legacy fallback.
+    if (ABconsentCMP.gtmGoogleConsentModeDefaultSet !== true) {
+      ABconsentCMP.gtmGoogleConsentModeDefaultSet = true;
+      setInWindow('ABconsentCMP', ABconsentCMP, true);
     }
     setDefaultConsentState(consentModeState);
-    recordEmittedDefault(consentModeState);
   });
-  // The default just set becomes the reference: an update repeating what it already says teaches
-  // gtag nothing.
-  seedFromEmittedDefaults();
 }
 
 const onUserChoice = (tcData, success) => {
-  if (!success || !tcData || typeof(tcData.gdprApplies) == 'undefined' || ((typeof(tcData.eventStatus) == 'undefined' || !tcData.purpose || !tcData.vendor) && tcData.gdprApplies)) {
-      return;
-  }
-  // US path -- the objection is READ, and stated as itself.
-  //
-  // Two things it must not do. It must not mutate `tcData`, which is owned by the CMP and read by
-  // others. And it must not borrow the GDPR's machinery to express itself: flipping
-  // `gdprApplies` would be a way to stop `hasConsent` short-circuiting to "granted", but it says
-  // nothing about the GDPR, and it buries the real rule -- an objection covers sale and sharing,
-  // not what is strictly necessary.
-  //
-  // The verdict is resolved ONCE and passed down, so the pushed state and the cookie cannot
-  // disagree about it.
+  if (!success || !tcData || typeof(tcData.gdprApplies) === 'undefined') return;
   const usOptOut = tcData.gdprApplies ? undefined : readUsOptOut();
-
-  if (data.consentMode && !ABconsentCMP.enableConsentMode) {
-    var consentModeState = generateConsentObject(defaultConsent, tcData, true, usOptOut);
-
-    // Push only when the emitted signals differ from what has already been pushed.
-    if (differsFromLastPushed(consentModeState)) {
-      updateConsentState(consentModeState);
-      rememberPushed(consentModeState);
-    }
-
-  }
-  // A US objection also closes purpose 1, and therefore opens this path. Stated here rather than
-  // reached as a side effect of how the verdict is derived.
   const purposeOneRefused = usOptOut === true || !hasConsent(tcData, ['purpose', 'consents', 1]);
-  if (data.handleCookiesDeletion && (tcData.eventStatus === 'useractioncomplete' || tcData.eventStatus === 'tcloaded') && purposeOneRefused && tcData.hostName && tcData.cookieList) {
+  if (data.handleCookiesDeletion &&
+      (tcData.eventStatus === 'useractioncomplete' || tcData.eventStatus === 'tcloaded') &&
+      purposeOneRefused && tcData.hostName && tcData.cookieList) {
     deleteCookies(tcData.hostName, tcData.cookieList);
   }
 };
 
-const loadCmp = () => {
-  if (!data.loadCmpScripts || !data.partnerId || !data.configId) {
-    return;
+const installQueuedMiniStub = (name) => {
+  if (typeof(copyFromWindow(name)) === 'function') return false;
+  const queue = [];
+  setInWindow(name, function(command, version, callback, parameter) {
+    if (!command) return queue;
+    if (command === 'ping') {
+      if (typeof(callback) === 'function') {
+        callback({
+          gdprApplies: ABconsentCMP.gdprApplies,
+          cmpLoaded: false,
+          cmpStatus: 'stub',
+          displayStatus: 'hidden',
+          apiVersion: '2.0'
+        }, true);
+      }
+      return;
+    }
+    const args = [command, version, callback];
+    if (typeof(parameter) !== 'undefined') args.push(parameter);
+    queue.push(args);
+  }, true);
+  return true;
+};
+
+const installUspMiniStub = () => {
+  if (typeof(copyFromWindow('__uspapi')) === 'function') return false;
+  const queue = [];
+  setInWindow('__uspapi', function(command, version, callback, parameter) {
+    if (!command) return queue;
+    if (command === 'ping') {
+      if (typeof(callback) === 'function') callback({uspapiLoaded: false}, true);
+      return;
+    }
+    const args = [command, version, callback];
+    if (typeof(parameter) !== 'undefined') args.push(parameter);
+    queue.push(args);
+  }, true);
+  return true;
+};
+
+const installGppMiniStub = () => {
+  if (typeof(copyFromWindow('__gpp')) === 'function') return false;
+  const queue = [];
+  const events = [];
+  let listenerId = 0;
+  const pingData = () => ({
+    gppVersion: '1.1', cmpStatus: 'stub', cmpDisplayStatus: null,
+    signalStatus: 'not ready', supportedAPIs: [], cmpId: 0,
+    sectionList: [], applicableSections: [-1], gppString: '', parsedSections: {}
+  });
+  setInWindow('__gpp', function(command, callback, parameter) {
+    if (!command) return queue;
+    if (command === 'ping') {
+      if (typeof(callback) === 'function') callback(pingData(), true);
+      return;
+    }
+    if (command === 'addEventListener') {
+      if (typeof(callback) === 'function') {
+        listenerId = listenerId + 1;
+        events.push({id: listenerId, callback: callback, parameter: parameter});
+        callback({eventName: 'listenerRegistered', listenerId: listenerId,
+          data: true, pingData: pingData()}, true);
+      }
+      return;
+    }
+    queue.push([command, callback, parameter]);
+  }, true);
+  setInWindow('__gpp.queue', queue, true);
+  setInWindow('__gpp.events', events, true);
+  return true;
+};
+
+const installTemplateMiniStubs = () => {
+  const installed = {};
+  if (installQueuedMiniStub('__tcfapi')) installed.__tcfapi = true;
+  if (installQueuedMiniStub('__sdcmpapi')) installed.__sdcmpapi = true;
+  if (installUspMiniStub()) installed.__uspapi = true;
+  if (installGppMiniStub()) installed.__gpp = true;
+  ABconsentCMP.gtmTemplateMiniStubApis = installed;
+  setInWindow('ABconsentCMP', ABconsentCMP, true);
+};
+
+const registerCookieDeletionListener = () => {
+  if (data.handleCookiesDeletion) {
+    callInWindow('__sdcmpapi', 'addEventListener', 2, onUserChoice);
   }
-  let url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/cmp';
+};
+
+// The CMP is requested directly, with no stub request in front of it.
+//
+// That request existed to prepare the page before the CMP arrived: the early command queues, and
+// the consent defaults. This tag now does both itself -- the mini-stubs above, and the prepared
+// defaults further up -- so a stub in front of it would be a round trip spent re-doing what has
+// already been done on this page.
+//
+// `tms=gtm` names the tag manager that did the preparing. It travels with the request so the
+// served script knows a template ran before it, rather than having to infer it from what happens
+// to be defined on the page.
+//
+// The listener is registered BEFORE the request rather than after: the mini-stub queue is already
+// in place, so the command waits there and the CMP drains it on arrival. Waiting for a load event
+// to register it was only ever a consequence of the stub being what installed that queue.
+const loadCmp = () => {
+  if (!data.partnerId || !data.configId) return;
+  registerCookieDeletionListener();
+  const url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/cmp?tms=gtm';
   injectScript(url, function(){data.gtmOnSuccess();}, function(){data.gtmOnFailure();});
 };
 
-const registerSdApiListener = () => {
-  callInWindow('__sdcmpapi', 'addEventListener', 2, onUserChoice);
+// A first-party host is served by a loader we do not control, so the listener still goes through
+// the callback list it drains. Its failure path falls back to the direct request.
+const loadCmpScript = () => {
   if (!data.firstPartyHost) {
     loadCmp();
-  }
-};
-
-const loadRegularStub = () => {
-  let url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/stub';
-  injectScript(url, registerSdApiListener, loadCmp);
-};
-
-const loadStub = () => {
-  if (!data.loadCmpScripts || !data.partnerId || !data.configId) {
     return;
   }
-  if (!data.firstPartyHost) {
-    loadRegularStub();
-  } else {
-    let sdCmpTemplateCallback = copyFromWindow('sdCmpTemplateCallback') || [];
-    sdCmpTemplateCallback.push(registerSdApiListener);
-    setInWindow('sdCmpTemplateCallback', sdCmpTemplateCallback);
-    let url = 'https://cdn.sirdata.eu/cmp_loader.js?p='+encodeUriComponent(data.partnerId)+'&c='+encodeUriComponent(data.configId)+'&h='+encodeUriComponent(data.firstPartyHost)+'&cb=sdCmpTemplateCallback';
-    injectScript(url, function(){data.gtmOnSuccess();}, function(){data.firstPartyHost = '';loadRegularStub();});
-  }
+  const sdCmpTemplateCallback = copyFromWindow('sdCmpTemplateCallback') || [];
+  sdCmpTemplateCallback.push(registerCookieDeletionListener);
+  setInWindow('sdCmpTemplateCallback', sdCmpTemplateCallback);
+  const url = 'https://cdn.sirdata.eu/cmp_loader.js?p='+encodeUriComponent(data.partnerId)+'&c='+encodeUriComponent(data.configId)+'&h='+encodeUriComponent(data.firstPartyHost)+'&cb=sdCmpTemplateCallback&tms=gtm';
+  injectScript(url, function(){data.gtmOnSuccess();}, function(){
+    data.firstPartyHost = '';
+    loadCmp();
+  });
 };
 
-if (!cmpLoaded && data.loadCmpScripts && data.partnerId && data.configId) {
-  const JSON = require('JSON');
+if (!cmpLoaded && data.partnerId && data.configId) {
   ABconsentCMP.gtmTemplateDefaultConsent = JSON.stringify(defaultConsent);
   setInWindow('ABconsentCMP', ABconsentCMP, true);
-  loadStub();
+  installTemplateMiniStubs();
+  loadCmpScript();
 } else {
-  //fallback
-  callInWindow('__sdcmpapi', 'addEventListener', 2, onUserChoice);
+  registerCookieDeletionListener();
   data.gtmOnSuccess();
 }
 
@@ -2693,6 +3109,513 @@ ___WEB_PERMISSIONS___
                 "mapValue": [
                   {
                     "type": 1,
+                    "string": "fbq"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.callMethod"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.callMethod.apply"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.queue"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.queue.push"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "fbq.push"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "_fbq"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.__oaiqInitialized"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.q"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.queue"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.queue.push"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "ABconsentCMP.openai.preQueue.push"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
                     "string": "SDDAN"
                   },
                   {
@@ -2708,6 +3631,201 @@ ___WEB_PERMISSIONS___
                     "boolean": false
                   }
                 ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "__gpp"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "__gpp.queue"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "__gpp.events"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.queue.__sdSharedStorage"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ],
+                "type": "MAP"
+              },
+              {
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.q.__sdSharedStorage"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ],
+                "type": "MAP"
               }
             ]
           }
@@ -3188,7 +4306,6 @@ ___WEB_PERMISSIONS___
   }
 ]
 
-
 ___TESTS___
 
 scenarios:
@@ -3432,7 +4549,8 @@ scenarios:
     assertApi('setCookie').wasNotCalled();
 setup: |-
   const mockData = {
-    settingsTable: [{
+    overrideDefaultConsent: true,
+    customConsentSettings: [{
       ad_storage: 'denied',
       analytics_storage: 'granted',
       personalization_storage: 'granted',
