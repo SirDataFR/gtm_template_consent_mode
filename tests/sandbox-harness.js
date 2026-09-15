@@ -1091,7 +1091,11 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
     });
     check("no queue method carries an execute permission",
         !rows.some((row) => /\.(push|splice)$/.test(row[0]) && row[3] === true &&
-            row[0] !== "fbq.queue.push" && row[0] !== "oaiq.queue.push"), JSON.stringify(rows));
+            row[0] !== "fbq.queue.push" && row[0] !== "oaiq.queue.push" &&
+            // OUR OWN list, not a publisher's: the consent namespace is created by this template or
+            // by the consent script, never supplied by the page. The rule this guard enforces is
+            // about calling back into a method the PUBLISHER put there.
+            row[0] !== "ABconsentCMP.openai.preQueue.push"), JSON.stringify(rows));
     check("the removed check leaves no permission behind",
         !rows.some((row) => row[0] === "fbq.queue.splice" || row[0] === "oaiq.queue.splice" ||
             row[0] === "_fbq.queue"), JSON.stringify(rows));
@@ -1463,10 +1467,17 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     const hostileOpenAiCommands = commandList(hostileOpenAi.globals.oaiq.queue);
     check("OpenAI survives a queue whose methods throw",
         Array.isArray(hostileOpenAi.globals.oaiq.queue), JSON.stringify(hostileOpenAiCommands));
+    // The measurement is still PRESERVED -- it is preserved somewhere else, which is the whole
+    // point of holding it: under a refusing default the pixel would drain it and DROP it, so it is
+    // parked on the resumption point instead of being handed over to be thrown away.
+    const hostileHeld = commandList(hostileOpenAi.globals.ABconsentCMP.openai.preQueue);
     check("OpenAI preserves business commands from both names when methods throw",
-        hostileOpenAiCommands.some((command) =>
+        hostileHeld.some((command) =>
             command[0] === "measure" && command[1] === "survives-throwing-methods") &&
         hostileOpenAiCommands.some((command) => command[0] === "init"),
+        JSON.stringify([hostileOpenAiCommands, hostileHeld]));
+    check("and a held measurement is NOT left in the drained queue as well",
+        !hostileOpenAiCommands.some((command) => command[0] === "measure"),
         JSON.stringify(hostileOpenAiCommands));
     check("OpenAI publishes no mark and no sentinel when methods throw",
         hostileOpenAiCommands.every((command) => typeof command[0] === "string") &&
@@ -1506,8 +1517,10 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     check("the mark is cleared from the publisher's own list",
         sharedList.__sdSharedStorage === undefined, JSON.stringify(sharedList.__sdSharedStorage));
     const markedCommands = commandList(marked.globals.oaiq.queue);
+    const markedHeld = commandList(marked.globals.ABconsentCMP.openai.preQueue);
     check("one shared list is read once, not twice",
-        named(markedCommands, "measure").length === 1, JSON.stringify(markedCommands));
+        named(markedHeld, "measure").length === 1 && named(markedCommands, "measure").length === 0,
+        JSON.stringify([markedCommands, markedHeld]));
 
     // The closed finding stays closed: two DISTINCT lists holding identical commands are two
     // lists. A publisher who installed the pixel both ways with the same identifier has exactly
@@ -1808,6 +1821,60 @@ console.log("\n23. The privacy marker and the stored bits reach the Meta and Ope
     check("witness -- the provisional default still comes first on that page",
         JSON.stringify(metaConsentOf(garde)) === MARKED("revoke"),
         JSON.stringify(commandList(garde.globals.fbq.queue)));
+}
+
+console.log("\n24. A measurement is held out of the queue the pixel drains while the default refuses");
+{
+    const OPENAI_ON = {openAiConsentMode: true};
+    // The pixel DROPS a measurement received while consent is denied -- it does not hold it and it
+    // never replays it. Handing one over before the visitor has answered therefore loses it for
+    // good, so it is parked on the resumption point the consent script reads instead.
+    const refus = run({sddan: SDDAN_LOCAL, data: OPENAI_ON});
+    check("witness -- a page without a pixel gets a function and a list",
+        typeof refus.globals.oaiq === "function" && Array.isArray(refus.globals.oaiq.queue),
+        typeof refus.globals.oaiq);
+    const avant = commandList(refus.globals.oaiq.queue).length;
+    refus.globals.oaiq("measure", "page_viewed", {type: "contents"});
+    const tenus = commandList(refus.globals.ABconsentCMP.openai.preQueue);
+    check("a measurement is held on the resumption point",
+        named(tenus, "measure").length === 1 && tenus[0][1] === "page_viewed",
+        JSON.stringify(tenus));
+    check("and it is NOT appended to the queue the pixel drains",
+        commandList(refus.globals.oaiq.queue).length === avant,
+        JSON.stringify(commandList(refus.globals.oaiq.queue)));
+    refus.globals.oaiq("measureSingle", "pix", "page_viewed", {type: "contents"});
+    check("the single-pixel form is held too, with its exact arity",
+        named(commandList(refus.globals.ABconsentCMP.openai.preQueue), "measureSingle").length === 1 &&
+        commandList(refus.globals.ABconsentCMP.openai.preQueue)[1].length === 4,
+        JSON.stringify(commandList(refus.globals.ABconsentCMP.openai.preQueue)));
+    refus.globals.oaiq("init", {pixelId: "pix"});
+    check("a command that is NOT a measurement still goes to the queue",
+        named(commandList(refus.globals.oaiq.queue), "init").length === 1 &&
+        named(commandList(refus.globals.ABconsentCMP.openai.preQueue), "init").length === 0,
+        JSON.stringify([commandList(refus.globals.oaiq.queue),
+            commandList(refus.globals.ABconsentCMP.openai.preQueue)]));
+
+    // THE OTHER DIRECTION, and it is what keeps the change from delaying what already works: under
+    // a stored grant the pixel accepts measurements, so nothing is held back.
+    const accord = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.o:1:1"}, data: OPENAI_ON});
+    accord.globals.oaiq("measure", "page_viewed", {type: "contents"});
+    check("under a stored grant the measurement goes straight to the queue",
+        named(commandList(accord.globals.oaiq.queue), "measure").length === 1,
+        JSON.stringify(commandList(accord.globals.oaiq.queue)));
+    check("and no list is created to hold it",
+        !accord.globals.ABconsentCMP.openai ||
+        commandList(accord.globals.ABconsentCMP.openai.preQueue || []).length === 0,
+        JSON.stringify(accord.globals.ABconsentCMP.openai));
+
+    // A list the consent script already published is KEPT, never replaced: a page that loaded it
+    // first would otherwise lose what it holds.
+    const deja = [["measure", "already-there", {type: "contents"}]];
+    const repris = run({sddan: SDDAN_LOCAL, data: OPENAI_ON,
+        globals: {ABconsentCMP: {openai: {preQueue: deja}}}});
+    repris.globals.oaiq("measure", "page_viewed", {type: "contents"});
+    check("an existing resumption list is kept and appended to",
+        named(commandList(repris.globals.ABconsentCMP.openai.preQueue), "measure").length === 2,
+        JSON.stringify(commandList(repris.globals.ABconsentCMP.openai.preQueue)));
 }
 
 // Assertion floor: deleting a test section must fail loudly rather than reporting a vacuous green.

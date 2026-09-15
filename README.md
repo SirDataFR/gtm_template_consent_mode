@@ -50,6 +50,31 @@ already has rather than replacing it — so a function that only ever appends wo
 and a consent signal sent after the SDK had loaded would queue up behind the events it was meant to
 release. OpenAI's SDK replaces its own function at startup, so a plain pending list is enough there.
 
+## A measurement is kept out of the list the OpenAI pixel drains
+
+The OpenAI pixel **drops** a measurement it receives while consent is denied. It does not hold it,
+it does not queue it, and it never replays it — its own startup reads the pending list, applies the
+consent state it finds first, and throws away everything the state refuses. Anything handed to it
+before the visitor has answered is therefore lost for good rather than delayed, which is the
+opposite of how the other vendors behave.
+
+So while the stored default is a refusal, `measure` and `measureSingle` are parked on
+`ABconsentCMP.openai.preQueue` instead of the pending list, and every other command still goes to
+the pending list unchanged. The consent script replays what it finds there once consent is granted.
+Under a stored grant nothing is held back: the pixel accepts measurements then, and holding them
+would delay what already works.
+
+This is the only place that can still do it. On a real page the pixel replaces its own function
+about 765 ms before the consent script lands, so the script cannot capture what it never saw — and
+by then the measurement is not reachable from the page at all. Both halves are needed: holding
+without the replay keeps the measurement parked forever, and the replay without the holding has
+nothing to replay.
+
+Two ordering constraints hold it together. The list is created before the function that fills it,
+and it is created empty rather than replaced, so a page that published one first does not lose what
+it holds. And the namespace must not be written wholesale after the page starts pushing into that
+list — today every such write happens inside the same synchronous run, before the vendor tag fires.
+
 ## No publisher queue method is ever executed
 
 OpenAI keeps two names for its pending-command list — `oaiq.q` for the page snippet, `oaiq.queue`

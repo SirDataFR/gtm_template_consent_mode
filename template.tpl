@@ -2401,6 +2401,40 @@ const appendOpenAiCommands = (target, source) => {
   }
 };
 
+const isOpenAiMeasure = (command) => {
+  return command === 'measure' || command === 'measureSingle';
+};
+
+// The OpenAI pixel DROPS a measurement it receives while consent is denied — it does not hold it,
+// and it never replays it. Anything handed to it before the visitor answers is therefore lost for
+// good rather than delayed, which is the opposite of how the other vendors behave.
+//
+// So a measurement is kept OUT of the queue the pixel drains and parked on the resumption point the
+// consent script reads, which replays it once consent is granted. Measured on a real page: the
+// pixel replaces its own function ~765 ms before the consent script lands, so the script cannot
+// capture what it never saw — this is the only place that still can.
+//
+// Only while the stored default is a refusal: under a stored grant the pixel accepts them, and
+// holding them back would delay what already works.
+const holdOpenAiMeasurements = (commands) => {
+  const kept = [];
+  const held = [];
+  for (let i = 0; i < commands.length; i++) {
+    if (isOpenAiMeasure(commandName(commands[i]))) {
+      held.push(commands[i]);
+    } else {
+      kept.push(commands[i]);
+    }
+  }
+  if (held.length > 0) {
+    for (let j = 0; j < held.length; j++) {
+      ABconsentCMP.openai.preQueue.push(held[j]);
+    }
+    setInWindow('ABconsentCMP', ABconsentCMP, true);
+  }
+  return kept;
+};
+
 const prepareOpenAiDefault = (granted) => {
   if (copyFromWindow('oaiq.__oaiqInitialized') === true) {
     // The initialized SDK owns its function and both queue identities. Its public command API can
@@ -2411,9 +2445,20 @@ const prepareOpenAiDefault = (granted) => {
   const shareStorage = queuesShareStorage('oaiq.queue', 'oaiq.q');
   const q = copyFromWindow('oaiq.q') || [];
   const queue = copyFromWindow('oaiq.queue') || [];
-  const commands = [];
+  let commands = [];
   appendOpenAiCommands(commands, q);
   if (!shareStorage) appendOpenAiCommands(commands, queue);
+  if (!granted) {
+    // The list is created before the function that fills it, and it is created EMPTY rather than
+    // replaced: the consent script keeps an array it already finds, so a page that loaded it first
+    // does not lose what it holds.
+    ABconsentCMP.openai = ABconsentCMP.openai || {};
+    if (!ABconsentCMP.openai.preQueue) {
+      ABconsentCMP.openai.preQueue = [];
+    }
+    setInWindow('ABconsentCMP', ABconsentCMP, true);
+    commands = holdOpenAiMeasurements(commands);
+  }
   setInWindow('oaiq', function(command, arg1, arg2, arg3) {
     if (command === 'consent') return;
     const queuedArguments = [command];
@@ -2426,6 +2471,12 @@ const prepareOpenAiDefault = (granted) => {
       queuedArguments.push(arg2);
     } else if (typeof(arg1) !== 'undefined') {
       queuedArguments.push(arg1);
+    }
+    if (!granted && isOpenAiMeasure(command)) {
+      // A LITERAL path, never a concatenation: it is what the declared permission names, and
+      // what a reader greps for.
+      callInWindow('ABconsentCMP.openai.preQueue.push', queuedArguments);
+      return;
     }
     callInWindow('oaiq.queue.push', queuedArguments);
   }, true);
@@ -3427,6 +3478,45 @@ ___WEB_PERMISSIONS___
                   {
                     "type": 1,
                     "string": "oaiq.queue.push"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "ABconsentCMP.openai.preQueue.push"
                   },
                   {
                     "type": 8,
