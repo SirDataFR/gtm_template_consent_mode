@@ -1063,7 +1063,7 @@ console.log("\n20. Same-window mini-stubs and takeover handoff");
 
 console.log("\n21. Activation overrides and loader ordering");
 {
-    const publishesVendorUpdateOwnership = (cmp) => Object.keys(cmp).some((key) =>
+    const publishesVendorUpdateOwnership = (cmp) => Object.keys(cmp || {}).some((key) =>
         key.indexOf("Updates" + "OwnedByGtm") !== -1);
     const enabled = run({sddan: SDDAN_LOCAL, data: {
         facebookConsentMode: true, openAiConsentMode: true,
