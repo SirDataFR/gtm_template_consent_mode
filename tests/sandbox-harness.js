@@ -908,6 +908,15 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
         fineGrained.length === 2 && fineGrained.every((param) =>
             gatedOn(param) === "consentMode=true,overrideDefaultConsent=true"),
         JSON.stringify(fineGrained.map((param) => [param.name, gatedOn(param)])));
+    // An empty table is a legitimate state rather than a mistake, and the body already treats it
+    // as one: the override falls back to the automatic default state when no rule is declared,
+    // which the behaviour run below exercises. An editor rule demanding a row would refuse to save
+    // exactly that container -- a publisher who checks the box, looks at the rules, and decides the
+    // automatic state was right after all would be stuck with a form they cannot leave.
+    const table = flatten(parameters).filter((param) => param.name === "customConsentSettings")[0];
+    check("the fine-grained table demands no row",
+        table !== undefined && (table.valueValidators || []).length === 0,
+        JSON.stringify(table && (table.valueValidators || []).map((validator) => validator.type)));
     // The table was RENAMED so rows saved against an earlier version are dropped rather than
     // replayed unreviewed. The old name coming back would silently carry them over again.
     check("the earlier table name is gone from the parameters and the body",

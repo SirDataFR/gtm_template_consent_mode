@@ -142,15 +142,6 @@ ___TEMPLATE_PARAMETERS___
         "subParams": [
           {
             "alwaysInSummary": true,
-            "valueValidators": [
-              {
-                "args": [
-                  1
-                ],
-                "errorMessage": "You must set a default setting.",
-                "type": "TABLE_ROW_COUNT"
-              }
-            ],
             "name": "customConsentSettings",
             "paramTableColumns": [
               {
