@@ -945,20 +945,43 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
         return [row.key, row.read, row.write, row.execute];
     });
     ["__tcfapi", "__sdcmpapi", "__uspapi", "__gpp", "__gpp.queue", "__gpp.events",
-        "fbq", "fbq.queue", "fbq.queue.push", "fbq.push", "_fbq", "_fbq.queue",
-        "oaiq", "oaiq.q", "oaiq.queue", "oaiq.queue.push"].forEach((key) => {
+        "fbq", "fbq.queue", "fbq.queue.push", "fbq.push", "_fbq",
+        "oaiq", "oaiq.q", "oaiq.queue", "oaiq.queue.push",
+        "oaiq.queue.__sdSharedStorage", "oaiq.q.__sdSharedStorage"].forEach((key) => {
         check("access_globals includes " + key, rows.some((row) => row[0] === key), JSON.stringify(rows));
     });
+    // The shared-storage question is asked for OpenAI ONLY. Meta reads its canonical list alone,
+    // because a distinct `_fbq.queue` belongs to another advertiser's pixel rather than to a second
+    // copy of this one's pending work.
     const probeCalls = Array.from(SRC.matchAll(/queuesShareStorage\('([^']+)',\s*'([^']+)'\)/g));
-    check("queue storage probes are statically discoverable", probeCalls.length === 2,
+    check("the shared-storage question is asked once, for OpenAI", probeCalls.length === 1 &&
+        probeCalls[0][1] === "oaiq.queue" && probeCalls[0][2] === "oaiq.q",
         JSON.stringify(probeCalls.map((match) => [match[1], match[2]])));
+    // The mark is a named property written and read back, so what it needs is read/write on two
+    // exact paths -- and crucially NO execute anywhere: an execute permission would be the sign
+    // that a publisher-supplied method is being called again.
     probeCalls.forEach((match) => {
-        [".push", ".splice"].forEach((suffix) => {
-            const executablePath = match[1] + suffix;
-            check("probe execute permission is exact for " + executablePath,
-                rows.some((row) => row[0] === executablePath && row[3] === true), JSON.stringify(rows));
-        });
+        const written = match[1] + ".__sdSharedStorage";
+        const observed = match[2] + ".__sdSharedStorage";
+        check("the mark is writable on " + written,
+            rows.some((row) => row[0] === written && row[1] === true && row[2] === true && row[3] === false),
+            JSON.stringify(rows));
+        check("the mark is readable on " + observed,
+            rows.some((row) => row[0] === observed && row[1] === true && row[3] === false),
+            JSON.stringify(rows));
     });
+    check("no queue method carries an execute permission",
+        !rows.some((row) => /\.(push|splice)$/.test(row[0]) && row[3] === true &&
+            row[0] !== "fbq.queue.push" && row[0] !== "oaiq.queue.push"), JSON.stringify(rows));
+    check("the removed check leaves no permission behind",
+        !rows.some((row) => row[0] === "fbq.queue.splice" || row[0] === "oaiq.queue.splice" ||
+            row[0] === "_fbq.queue"), JSON.stringify(rows));
+    // The sentinel concept is gone entirely, so "no sentinel is ever published" holds by
+    // construction rather than by filtering it back out of the rebuilt queues.
+    check("no sentinel value is written into a queue at all",
+        SRC.indexOf("QUEUE_STORAGE_PROBE") === -1 && SRC.indexOf("__sd_queue_storage_probe__") === -1);
+    check("no publisher queue method is ever called",
+        SRC.indexOf("'.push'") === -1 && SRC.indexOf("'.splice'") === -1, SRC.indexOf("'.splice'"));
     check("initialized SDK detection permissions stay minimal",
         rows.some((row) => row[0] === "fbq.callMethod" && row[1] === true && row[2] === false && row[3] === false) &&
         rows.some((row) => row[0] === "oaiq.__oaiqInitialized" && row[1] === true && row[2] === false && row[3] === false),
@@ -1278,58 +1301,94 @@ console.log("\n21. Activation overrides and loader ordering");
 
 console.log("\n22. Early vendor defaults preserve files and callbacks produce no updates");
 {
-    function missingPushOaiq() {}
-    const missingPushOpenAiQueue = [["measure", "survives-missing-push"]];
-    missingPushOpenAiQueue.push = undefined;
-    missingPushOaiq.q = missingPushOpenAiQueue;
-    missingPushOaiq.queue = missingPushOpenAiQueue;
-    const missingOpenAiPush = run({sddan: SDDAN_LOCAL, globals: {oaiq: missingPushOaiq},
+    // A queue whose methods THROW on any call. This is the case the shared-storage question used
+    // to reach, and the reason it had to stop reaching it: the sandbox cannot contain an exception,
+    // so a single throw stopped the template mid-way and left whatever it had written behind for
+    // the SDK to drain. The mark is a named property now, so these methods are never called and
+    // the case passes because the code cannot get there -- not because it recovers.
+    function throwingMethods(queue) {
+        queue.push = function () { throw new Error("publisher push"); };
+        queue.splice = function () { throw new Error("publisher splice"); };
+        return queue;
+    }
+    function hostileOaiq() {}
+    hostileOaiq.q = throwingMethods([["measure", "survives-throwing-methods"]]);
+    hostileOaiq.queue = throwingMethods([["init", {pixelId: "hostile"}]]);
+    const hostileOpenAi = run({sddan: SDDAN_LOCAL, globals: {oaiq: hostileOaiq},
         data: {openAiConsentMode: true}});
-    const missingOpenAiPushCommands = commandList(missingOpenAiPush.globals.oaiq.queue);
-    check("OpenAI never publishes the storage probe when push is absent",
-        missingOpenAiPush.globals.oaiq.queue.indexOf("__sd_queue_storage_probe__") === -1,
-        JSON.stringify(missingOpenAiPushCommands));
-    check("OpenAI preserves business commands when push is absent",
-        missingOpenAiPushCommands.some((command) =>
-            command[0] === "measure" && command[1] === "survives-missing-push"),
-        JSON.stringify(missingOpenAiPushCommands));
+    const hostileOpenAiCommands = commandList(hostileOpenAi.globals.oaiq.queue);
+    check("OpenAI survives a queue whose methods throw",
+        Array.isArray(hostileOpenAi.globals.oaiq.queue), JSON.stringify(hostileOpenAiCommands));
+    check("OpenAI preserves business commands from both names when methods throw",
+        hostileOpenAiCommands.some((command) =>
+            command[0] === "measure" && command[1] === "survives-throwing-methods") &&
+        hostileOpenAiCommands.some((command) => command[0] === "init"),
+        JSON.stringify(hostileOpenAiCommands));
+    check("OpenAI publishes no mark and no sentinel when methods throw",
+        hostileOpenAiCommands.every((command) => typeof command[0] === "string") &&
+        JSON.stringify(hostileOpenAiCommands).indexOf("__sd") === -1,
+        JSON.stringify(hostileOpenAiCommands));
+    // The run completing at all is what says the throw was never triggered: an exception here
+    // would have stopped the template before the loader.
+    check("the template still completes when a queue method throws",
+        hostileOpenAi.calls.successes + hostileOpenAi.calls.failures >= 0 &&
+        hostileOpenAi.globals.ABconsentCMP !== undefined);
 
-    function missingSpliceFbq() { missingSpliceFbq.queue.push(Array.prototype.slice.call(arguments)); }
-    const missingSpliceMetaQueue = [["track", "SurvivesMissingSplice"]];
-    missingSpliceMetaQueue.splice = undefined;
-    missingSpliceFbq.queue = missingSpliceMetaQueue;
-    missingSpliceFbq.push = missingSpliceFbq;
-    const missingMetaSplice = run({sddan: SDDAN_LOCAL,
-        globals: {fbq: missingSpliceFbq, _fbq: missingSpliceFbq},
+    function hostileFbq() { throw new Error("publisher fbq"); }
+    hostileFbq.queue = throwingMethods([["track", "SurvivesThrowingMethods"]]);
+    hostileFbq.push = hostileFbq;
+    const hostileMeta = run({sddan: SDDAN_LOCAL, globals: {fbq: hostileFbq, _fbq: hostileFbq},
         data: {facebookConsentMode: true}});
-    const missingMetaSpliceCommands = commandList(missingMetaSplice.globals.fbq.queue);
-    check("Meta never publishes the storage probe when splice is absent",
-        missingMetaSplice.globals.fbq.queue.indexOf("__sd_queue_storage_probe__") === -1,
-        JSON.stringify(missingMetaSpliceCommands));
-    check("Meta preserves business commands when splice is absent",
-        missingMetaSpliceCommands.some((command) =>
-            command[0] === "track" && command[1] === "SurvivesMissingSplice"),
-        JSON.stringify(missingMetaSpliceCommands));
+    const hostileMetaCommands = commandList(hostileMeta.globals.fbq.queue);
+    check("Meta survives a queue whose methods throw",
+        Array.isArray(hostileMeta.globals.fbq.queue), JSON.stringify(hostileMetaCommands));
+    check("Meta preserves business commands when methods throw",
+        hostileMetaCommands.some((command) =>
+            command[0] === "track" && command[1] === "SurvivesThrowingMethods"),
+        JSON.stringify(hostileMetaCommands));
+    check("Meta publishes no mark and no sentinel when methods throw",
+        JSON.stringify(hostileMetaCommands).indexOf("__sd") === -1, JSON.stringify(hostileMetaCommands));
 
-    function invalidProbeFbq() { invalidProbeFbq.queue.push(Array.prototype.slice.call(arguments)); }
-    const invalidMetaQueue = [["track", "SurvivesInvalidSplice"]];
-    invalidMetaQueue.splice = function () { return []; };
-    invalidProbeFbq.queue = invalidMetaQueue;
-    invalidProbeFbq.push = invalidProbeFbq;
-    const invalidMetaSplice = run({sddan: SDDAN_LOCAL,
-        globals: {fbq: invalidProbeFbq, _fbq: invalidProbeFbq},
+    // The mark never becomes an entry, so it cannot be drained as a command whatever happens
+    // afterwards -- and it is cleared once the question is answered rather than left on the object.
+    function markedOaiq() {}
+    const sharedList = [["measure", "shared"]];
+    markedOaiq.q = sharedList;
+    markedOaiq.queue = sharedList;
+    const marked = run({sddan: SDDAN_LOCAL, globals: {oaiq: markedOaiq}, data: {openAiConsentMode: true}});
+    check("the mark is cleared once the question is answered",
+        marked.globals.oaiq.queue.__sdSharedStorage === undefined &&
+        marked.globals.oaiq.q.__sdSharedStorage === undefined,
+        JSON.stringify([marked.globals.oaiq.queue.__sdSharedStorage, marked.globals.oaiq.q.__sdSharedStorage]));
+    const markedCommands = commandList(marked.globals.oaiq.queue);
+    check("one shared list is read once, not twice",
+        named(markedCommands, "measure").length === 1, JSON.stringify(markedCommands));
+
+    // The closed finding stays closed: two DISTINCT lists holding identical commands are two
+    // lists. A publisher who installed the pixel both ways with the same identifier has exactly
+    // that, so collapsing them would drop one real set of pending work.
+    function twinOaiq() {}
+    twinOaiq.q = [["init", {pixelId: "same"}]];
+    twinOaiq.queue = [["init", {pixelId: "same"}]];
+    const twins = run({sddan: SDDAN_LOCAL, globals: {oaiq: twinOaiq}, data: {openAiConsentMode: true}});
+    const twinCommands = commandList(twins.globals.oaiq.queue);
+    check("distinct lists with identical commands are kept apart",
+        named(twinCommands, "init").length === 2, JSON.stringify(twinCommands));
+
+    // Meta reads its canonical list alone, so another advertiser's pixel is no longer merged in.
+    function ownFbq() { ownFbq.queue.push(Array.prototype.slice.call(arguments)); }
+    ownFbq.queue = [["track", "Ours"]];
+    ownFbq.push = ownFbq;
+    function strangerFbq() {}
+    strangerFbq.queue = [["track", "TheirsDoNotTake"]];
+    const stranger = run({sddan: SDDAN_LOCAL, globals: {fbq: ownFbq, _fbq: strangerFbq},
         data: {facebookConsentMode: true}});
-    const invalidMetaCommands = commandList(invalidMetaSplice.globals.fbq.queue);
-    check("Meta never publishes the storage probe after invalid cleanup",
-        invalidMetaSplice.globals.fbq.queue.indexOf("__sd_queue_storage_probe__") === -1 &&
-        invalidMetaSplice.globals._fbq.queue.indexOf("__sd_queue_storage_probe__") === -1,
-        JSON.stringify(invalidMetaSplice.globals.fbq.queue));
-    check("Meta preserves business commands when probe cleanup is invalid",
-        invalidMetaCommands.some((command) =>
-            command[0] === "track" && command[1] === "SurvivesInvalidSplice"),
-        JSON.stringify(invalidMetaCommands));
-    check("Meta aliases both public queues after invalid cleanup",
-        invalidMetaSplice.globals.fbq.queue === invalidMetaSplice.globals._fbq.queue);
+    const strangerCommands = commandList(stranger.globals.fbq.queue);
+    check("witness -- our own pending command is kept",
+        strangerCommands.some((command) => command[1] === "Ours"), JSON.stringify(strangerCommands));
+    check("another advertiser's pending commands are never merged in",
+        !strangerCommands.some((command) => command[1] === "TheirsDoNotTake"),
+        JSON.stringify(strangerCommands));
 
     function beforeOaiq() { beforeOaiq.queue.push(Array.prototype.slice.call(arguments)); }
     beforeOaiq.q = [["consent", false], ["init", {pixelId: "pixel"}], ["pixelId", "pixel"]];

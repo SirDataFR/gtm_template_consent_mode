@@ -2362,27 +2362,34 @@ const commandName = (entry) => {
   return entry[0];
 };
 
-const QUEUE_STORAGE_PROBE = '__sd_queue_storage_probe__';
+// Two names can point at ONE pending-command list or at two, and the answer decides whether
+// copying both duplicates every pending command or copying one loses the other's. So it has to be
+// asked -- but NEVER by running the page's own code. A queue method the publisher replaced can
+// throw, and this sandbox has no way to contain that: the template would stop mid-way, and
+// anything it had already written would stay behind for the SDK to drain as a real command.
+//
+// The mark is therefore a NAMED PROPERTY, written and read back through paths this template holds
+// permissions for. Nothing of the publisher's runs, and `length` never moves -- so an SDK draining
+// the list cannot see the mark whatever happens next, which is stronger than cleaning up after it.
+const QUEUE_STORAGE_MARK = '__sdSharedStorage';
 const queuesShareStorage = (probePath, observedPath) => {
   const probeQueue = copyFromWindow(probePath);
   const observedQueue = copyFromWindow(observedPath);
   if (!probeQueue || !observedQueue || typeof(probeQueue.length) !== 'number' ||
       typeof(observedQueue.length) !== 'number') return false;
-  if (typeof(copyFromWindow(probePath + '.push')) !== 'function' ||
-      typeof(copyFromWindow(probePath + '.splice')) !== 'function') return false;
-  const pushedLength = callInWindow(probePath + '.push', QUEUE_STORAGE_PROBE);
-  const observedAfterPush = copyFromWindow(observedPath);
-  const removed = callInWindow(probePath + '.splice', probeQueue.length, 1);
-  return pushedLength === probeQueue.length + 1 && removed && removed.length === 1 &&
-    removed[0] === QUEUE_STORAGE_PROBE && observedAfterPush &&
-    observedAfterPush.length === observedQueue.length + 1 &&
-    observedAfterPush[observedAfterPush.length - 1] === QUEUE_STORAGE_PROBE;
+  // Read the mark BY ITS OWN PATH, never off the copied array above: `copyFromWindow` hands back a
+  // COPY of an array, and a copy does not carry non-index properties. Reading it off `observedQueue`
+  // would answer "not shared" for every list, silently and always.
+  setInWindow(probePath + '.' + QUEUE_STORAGE_MARK, true, true);
+  const shared = copyFromWindow(observedPath + '.' + QUEUE_STORAGE_MARK) === true;
+  setInWindow(probePath + '.' + QUEUE_STORAGE_MARK, undefined, true);
+  return shared;
 };
 
 const appendOpenAiCommands = (target, source) => {
   if (!source || typeof(source.length) !== 'number') return;
   for (let i = 0; i < source.length; i++) {
-    if (source[i] !== QUEUE_STORAGE_PROBE && commandName(source[i]) !== 'consent') {
+    if (commandName(source[i]) !== 'consent') {
       target.push(source[i]);
     }
   }
@@ -2426,8 +2433,7 @@ const appendMetaCommands = (target, source) => {
   if (!source || typeof(source.length) !== 'number') return;
   for (let i = 0; i < source.length; i++) {
     const entry = source[i];
-    if (entry !== QUEUE_STORAGE_PROBE &&
-        !(commandName(entry) === 'consent' && entry[2] === META_TEMPORARY_MARKER)) {
+    if (!(commandName(entry) === 'consent' && entry[2] === META_TEMPORARY_MARKER)) {
       target.push(entry);
     }
   }
@@ -2443,12 +2449,13 @@ const prepareFacebookDefault = (granted) => {
     setInWindow('ABconsentCMP', ABconsentCMP, true);
     return;
   }
-  const shareStorage = queuesShareStorage('fbq.queue', '_fbq.queue');
+  // Only the CANONICAL list is read. `_fbq` is Meta's own alias of `fbq` -- their page snippet sets
+  // it, their own tag template aliases it -- so a DIFFERENT `_fbq.queue` is not a second copy of
+  // this pixel's pending work: it belongs to ANOTHER advertiser's pixel, and merging it poured
+  // their events into ours. Reading one list also removes the need to ask whether the two are one.
   const queue = copyFromWindow('fbq.queue') || [];
-  const aliasQueue = copyFromWindow('_fbq.queue') || [];
   const commands = [];
   appendMetaCommands(commands, queue);
-  if (!shareStorage) appendMetaCommands(commands, aliasQueue);
   commands.unshift(['consent', signal, META_TEMPORARY_MARKER]);
   setInWindow('fbq', undefined, true);
   createArgumentsQueue('fbq', 'fbq.queue');
@@ -3089,45 +3096,6 @@ ___WEB_PERMISSIONS___
                 "mapValue": [
                   {
                     "type": 1,
-                    "string": "fbq.queue.splice"
-                  },
-                  {
-                    "type": 8,
-                    "boolean": false
-                  },
-                  {
-                    "type": 8,
-                    "boolean": false
-                  },
-                  {
-                    "type": 8,
-                    "boolean": true
-                  }
-                ]
-              },
-              {
-                "type": 3,
-                "mapKey": [
-                  {
-                    "type": 1,
-                    "string": "key"
-                  },
-                  {
-                    "type": 1,
-                    "string": "read"
-                  },
-                  {
-                    "type": 1,
-                    "string": "write"
-                  },
-                  {
-                    "type": 1,
-                    "string": "execute"
-                  }
-                ],
-                "mapValue": [
-                  {
-                    "type": 1,
                     "string": "fbq.push"
                   },
                   {
@@ -3176,45 +3144,6 @@ ___WEB_PERMISSIONS___
                   {
                     "type": 8,
                     "boolean": true
-                  },
-                  {
-                    "type": 8,
-                    "boolean": false
-                  }
-                ]
-              },
-              {
-                "type": 3,
-                "mapKey": [
-                  {
-                    "type": 1,
-                    "string": "key"
-                  },
-                  {
-                    "type": 1,
-                    "string": "read"
-                  },
-                  {
-                    "type": 1,
-                    "string": "write"
-                  },
-                  {
-                    "type": 1,
-                    "string": "execute"
-                  }
-                ],
-                "mapValue": [
-                  {
-                    "type": 1,
-                    "string": "_fbq.queue"
-                  },
-                  {
-                    "type": 8,
-                    "boolean": true
-                  },
-                  {
-                    "type": 8,
-                    "boolean": false
                   },
                   {
                     "type": 8,
@@ -3440,45 +3369,6 @@ ___WEB_PERMISSIONS___
                 "mapValue": [
                   {
                     "type": 1,
-                    "string": "oaiq.queue.splice"
-                  },
-                  {
-                    "type": 8,
-                    "boolean": false
-                  },
-                  {
-                    "type": 8,
-                    "boolean": false
-                  },
-                  {
-                    "type": 8,
-                    "boolean": true
-                  }
-                ]
-              },
-              {
-                "type": 3,
-                "mapKey": [
-                  {
-                    "type": 1,
-                    "string": "key"
-                  },
-                  {
-                    "type": 1,
-                    "string": "read"
-                  },
-                  {
-                    "type": 1,
-                    "string": "write"
-                  },
-                  {
-                    "type": 1,
-                    "string": "execute"
-                  }
-                ],
-                "mapValue": [
-                  {
-                    "type": 1,
                     "string": "SDDAN"
                   },
                   {
@@ -3611,6 +3501,84 @@ ___WEB_PERMISSIONS___
                     "boolean": false
                   }
                 ]
+              },
+              {
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.queue.__sdSharedStorage"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ],
+                "type": "MAP"
+              },
+              {
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "oaiq.q.__sdSharedStorage"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ],
+                "type": "MAP"
               }
             ]
           }
@@ -4090,7 +4058,6 @@ ___WEB_PERMISSIONS___
     "isRequired": true
   }
 ]
-
 
 ___TESTS___
 

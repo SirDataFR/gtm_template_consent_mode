@@ -42,6 +42,25 @@ the function or its queues; otherwise the queues are unified while non-consent c
 order. The CMP controller can remove or neutralize only the marked entry, without deleting publisher
 consent commands.
 
+## No publisher queue method is ever executed
+
+OpenAI keeps two names for its pending-command list — `oaiq.q` for the page snippet, `oaiq.queue`
+for their own tag template — and a publisher who installed the pixel both ways genuinely has two,
+each holding real commands. The template therefore has to know whether the two names are one list
+before deciding to read both, or it either duplicates every pending command or loses a set.
+
+It answers that with a named property written on one name and read back through the other, then
+cleared. Nothing of the publisher's runs, so a replaced queue method cannot throw into the template
+— which matters because this sandbox has no way to contain such an exception. The mark never
+becomes an entry either, so `length` does not move and no SDK can drain it as a command, whatever
+happens next. The property is read by its own path: `copyFromWindow` hands back a copy of an array,
+and a copy does not carry non-index properties.
+
+Meta needs no such question. `_fbq` is Meta's own alias of `fbq` — their page snippet sets it, their
+tag template aliases it — so a distinct `_fbq.queue` belongs to another advertiser's pixel rather
+than to a second copy of this one's pending work. Only the canonical `fbq.queue` is read, and that
+other pixel's commands are no longer merged in.
+
 Once the partner and configuration identifiers are set, the template installs same-window
 mini-stubs only for missing CMP APIs so synchronous callers can queue work. It then still loads the real `/stub` before `/cmp`.
 The real stub is mandatory: it canonicalises those marked mini-stubs, preserves their queues/events,
