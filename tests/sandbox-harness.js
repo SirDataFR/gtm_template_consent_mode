@@ -196,12 +196,6 @@ function run(opts) {
 
     const data = Object.assign({
         consentMode: true,
-        loadCmpScripts: false,
-        settingsTable: [{
-            ad_storage: "denied", analytics_storage: "denied", personalization_storage: "denied",
-            functionality_storage: "denied", security_storage: "denied",
-            wait_for_update: 1000, region: "ALL"
-        }],
         gtmOnSuccess: () => {}, gtmOnFailure: () => {}
     }, opts.data || {});
 
@@ -217,6 +211,10 @@ function run(opts) {
 
     return {calls, listener, cookies, globals};
 }
+
+// Declaring rows is an OVERRIDE: the two travel together, because rows alone read as "left the
+// defaults alone" and the run would silently exercise the automatic path instead of the case.
+const withRows = (rows) => ({overrideDefaultConsent: true, customConsentSettings: rows});
 
 const TC_ALL_GRANTED = {
     gdprApplies: true, eventStatus: "useractioncomplete",
@@ -449,7 +447,7 @@ console.log("\n13. Global Privacy Control takes precedence in the default");
         functionality_storage: "granted", security_storage: "granted",
         wait_for_update: 1000, region: "ALL"
     };
-    const GRANTED = {settingsTable: [ALL_GRANTED_ROW]};
+    const GRANTED = withRows([ALL_GRANTED_ROW]);
     // A FACTORY, never a shared constant: each case must start from a fresh object. A tcData
     // reused from one case to the next can arrive already altered, `onUserChoice`'s entry guard
     // then rejects it for want of a `purpose`, and the case yields zero updates -- which reads
@@ -521,7 +519,7 @@ console.log("\n14. The marker SHORT-CIRCUITS the default: nothing else is consul
         functionality_storage: "granted", security_storage: "granted",
         wait_for_update: 1000, region: "ALL"
     };
-    const GRANTED = {settingsTable: [ALL_GRANTED_ROW]};
+    const GRANTED = withRows([ALL_GRANTED_ROW]);
     const readsOf = (r, name) => (r.calls.cookieReads[name] || 0);
 
     // Witness: WITHOUT the marker the container IS read. Without it, the count asserted below
@@ -581,7 +579,7 @@ console.log("\n14. The marker SHORT-CIRCUITS the default: nothing else is consul
     // and on that perimeter silence is not agreement. The configured row grants everything, which
     // is what makes the denial visible.
     const US_ROW = Object.assign({}, ALL_GRANTED_ROW, {region: "US-CA"});
-    const us = run({sddan: SDDAN_LOCAL, data: {settingsTable: [US_ROW]}});
+    const us = run({sddan: SDDAN_LOCAL, data: withRows([US_ROW])});
     const u = us.calls.defaults[0];
     check("US perimeter: the stored-nothing default is denied",
         u.ad_storage === "denied" && u.ad_user_data === "denied" &&
@@ -597,7 +595,7 @@ console.log("\n14. The marker SHORT-CIRCUITS the default: nothing else is consul
 
     // The plain country value belongs to the same perimeter as its states.
     const usPlain = run({sddan: SDDAN_LOCAL,
-        data: {settingsTable: [Object.assign({}, ALL_GRANTED_ROW, {region: "US"})]}});
+        data: withRows([Object.assign({}, ALL_GRANTED_ROW, {region: "US"})])});
     check("US perimeter: the country value counts too",
         usPlain.calls.defaults[0].ad_storage === "denied",
         JSON.stringify(usPlain.calls.defaults[0]));
@@ -605,7 +603,7 @@ console.log("\n14. The marker SHORT-CIRCUITS the default: nothing else is consul
     // Outside that perimeter NOTHING changes: the configured regional default stands. Without
     // this the US rule above would be satisfied by a template denying everything everywhere.
     const fr = run({sddan: SDDAN_LOCAL,
-        data: {settingsTable: [Object.assign({}, ALL_GRANTED_ROW, {region: "FR"})]}});
+        data: withRows([Object.assign({}, ALL_GRANTED_ROW, {region: "FR"})])});
     const f = fr.calls.defaults[0];
     check("outside the US perimeter the configured default is untouched",
         f.ad_storage === "granted" && f.analytics_storage === "granted" &&
@@ -615,7 +613,7 @@ console.log("\n14. The marker SHORT-CIRCUITS the default: nothing else is consul
     // `US` must match the perimeter, `USA`-like neighbours must not: the prefix is a perimeter,
     // not a substring match.
     const ru = run({sddan: SDDAN_LOCAL,
-        data: {settingsTable: [Object.assign({}, ALL_GRANTED_ROW, {region: "RU"})]}});
+        data: withRows([Object.assign({}, ALL_GRANTED_ROW, {region: "RU"})])});
     check("a region merely containing the letters is not the US perimeter",
         ru.calls.defaults[0].ad_storage === "granted", JSON.stringify(ru.calls.defaults[0]));
 }
@@ -783,7 +781,7 @@ console.log("\n18. GPC acts on the consent-mode STATUS, never on LOADING the CMP
         functionality_storage: "granted", security_storage: "granted",
         wait_for_update: 1000, region: "ALL"
     };
-    const CMP = {settingsTable: [ROW], loadCmpScripts: true, partnerId: "1020", configId: "hmDnl"};
+    const CMP = Object.assign(withRows([ROW]), {partnerId: "1020", configId: "hmDnl"});
 
     const sans = run({sddan: SDDAN_LOCAL, data: CMP});
     const avec = run({sddan: SDDAN_LOCAL, data: CMP, cookies: {"__gpcactive": "1"}});
@@ -806,8 +804,8 @@ console.log("\n18. GPC acts on the consent-mode STATUS, never on LOADING the CMP
     check("while the status itself does change",
         sans.calls.defaults[0].ad_storage === "granted" && avec.calls.defaults[0].ad_storage === "denied",
         JSON.stringify([sans.calls.defaults[0].ad_storage, avec.calls.defaults[0].ad_storage]));
-    check("and loading is unchanged when the CMP is switched off by CONFIGURATION",
-        run({sddan: SDDAN_LOCAL, data: {settingsTable: [ROW]}, cookies: {"__gpcactive": "1"}})
+    check("and loading is unchanged when the identifiers are missing",
+        run({sddan: SDDAN_LOCAL, data: withRows([ROW]), cookies: {"__gpcactive": "1"}})
             .calls.injected.length === 0);
 }
 
@@ -873,6 +871,52 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
     check("the sandboxed body publishes no US scope property",
         SRC.indexOf("gtmCcpaApplyToAllStates") === -1);
 
+    // Loading the CMP is no longer a choice, and its absence is load-bearing twice over: this tag
+    // prepares the defaults that only the CMP can then resolve, and it installs the mini-stubs the
+    // CMP takes over. A box that skipped the load would leave both half-done -- defaults posted
+    // with nobody to update them, queues with nobody to drain them.
+    const skipParams = flatten(parameters).filter((param) =>
+        String(param.name || "").toLowerCase().indexOf("loadcmp") !== -1);
+    check("no parameter offers to skip loading the CMP", skipParams.length === 0,
+        JSON.stringify(skipParams.map((param) => param.name)));
+    check("the sandboxed body reads no such setting", SRC.indexOf("loadCmpScripts") === -1);
+    // Required, and unconditionally shown: a field revealed by a condition that no longer exists
+    // is a field nobody can fill.
+    const IDENTIFIERS = ["partnerId", "configId"];
+    const identifiers = flatten(parameters).filter((param) => IDENTIFIERS.indexOf(param.name) !== -1);
+    check("both CMP identifiers are unconditional and non-empty",
+        identifiers.length === IDENTIFIERS.length && identifiers.every((param) =>
+            param.enablingConditions === undefined &&
+            (param.valueValidators || []).some((validator) => validator.type === "NON_EMPTY")),
+        JSON.stringify(identifiers.map((param) =>
+            [param.name, param.enablingConditions !== undefined,
+             (param.valueValidators || []).map((validator) => validator.type)])));
+
+    // The fine-grained area is an OVERRIDE of the automatic default state, so it hangs off a box
+    // that starts unchecked -- which is what makes a container saved against an earlier version
+    // fall back to the automatic path. Gated on the activation box as well: declaring defaults
+    // that Google Consent Mode is switched off for would be a form with no effect.
+    const override = flatten(parameters).filter((param) => param.name === "overrideDefaultConsent")[0];
+    check("the override is a checkbox that starts unchecked",
+        override !== undefined && override.type === "CHECKBOX" && override.defaultValue === false,
+        JSON.stringify(override && [override.type, override.defaultValue]));
+    const gatedOn = (param) => (param.enablingConditions || []).map((condition) =>
+        condition.paramName + "=" + condition.paramValue).sort().join(",");
+    const fineGrained = flatten(parameters).filter((param) =>
+        param.name === "customConsentSettings" || param.name === "defaultSettings");
+    check("the fine-grained area is gated on both the activation and the override",
+        fineGrained.length === 2 && fineGrained.every((param) =>
+            gatedOn(param) === "consentMode=true,overrideDefaultConsent=true"),
+        JSON.stringify(fineGrained.map((param) => [param.name, gatedOn(param)])));
+    // The table was RENAMED so rows saved against an earlier version are dropped rather than
+    // replayed unreviewed. The old name coming back would silently carry them over again.
+    check("the earlier table name is gone from the parameters and the body",
+        flatten(parameters).every((param) => param.name !== "settingsTable") &&
+        SRC.indexOf("data.settingsTable") === -1);
+    check("the fine-grained area keeps its name in the interface",
+        fineGrained.some((param) => param.displayName === "Default Consent Mode Settings"),
+        JSON.stringify(fineGrained.map((param) => param.displayName)));
+
     const uiCopy = group.displayName + " " + group.help + " " + selectors.map((selector) =>
         selector.checkboxText + " " + selector.help).join(" ");
     check("wording describes the prepared default and CMP-owned updates",
@@ -935,7 +979,7 @@ console.log("\n20. Same-window mini-stubs and takeover handoff");
 {
     const thirdPartyUsp = function () { return "publisher"; };
     const valid = run({sddan: SDDAN_LOCAL, globals: {__uspapi: thirdPartyUsp}, data: {
-        loadCmpScripts: true, partnerId: "1020", configId: "public"
+        partnerId: "1020", configId: "public"
     }});
     check("valid loader configuration installs missing mini-stubs",
         typeof valid.globals.__tcfapi === "function" && typeof valid.globals.__sdcmpapi === "function" &&
@@ -980,7 +1024,7 @@ console.log("\n20. Same-window mini-stubs and takeover handoff");
         sdQueue[1] && sdQueue[1].length === 4 && sdQueue[1][3] === 42,
         JSON.stringify(sdQueue));
 
-    const usp = run({sddan: SDDAN_LOCAL, data: {loadCmpScripts: true, partnerId: "1020", configId: "public"}});
+    const usp = run({sddan: SDDAN_LOCAL, data: {partnerId: "1020", configId: "public"}});
     const uspArgs = ["getUSPData", 1, function () {}];
     if (typeof usp.globals.__uspapi === "function") usp.globals.__uspapi.apply(null, uspArgs);
     const uspQueue = typeof usp.globals.__uspapi === "function" ? usp.globals.__uspapi() : [];
@@ -1035,21 +1079,21 @@ console.log("\n20. Same-window mini-stubs and takeover handoff");
         replayed[0][0] === "getTCData" && replayed[1][0] === "getUSPData" &&
         replayed[2][0] === "getGPPData", JSON.stringify(replayed.map((entry) => entry[0])));
 
-    const noLoader = run({sddan: SDDAN_LOCAL, data: {loadCmpScripts: false, partnerId: "1020", configId: "public"}});
-    check("mini-stubs are absent when CMP script loading is disabled",
-        noLoader.globals.__tcfapi === undefined && noLoader.globals.__sdcmpapi === undefined &&
-        noLoader.globals.__uspapi === undefined && noLoader.globals.__gpp === undefined);
-    const incomplete = run({sddan: SDDAN_LOCAL, data: {loadCmpScripts: true, partnerId: "1020"}});
-    check("mini-stubs are absent for incomplete loader configuration",
-        incomplete.globals.__tcfapi === undefined && incomplete.globals.__sdcmpapi === undefined &&
-        incomplete.globals.__uspapi === undefined && incomplete.globals.__gpp === undefined);
+    const noConfig = run({sddan: SDDAN_LOCAL, data: {partnerId: "1020"}});
+    check("mini-stubs are absent when the configuration identifier is missing",
+        noConfig.globals.__tcfapi === undefined && noConfig.globals.__sdcmpapi === undefined &&
+        noConfig.globals.__uspapi === undefined && noConfig.globals.__gpp === undefined);
+    const noPartner = run({sddan: SDDAN_LOCAL, data: {configId: "public"}});
+    check("mini-stubs are absent when the partner identifier is missing",
+        noPartner.globals.__tcfapi === undefined && noPartner.globals.__sdcmpapi === undefined &&
+        noPartner.globals.__uspapi === undefined && noPartner.globals.__gpp === undefined);
 
     function thirdPartyApi() { return "third-party"; }
     thirdPartyApi.queue = ["keep"];
     thirdPartyApi.events = ["keep-event"];
     const allThirdParty = run({sddan: SDDAN_LOCAL, globals: {
         __tcfapi: thirdPartyApi, __sdcmpapi: thirdPartyApi, __uspapi: thirdPartyApi, __gpp: thirdPartyApi
-    }, data: {loadCmpScripts: true, partnerId: "1020", configId: "public"}});
+    }, data: {partnerId: "1020", configId: "public"}});
     check("no pre-existing CMP API is replaced",
         allThirdParty.globals.__tcfapi === thirdPartyApi && allThirdParty.globals.__sdcmpapi === thirdPartyApi &&
         allThirdParty.globals.__uspapi === thirdPartyApi && allThirdParty.globals.__gpp === thirdPartyApi);
@@ -1062,7 +1106,7 @@ console.log("\n20. Same-window mini-stubs and takeover handoff");
     const staleThirdParty = run({sddan: SDDAN_LOCAL, globals: {
         ABconsentCMP: {gtmTemplateMiniStubApis: staleMarkerMap},
         __tcfapi: thirdPartyApi, __sdcmpapi: thirdPartyApi, __uspapi: thirdPartyApi, __gpp: thirdPartyApi
-    }, data: {loadCmpScripts: true, partnerId: "1020", configId: "public"}});
+    }, data: {partnerId: "1020", configId: "public"}});
     check("stale handoff markers never claim pre-existing third-party APIs",
         staleThirdParty.globals.__tcfapi === thirdPartyApi &&
         staleThirdParty.globals.__sdcmpapi === thirdPartyApi &&
@@ -1077,7 +1121,7 @@ console.log("\n21. Activation overrides and loader ordering");
         key.indexOf("Updates" + "OwnedByGtm") !== -1);
     const enabled = run({sddan: SDDAN_LOCAL, data: {
         facebookConsentMode: true, openAiConsentMode: true,
-        loadCmpScripts: true, partnerId: "1020", configId: "public"
+        partnerId: "1020", configId: "public"
     }});
     check("enabled publishes activation overrides",
         enabled.globals.ABconsentCMP.gtmFacebookConsentMode === true &&
@@ -1096,14 +1140,57 @@ console.log("\n21. Activation overrides and loader ordering");
         firstState.miniStubApis.__tcfapi === true &&
         firstState.miniStubApis.__sdcmpapi === true && firstState.miniStubApis.__uspapi === true &&
         firstState.miniStubApis.__gpp === true, JSON.stringify(firstState));
-    const noGoogleRows = run({sddan: SDDAN_LOCAL, data: {
-        consentMode: true, settingsTable: [], loadCmpScripts: true, partnerId: "1020", configId: "public"
+    const noGoogle = run({sddan: SDDAN_LOCAL, data: {
+        consentMode: false, partnerId: "1020", configId: "public"
     }});
-    check("empty Google settings publishes no default handoff",
-        noGoogleRows.calls.defaults.length === 0 &&
-        noGoogleRows.globals.ABconsentCMP.gtmGoogleConsentModeDefaultSet === undefined &&
-        noGoogleRows.calls.injectionStates[0].googleDefaultSet === undefined,
-        JSON.stringify(noGoogleRows.calls));
+    check("Google Consent Mode switched off publishes no default handoff",
+        noGoogle.calls.defaults.length === 0 &&
+        noGoogle.globals.ABconsentCMP.gtmGoogleConsentModeDefaultSet === undefined &&
+        noGoogle.calls.injectionStates[0].googleDefaultSet === undefined,
+        JSON.stringify(noGoogle.calls));
+    // The nominal path: nothing declared, so the automatic default state is what goes out. A
+    // publisher who takes the defaults over but leaves the table empty lands here too -- emitting
+    // no default at all would be worse than either mode.
+    const automatic = run({sddan: SDDAN_LOCAL, data: {partnerId: "1020", configId: "public"}});
+    const auto = automatic.calls.defaults[0];
+    check("the automatic default state is emitted exactly once",
+        automatic.calls.defaults.length === 1, JSON.stringify(automatic.calls.defaults));
+    check("the automatic default state denies every signal",
+        auto.ad_storage === "denied" && auto.ad_user_data === "denied" &&
+        auto.ad_personalization === "denied" && auto.analytics_storage === "denied" &&
+        auto.personalization_storage === "denied" && auto.functionality_storage === "denied" &&
+        auto.security_storage === "denied", JSON.stringify(auto));
+    // A default awaiting an answer, so there IS something to wait for -- and it applies
+    // everywhere, so it carries no region.
+    check("the automatic default state waits for an update and carries no region",
+        auto.wait_for_update === 1000 && auto.region === undefined, JSON.stringify(auto));
+    const emptyOverride = run({sddan: SDDAN_LOCAL, data: Object.assign(withRows([]),
+        {partnerId: "1020", configId: "public"})});
+    check("an override with no rule falls back to the automatic default state",
+        emptyOverride.calls.defaults.length === 1 &&
+        JSON.stringify(emptyOverride.calls.defaults[0]) === JSON.stringify(auto),
+        JSON.stringify(emptyOverride.calls.defaults));
+    // Witness: the two runs above would agree just as well if rows were ignored outright. This is
+    // what says the override still reaches the emission.
+    const realOverride = run({sddan: SDDAN_LOCAL, data: Object.assign(
+        withRows([{ad_storage: "granted", analytics_storage: "granted",
+            personalization_storage: "granted", functionality_storage: "granted",
+            security_storage: "granted", wait_for_update: 1000, region: "ALL"}]),
+        {partnerId: "1020", configId: "public"})});
+    check("witness -- declared rules do replace the automatic default state",
+        realOverride.calls.defaults[0].ad_storage === "granted",
+        JSON.stringify(realOverride.calls.defaults[0]));
+    // And rows WITHOUT the override are rows the publisher never confirmed: a container saved
+    // against an earlier version must not have them replayed.
+    const staleRows = run({sddan: SDDAN_LOCAL, data: {
+        customConsentSettings: [{ad_storage: "granted", analytics_storage: "granted",
+            personalization_storage: "granted", functionality_storage: "granted",
+            security_storage: "granted", wait_for_update: 1000, region: "ALL"}],
+        partnerId: "1020", configId: "public"
+    }});
+    check("rules left over from an earlier configuration are ignored",
+        JSON.stringify(staleRows.calls.defaults[0]) === JSON.stringify(auto),
+        JSON.stringify(staleRows.calls.defaults[0]));
     check("regular loader keeps the real /stub before /cmp",
         enabled.calls.injected.length === 2 && enabled.calls.injected[0].indexOf("/stub") !== -1 &&
         enabled.calls.injected[1].indexOf("/cmp") !== -1, JSON.stringify(enabled.calls.injected));
@@ -1138,7 +1225,7 @@ console.log("\n21. Activation overrides and loader ordering");
     check("disabled installs no vendor queue", disabled.globals.fbq === undefined && disabled.globals.oaiq === undefined);
 
     const deletion = run({sddan: SDDAN_LOCAL, data: {
-        handleCookiesDeletion: true, loadCmpScripts: true, partnerId: "1020", configId: "public"
+        handleCookiesDeletion: true, partnerId: "1020", configId: "public"
     }});
     check("Sirdata listener remains only for cookie deletion", typeof deletion.listener === "function");
     const beforeUpdates = deletion.calls.updates.length;
@@ -1146,7 +1233,7 @@ console.log("\n21. Activation overrides and loader ordering");
     check("cookie callback emits no Google update", deletion.calls.updates.length === beforeUpdates);
 
     const firstParty = run({sddan: SDDAN_LOCAL, data: {
-        firstPartyHost: "cmp.example.com", loadCmpScripts: true, partnerId: "1020", configId: "public"
+        firstPartyHost: "cmp.example.com", partnerId: "1020", configId: "public"
     }});
     check("first-party loader remains the sole network loader on its success path",
         firstParty.calls.injected.length === 1 && firstParty.calls.injected[0].indexOf("cmp_loader.js") !== -1,
@@ -1155,7 +1242,7 @@ console.log("\n21. Activation overrides and loader ordering");
         JSON.stringify([firstParty.calls.successes, firstParty.calls.failures]));
 
     const fallback = run({sddan: SDDAN_LOCAL, failInjection: "cmp_loader.js", data: {
-        firstPartyHost: "cmp.example.com", loadCmpScripts: true, partnerId: "1020", configId: "public"
+        firstPartyHost: "cmp.example.com", partnerId: "1020", configId: "public"
     }});
     check("first-party failure falls back to regular /stub then /cmp",
         fallback.calls.injected.length === 3 && fallback.calls.injected[0].indexOf("cmp_loader.js") !== -1 &&
@@ -1165,7 +1252,7 @@ console.log("\n21. Activation overrides and loader ordering");
         JSON.stringify([fallback.calls.successes, fallback.calls.failures]));
 
     const regularFallback = run({sddan: SDDAN_LOCAL, failInjection: "/stub", data: {
-        loadCmpScripts: true, partnerId: "1020", configId: "public"
+        partnerId: "1020", configId: "public"
     }});
     check("regular stub failure still falls back to /cmp exactly once",
         regularFallback.calls.injected.length === 2 && regularFallback.calls.injected[0].indexOf("/stub") !== -1 &&
@@ -1173,7 +1260,7 @@ console.log("\n21. Activation overrides and loader ordering");
         regularFallback.calls.failures === 0, JSON.stringify(regularFallback.calls));
 
     const cmpFailure = run({sddan: SDDAN_LOCAL, failInjection: "/cmp", data: {
-        loadCmpScripts: true, partnerId: "1020", configId: "public"
+        partnerId: "1020", configId: "public"
     }});
     check("CMP bundle failure reports GTM failure exactly once",
         cmpFailure.calls.successes === 0 && cmpFailure.calls.failures === 1,
@@ -1240,7 +1327,7 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     beforeOaiq.queue = [["consent", "publisher"], ["measure", "page_viewed"], ["set", "user", {id: "user"}]];
     const openai = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.o:1:1"}, globals: {oaiq: beforeOaiq}, data: {
         openAiConsentMode: true, handleCookiesDeletion: true,
-        loadCmpScripts: true, partnerId: "1020", configId: "public"
+        partnerId: "1020", configId: "public"
     }});
     let openAiCommands = commandList(openai.globals.oaiq.queue);
     check("OpenAI unifies q and queue", openai.globals.oaiq.q === openai.globals.oaiq.queue);
@@ -1275,7 +1362,7 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     beforeFbq.push = beforeFbq;
     const meta = run({sddan: SDDAN_LOCAL, globals: {fbq: beforeFbq, _fbq: beforeFbq}, data: {
         facebookConsentMode: true, handleCookiesDeletion: true,
-        loadCmpScripts: true, partnerId: "1020", configId: "public"
+        partnerId: "1020", configId: "public"
     }});
     let metaCommands = commandList(meta.globals.fbq.queue);
     const temporary = named(metaCommands, "consent").filter((command) => command[2] === "__abconsent_temporary__");
@@ -1309,7 +1396,7 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     const initializedOpenAi = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.o:1:1"},
         globals: {oaiq: initializedOaiq}, data: {
             openAiConsentMode: true, handleCookiesDeletion: true,
-            loadCmpScripts: true, partnerId: "1020", configId: "public"
+            partnerId: "1020", configId: "public"
         }});
     check("initialized OpenAI SDK function identity is preserved", initializedOpenAi.globals.oaiq === initializedOaiq);
     check("initialized OpenAI q identity is preserved", initializedOpenAi.globals.oaiq.q === initializedOpenAiQ);
@@ -1351,7 +1438,7 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     initializedFbqAlias.queue = initializedMetaAliasQueue;
     const initializedMeta = run({sddan: SDDAN_LOCAL, globals: {fbq: initializedFbq, _fbq: initializedFbqAlias}, data: {
         facebookConsentMode: true, handleCookiesDeletion: true,
-        loadCmpScripts: true, partnerId: "1020", configId: "public"
+        partnerId: "1020", configId: "public"
     }});
     check("initialized Meta SDK function identity is preserved", initializedMeta.globals.fbq === initializedFbq);
     check("initialized Meta _fbq identity is preserved", initializedMeta.globals._fbq === initializedFbqAlias);

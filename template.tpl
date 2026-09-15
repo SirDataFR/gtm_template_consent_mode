@@ -112,12 +112,27 @@ ___TEMPLATE_PARAMETERS___
     "groupStyle": "ZIPPY_OPEN",
     "subParams": [
       {
-        "help": "Uncheck this if Google Consent Mode is already embedded in your CMP script.",
+        "help": "Leave this checked to let the template set the Google Consent Mode default state. Every signal starts denied, and a returning visitor\u0027s recorded choice is replayed as soon as the page loads, so no measurement is lost waiting for the banner. Uncheck it only if Google Consent Mode is already handled elsewhere on the page.",
         "type": "CHECKBOX",
         "name": "consentMode",
         "checkboxText": "Activate Google Consent Mode",
         "simpleValueType": true,
         "defaultValue": true
+      },
+      {
+        "help": "The automatic default state suits most sites and needs no configuration. Check this only to declare your own defaults per country or state below \u2014 they then replace the automatic ones, and a returning visitor\u0027s recorded choice still takes precedence over them.",
+        "type": "CHECKBOX",
+        "name": "overrideDefaultConsent",
+        "checkboxText": "Set the default consent state myself",
+        "simpleValueType": true,
+        "defaultValue": false,
+        "enablingConditions": [
+          {
+            "paramName": "consentMode",
+            "paramValue": true,
+            "type": "EQUALS"
+          }
+        ]
       },
       {
         "displayName": "Default Consent Mode Settings",
@@ -136,7 +151,7 @@ ___TEMPLATE_PARAMETERS___
                 "type": "TABLE_ROW_COUNT"
               }
             ],
-            "name": "settingsTable",
+            "name": "customConsentSettings",
             "paramTableColumns": [
               {
                 "param": {
@@ -1534,14 +1549,24 @@ ___TEMPLATE_PARAMETERS___
                 "paramName": "consentMode",
                 "paramValue": true,
                 "type": "EQUALS"
+              },
+              {
+                "paramName": "overrideDefaultConsent",
+                "paramValue": true,
+                "type": "EQUALS"
               }
             ],
-            "help": "If you haven\u0027t defined a specific strategy, it\u0027s recommended to apply the default settings."
+            "help": "These rules replace the automatic default state entirely. A visitor whose choice is already recorded is unaffected: that choice is replayed over whatever is set here."
           }
         ],
         "enablingConditions": [
           {
             "paramName": "consentMode",
+            "paramValue": true,
+            "type": "EQUALS"
+          },
+          {
+            "paramName": "overrideDefaultConsent",
             "paramValue": true,
             "type": "EQUALS"
           }
@@ -1595,45 +1620,26 @@ ___TEMPLATE_PARAMETERS___
     "type": "GROUP",
     "subParams": [
       {
-        "help": "Create a free \u003ca href\u003d\"https://www.abconsent.com\"\u003eSirdata CMP account\u003c/a\u003e or get your partner Id and Config ID from your existing account.",
-        "simpleValueType": true,
-        "name": "loadCmpScripts",
-        "checkboxText": "Load ABconsent/Sirdata CMP",
-        "type": "CHECKBOX",
-        "alwaysInSummary": true,
-        "defaultValue": true
-      },
-      {
         "alwaysInSummary": true,
         "valueValidators": [
           {
-            "type": "POSITIVE_NUMBER"
-          }
-        ],
-        "enablingConditions": [
+            "type": "NON_EMPTY"
+          },
           {
-            "paramName": "loadCmpScripts",
-            "type": "EQUALS",
-            "paramValue": true
+            "type": "POSITIVE_NUMBER"
           }
         ],
         "displayName": "Your Partner ID",
         "simpleValueType": true,
         "name": "partnerId",
-        "type": "TEXT"
+        "type": "TEXT",
+        "help": "Create a free \u003ca href\u003d\"https://www.abconsent.com\"\u003eSirdata CMP account\u003c/a\u003e or get your Partner ID and Configuration ID from your existing account."
       },
       {
         "alwaysInSummary": true,
         "valueValidators": [
           {
             "type": "NON_EMPTY"
-          }
-        ],
-        "enablingConditions": [
-          {
-            "paramName": "loadCmpScripts",
-            "type": "EQUALS",
-            "paramValue": true
           }
         ],
         "displayName": "Your Configuration ID",
@@ -1649,13 +1655,6 @@ ___TEMPLATE_PARAMETERS___
             "args": [
               "[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+(?\u003d[\\/\\s?#]|$)"
             ]
-          }
-        ],
-        "enablingConditions": [
-          {
-            "paramName": "loadCmpScripts",
-            "type": "EQUALS",
-            "paramValue": true
           }
         ],
         "displayName": "Optionnal : first party host",
@@ -1674,7 +1673,7 @@ ___TEMPLATE_PARAMETERS___
     "groupStyle": "ZIPPY_OPEN",
     "subParams": [
       {
-        "help": "This feature is experimental and may not function in all scenarios. It only targets cookies accessible via JavaScript (i.e., not HttpOnly) and cannot delete third-party cookies. We strongly recommend verifying the result and manually handling cookie deletion when necessary. \u003cbr\u003e\u003cbr\u003eNote: This option requires the \u003ca href\u003d\"https://www.abconsent.com\\\"\u003eABConsent CMP (Sirdata CMP)\u003c/a\u003e to be loaded on the page or through the previous option.",
+        "help": "This feature is experimental and may not function in all scenarios. It only targets cookies accessible via JavaScript (i.e., not HttpOnly) and cannot delete third-party cookies. We strongly recommend verifying the result and manually handling cookie deletion when necessary. \u003cbr\u003e\u003cbr\u003eNote: This option requires the \u003ca href\u003d\"https://www.abconsent.com\\\"\u003eABConsent CMP (Sirdata CMP)\u003c/a\u003e to be loaded on the page, which this tag now always does.",
         "simpleValueType": true,
         "name": "handleCookiesDeletion",
         "checkboxText": "Attempt to automatically delete first-party JavaScript cookies when consent is withdrawn",
@@ -2237,6 +2236,34 @@ const applyUsDefaultRefusal = (consentObject) => {
   return consentObject;
 };
 
+// What the tag emits when the publisher has not taken the defaults over -- that is, the nominal
+// case. Every signal starts DENIED and the chain further down raises it: a returning visitor's
+// recorded choice is replayed from the container, a privacy marker short-circuits to denial, and
+// the US perimeter refuses where nothing was ever recorded. These are the values the fine-grained
+// area has always shipped with; what the automatic path removes is the obligation to restate them,
+// never the ability to.
+//
+// `wait_for_update` stays non-zero HERE, and is zeroed by the two functions above: this is a
+// default awaiting an answer, whereas they run only when an answer already exists. Zeroing it here
+// would tell gtag the answer is in when nobody has answered.
+const AUTOMATIC_CONSENT_SETTINGS = [{
+  ad_storage: 'denied',
+  analytics_storage: 'denied',
+  personalization_storage: 'denied',
+  functionality_storage: 'denied',
+  security_storage: 'denied',
+  wait_for_update: 1000,
+  region: 'ALL'
+}];
+
+// The override is a CHECKBOX, so "unchecked" and "never set" read the same -- which is what makes
+// a container saved against an earlier version land on the automatic path instead of carrying
+// rows nobody reviewed. The row count is part of the condition as well: an override declared with
+// an empty table would emit NO default at all, which is worse than either mode, and the automatic
+// state is the right thing to fall back to rather than silence.
+const consentSettings = (data.overrideDefaultConsent === true && data.customConsentSettings &&
+    data.customConsentSettings.length > 0) ? data.customConsentSettings : AUTOMATIC_CONSENT_SETTINGS;
+
 // generate object
 const generateConsentObject = function(setting, tcData, isUpdate, usOptOut) {
   let consentObject = {};
@@ -2280,14 +2307,14 @@ const generateConsentObject = function(setting, tcData, isUpdate, usOptOut) {
   if (setting.functionality_storage !== 'not used') {
     consentObject.functionality_storage = tcData && hasConsent(tcData, ['purpose', 'consents', 1]) ? 'granted' : setting.functionality_storage;
     if (!isUpdate) {
-      defaultConsent.functionality_storage = (data.settingsTable.length == 1 || (setting.region && setting.region === 'ALL')) ? setting.functionality_storage : (defaultConsent.functionality_storage == 'not used' ? setting.functionality_storage : defaultConsent.functionality_storage);
+      defaultConsent.functionality_storage = (consentSettings.length == 1 || (setting.region && setting.region === 'ALL')) ? setting.functionality_storage : (defaultConsent.functionality_storage == 'not used' ? setting.functionality_storage : defaultConsent.functionality_storage);
     }
   }
 
   if (setting.security_storage !== 'not used') {
     consentObject.security_storage = tcData && hasConsent(tcData, ['purpose', 'consents', 1]) ? 'granted' : setting.security_storage;
     if (!isUpdate) {
-      defaultConsent.security_storage = (data.settingsTable.length == 1 || (setting.region && setting.region === 'ALL')) ? setting.security_storage : (defaultConsent.security_storage == 'not used' ? setting.security_storage : defaultConsent.security_storage);
+      defaultConsent.security_storage = (consentSettings.length == 1 || (setting.region && setting.region === 'ALL')) ? setting.security_storage : (defaultConsent.security_storage == 'not used' ? setting.security_storage : defaultConsent.security_storage);
     }
   }
 
@@ -2477,7 +2504,7 @@ if (data.consentMode) {
   }
 
   // Process default consent state
-  data.settingsTable.forEach(setting => {
+  consentSettings.forEach(setting => {
     var consentModeState = generateConsentObject(setting, null, false);
     // The precedence is STATED here, as a chain, instead of being an emergent property of the
     // order of two blocks:
@@ -2500,9 +2527,9 @@ if (data.consentMode) {
         consentModeState = applyUsDefaultRefusal(consentModeState);
       }
     }
-    // Publish the handoff only when this loop is about to emit a real Google default. An empty
-    // settings table therefore leaves the marker absent and lets the served tag keep its legacy
-    // fallback default.
+    // Publish the handoff only when this loop is about to emit a real Google default -- so it
+    // follows the activation box, the only thing that can now leave the default to the served tag
+    // and its legacy fallback.
     if (ABconsentCMP.gtmGoogleConsentModeDefaultSet !== true) {
       ABconsentCMP.gtmGoogleConsentModeDefaultSet = true;
       setInWindow('ABconsentCMP', ABconsentCMP, true);
@@ -2605,7 +2632,7 @@ const installTemplateMiniStubs = () => {
 };
 
 const loadCmp = () => {
-  if (!data.loadCmpScripts || !data.partnerId || !data.configId) return;
+  if (!data.partnerId || !data.configId) return;
   const url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/cmp';
   injectScript(url, function(){data.gtmOnSuccess();}, function(){data.gtmOnFailure();});
 };
@@ -2641,7 +2668,7 @@ const loadStub = () => {
   });
 };
 
-if (!cmpLoaded && data.loadCmpScripts && data.partnerId && data.configId) {
+if (!cmpLoaded && data.partnerId && data.configId) {
   ABconsentCMP.gtmTemplateDefaultConsent = JSON.stringify(defaultConsent);
   setInWindow('ABconsentCMP', ABconsentCMP, true);
   installTemplateMiniStubs();
@@ -4308,7 +4335,8 @@ scenarios:
     assertApi('setCookie').wasNotCalled();
 setup: |-
   const mockData = {
-    settingsTable: [{
+    overrideDefaultConsent: true,
+    customConsentSettings: [{
       ad_storage: 'denied',
       analytics_storage: 'granted',
       personalization_storage: 'granted',

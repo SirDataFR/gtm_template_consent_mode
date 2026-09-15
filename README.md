@@ -1,6 +1,6 @@
 # GTM TEMPLATE : GOOGLE CONSENT MODE
 
-Use this Google Tag Manager template to load <a href="https://iabeurope.eu/transparency-consent-framework/" target="_blank">TCF</a> compliant Google Consent Mode and optionnaly Sirdata CMP.
+Use this Google Tag Manager template to load <a href="https://iabeurope.eu/transparency-consent-framework/" target="_blank">TCF</a> compliant Google Consent Mode together with the Sirdata CMP.
 
 Please read our documentation <a href="https://cmp.docs.sirdata.net/v/en/script-management/google-consent-mode" target="_blank">here</a>.
 
@@ -20,10 +20,10 @@ a simplification. This tag runs before any CMP script, so it cannot read that co
 is itself the one preparing these defaults, so something has to say whether to prepare them. A
 value left unpublished would hand that question to a script that has not loaded yet.
 
-When Google Consent Mode is enabled and at least one default-settings row is emitted, the template
-publishes `ABconsentCMP.gtmGoogleConsentModeDefaultSet=true` before that first default. The served
-CMP can therefore skip its legacy fallback default while remaining responsible for every update.
-An empty settings table emits neither a Google default nor this handoff marker.
+When Google Consent Mode is enabled the template publishes
+`ABconsentCMP.gtmGoogleConsentModeDefaultSet=true` before its first default. The served CMP can
+therefore skip its legacy fallback default while remaining responsible for every update. Switching
+Google Consent Mode off emits neither a Google default nor this handoff marker.
 
 Both vendors start from the same rule: the prepared default is negative unless stored state says
 otherwise, and a stored privacy objection wins over it. OpenAI reuses the persisted `o` bit when
@@ -42,8 +42,8 @@ the function or its queues; otherwise the queues are unified while non-consent c
 order. The CMP controller can remove or neutralize only the marked entry, without deleting publisher
 consent commands.
 
-When CMP loading is configured, the template installs same-window mini-stubs only for missing CMP
-APIs so synchronous callers can queue work. It then still loads the real `/stub` before `/cmp`.
+Once the partner and configuration identifiers are set, the template installs same-window
+mini-stubs only for missing CMP APIs so synchronous callers can queue work. It then still loads the real `/stub` before `/cmp`.
 The real stub is mandatory: it canonicalises those marked mini-stubs, preserves their queues/events,
 and adds iframe locators, `postMessage` bridges, and IE11 bundle selection. The template creates no
 locator iframe or message listener itself. The first-party loader and its regular-host fallback are
@@ -51,6 +51,25 @@ preserved.
 
 These controls do not inject a vendor SDK or prevent another tag from downloading one. Custom HTML
 and third-party templates are not guaranteed to use the compatible queue shapes.
+
+## The default consent state is automatic, and the CMP is not optional
+
+The template sets the Google Consent Mode default state on its own, and that is the nominal path:
+every signal starts denied, then a returning visitor's recorded choice is replayed from the stored
+container before the page runs, a privacy signal short-circuits the whole chain to a denial, and on
+the US perimeter silence is treated as a refusal rather than as agreement. Nothing has to be
+configured for any of that.
+
+Publishers who need their own regional defaults check a single box, which reveals the same
+per-country rules as before and replaces the automatic state with them — a recorded choice still
+takes precedence over whatever they declare. The box starts unchecked and the rules are stored under
+a new name, so a container upgraded from an earlier version moves to the automatic state instead of
+replaying rules nobody reviewed.
+
+Loading the CMP is no longer a choice either: the partner and configuration identifiers are required
+fields. This tag only ever prepares defaults that the CMP is then responsible for resolving, and it
+installs mini-stub queues that the real stub is responsible for taking over. Skipping the load left
+both half-done — defaults posted with nobody to update them, queues with nobody to drain them.
 
 ## The US regulation scope is not set here
 
