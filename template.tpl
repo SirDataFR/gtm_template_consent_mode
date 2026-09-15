@@ -1787,12 +1787,13 @@ const cmpLoaded = typeof(ABconsentCMP.enableConsentMode) !== 'undefined';
 const facebookConsentModeEnabled = data.facebookConsentMode === true;
 const openAiConsentModeEnabled = data.openAiConsentMode === true;
 
-// These two settings DECIDE. They do not defer to the served CMP configuration, and there is no
-// third state for them to defer WITH -- which is not a simplification but the only thing this tag
-// can honestly offer. It runs before any CMP script, so it cannot read that configuration; and it
-// is itself the one preparing the Meta and OpenAI defaults, so something has to say whether to
-// prepare them at all. A property left absent would hand that question to a script that has not
-// loaded yet, and nobody would answer it in time.
+// These settings DECIDE -- the two below and the Consent Mode switch further down. They do not
+// defer to the served CMP configuration, and there is no third state for them to defer WITH --
+// which is not a simplification but the only thing this tag can honestly offer. It runs before
+// any CMP script, so it cannot read that configuration; and it is itself the one preparing the
+// Meta and OpenAI defaults, so something has to say whether to prepare them at all. A property
+// left absent would hand that question to a script that has not loaded yet, and nobody would
+// answer it in time.
 //
 // This is also why the US regulation scope is NOT settable here. That value says WHERE the
 // regulation applies, and this tag never acts on it: it cannot know the visitor's state, and
@@ -1821,9 +1822,16 @@ if (!cmpLoaded) {
   log('CMP loaded already');
 }
 
-if (data.consentMode) {
-  ABconsentCMP.enableConsentMode = true;
-}
+// Written on BOTH branches, and the `false` is the load-bearing half. Unticking the box means
+// Google Consent Mode is OFF -- not "defer to whatever the CMP has stored" -- so leaving the
+// property absent would be the wrong answer: the served script resolves an absent value to its own
+// stored flag, and a publisher who switched Consent Mode off here would keep getting the default
+// and the updates from a configuration they no longer control from this page.
+//
+// It also keeps the three activation settings on one rule. This one differs from the two vendor
+// modes only in the property it lands on: that property doubles as "the CMP owns the updates", and
+// the two meanings agree -- ticked delegates them, unticked leaves nothing to delegate.
+ABconsentCMP.enableConsentMode = data.consentMode === true;
 // Unconditional, because the three settings above are now always written: there is always
 // something here for the CMP to read, including when this tag publishes nothing else. A CMP
 // loaded by another tag would otherwise never see them.

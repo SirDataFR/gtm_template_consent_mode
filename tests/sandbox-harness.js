@@ -1239,6 +1239,13 @@ console.log("\n21. Activation overrides and loader ordering");
         noGoogle.globals.ABconsentCMP.gtmGoogleConsentModeDefaultSet === undefined &&
         (noGoogle.calls.injectionStates[0] || {}).googleDefaultSet === undefined,
         JSON.stringify(noGoogle.calls));
+    // Switched off has to be ANNOUNCED, not left absent. An absent property resolves to whatever
+    // the served script has stored, so a publisher who unticks the box would keep the default and
+    // the updates of a configuration this page no longer drives -- the switch would do nothing.
+    check("Google Consent Mode switched off is announced as false",
+        noGoogle.globals.ABconsentCMP.enableConsentMode === false &&
+        (noGoogle.calls.injectionStates[0] || {}).enableConsentMode === false,
+        JSON.stringify(noGoogle.globals.ABconsentCMP));
     // The nominal path: nothing declared, so the automatic default state is what goes out. A
     // publisher who takes the defaults over but leaves the table empty lands here too -- emitting
     // no default at all would be worse than either mode.
