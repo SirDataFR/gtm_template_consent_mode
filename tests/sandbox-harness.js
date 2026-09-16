@@ -1101,6 +1101,27 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
         table !== undefined && table.displayName === "Default Consent Mode Settings",
         JSON.stringify(table && table.displayName));
 
+    // The summary panel shows a field only when its value differs from its default -- unless the
+    // field carries alwaysInSummary. The Google activation box was the single activation box in
+    // this form without that flag AND the only one whose default IS the on state, so the section
+    // disappeared from the summary at exactly the moment the feature was on: the reader saw two
+    // sub-options under a sub-heading of their own, and no "Google Consent Mode" above them.
+    //
+    // The rule is DERIVED from the tree rather than written as a list, so a field added later is
+    // covered without anyone remembering this: a list would have to be extended by the same person
+    // who forgot the flag. LABEL and GROUP are exempt because they hold no value to summarize --
+    // they are the heading the flag makes appear.
+    const SUMMARY_EXEMPT = ["LABEL", "GROUP"];
+    const settable = flatten(parameters).filter((param) =>
+        SUMMARY_EXEMPT.indexOf(param.type) === -1);
+    const missingFromSummary = settable.filter((param) => param.alwaysInSummary !== true);
+    check("every field the publisher can set shows in the summary",
+        missingFromSummary.length === 0,
+        JSON.stringify(missingFromSummary.map((param) => [param.name, param.type])));
+    // Witness: there are fields to check at all. Without it, a tree reduced to headings would
+    // satisfy the check above by having nothing to check.
+    check("the form still has fields to summarize", settable.length >= 10, String(settable.length));
+
     const uiCopy = VENDOR_SECTIONS.map((section) => {
         const vendorGroup = byName(section[0]) || {};
         const selector = byName(section[2]) || {};
@@ -1117,6 +1138,42 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
     check("tooltips keep compatibility and SDK download limits",
         uiCopy.indexOf("Custom HTML") !== -1 && uiCopy.indexOf("third-party") !== -1 &&
         uiCopy.indexOf("does not prevent") !== -1 && uiCopy.indexOf("SDK") !== -1);
+
+    // What the form has to say for itself, read from the whole tree rather than from the two
+    // vendor sections: three of these sentences live on fields that are not vendor sections.
+    const formCopy = flatten(parameters).map((param) =>
+        [param.displayName, param.help, param.checkboxText].join(" ")).join(" ");
+    check("the heading states that the CMP is loaded and cannot be skipped",
+        formCopy.indexOf("always loads the Sirdata CMP") !== -1 &&
+        formCopy.indexOf("no option to skip it") !== -1, formCopy.slice(0, 400));
+    // Compliance is not a property of these boxes, and saying so is the point: every other line in
+    // this form describes what the tag does, and a reader can take the sum of them for a verdict.
+    check("the heading asks for a review by a data protection officer",
+        formCopy.indexOf("DPO") !== -1 && formCopy.indexOf("review the result") !== -1,
+        formCopy.slice(0, 400));
+    check("the form still offers to create an account",
+        formCopy.indexOf("Create a free") !== -1 && formCopy.indexOf("abconsent.com") !== -1);
+    // The reason to turn a consent mode on at all: the vendor's own SDK reads the signal and holds
+    // itself back, so the publisher does not build a trigger or a blocking rule per tag. Nothing
+    // else in this form says what these sections are FOR.
+    check("wording explains that a consent mode makes a vendor gate itself",
+        formCopy.indexOf("gate itself") !== -1 && formCopy.indexOf("tag by tag") !== -1, formCopy);
+    // The Google section is the one that never said it. Its two vendor neighbours have carried
+    // "the CMP configuration is not read" since they were written, and this box -- the only one of
+    // the three whose default is ON -- is the one a publisher is most likely to assume inherits.
+    const googleCopy = [(byName("consent Mode") || {}).help,
+        (byName("consentMode") || {}).help].join(" ");
+    check("the Google section says its box decides over the stored configuration",
+        googleCopy.indexOf("never read from this page") !== -1 &&
+        googleCopy.indexOf("unchecked means off here") !== -1, googleCopy);
+    // Meta answers a US visitor with Limited Data Use, not with a consent command, and the two are
+    // not interchangeable: a publisher reading only "consent grant or revoke" would look for a
+    // signal that never comes there. The neighbouring sentence already says the temporary revoke
+    // is NOT Limited Data Use, which makes the omission easy to read as "there is none".
+    const metaCopy = (byName("facebookConsentMode") || {}).help || "";
+    check("the Meta wording names Limited Data Use as the United States form",
+        metaCopy.indexOf("United States") !== -1 &&
+        metaCopy.indexOf("Limited Data Use (dataProcessingOptions)") !== -1, metaCopy);
 
     const permissionsText = extractJsonSection("___WEB_PERMISSIONS___", "___TESTS___");
     const permissionObjects = JSON.parse(permissionsText);

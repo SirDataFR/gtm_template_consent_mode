@@ -81,7 +81,7 @@ ___TEMPLATE_PARAMETERS___
   {
     "type": "LABEL",
     "name": "cmpSection",
-    "displayName": "\u003cstrong\u003eSirdata CMP\u003c/strong\u003e"
+    "displayName": "\u003cstrong\u003eSirdata CMP\u003c/strong\u003e\u003cbr\u003eThis tag always loads the Sirdata CMP: it prepares consent defaults that only a CMP can turn into an answer, so there is no option to skip it. Whatever you set below, have your DPO review the result on your own site — settings in a tag do not, by themselves, make a setup compliant."
   },
   {
     "alwaysInSummary": true,
@@ -97,7 +97,7 @@ ___TEMPLATE_PARAMETERS___
     "simpleValueType": true,
     "name": "partnerId",
     "type": "TEXT",
-    "help": "Create a free \u003ca href\u003d\"https://www.abconsent.com\"\u003eSirdata CMP account\u003c/a\u003e or get your Partner ID and Configuration ID from your existing account."
+    "help": "Create a free \u003ca href\u003d\"https://www.abconsent.com\"\u003eSirdata CMP account\u003c/a\u003e or get your Partner ID and Configuration ID from your existing account. Both are required: this tag loads the CMP on every page, and without them it has nothing to load."
   },
   {
     "alwaysInSummary": true,
@@ -132,6 +132,7 @@ ___TEMPLATE_PARAMETERS___
     "type": "GROUP",
     "name": "consent Mode",
     "displayName": "Google Consent Mode",
+    "help": "A consent mode lets each vendor gate itself: its own SDK reads the signal and decides what it may do, so you do not have to build a trigger, an exception or a blocking rule tag by tag. This section prepares Google\u0027s signal before any other tag on the page runs, and the CMP sends every update afterwards. The box below decides on its own, checked or unchecked alike: the Google Consent Mode setting stored in your Sirdata account is never read from this page.",
     "groupStyle": "ZIPPY_OPEN",
     "enablingConditions": [
       {
@@ -142,11 +143,12 @@ ___TEMPLATE_PARAMETERS___
     ],
     "subParams": [
       {
-        "help": "Leave this checked to let the template set the Google Consent Mode default state. Every signal starts denied, and a returning visitor\u0027s recorded choice is replayed as soon as the page loads, so no measurement is lost waiting for the banner. Uncheck it only if Google Consent Mode is already handled elsewhere on the page.",
+        "help": "Leave this checked to let the template set the Google Consent Mode default state. Every signal starts denied, and a returning visitor\u0027s recorded choice is replayed as soon as the page loads, so no measurement is lost waiting for the banner. Uncheck it only if Google Consent Mode is already handled elsewhere on the page: unchecked means off here — no default from this tag, no update from the CMP — and not \u0027fall back to the setting stored in my Sirdata account\u0027, which this page never reads.",
         "type": "CHECKBOX",
         "name": "consentMode",
         "checkboxText": "Activate Google Consent Mode",
         "simpleValueType": true,
+        "alwaysInSummary": true,
         "defaultValue": true
       },
       {
@@ -155,6 +157,7 @@ ___TEMPLATE_PARAMETERS___
         "name": "overrideDefaultConsent",
         "checkboxText": "Override the automatic configuration",
         "simpleValueType": true,
+        "alwaysInSummary": true,
         "defaultValue": false,
         "enablingConditions": [
           {
@@ -1591,6 +1594,7 @@ ___TEMPLATE_PARAMETERS___
             "name": "ads_data_redaction",
             "checkboxText": "Reduce attribution by redacting ad-related data (e.g. \u0027gclid\u0027) when consent is not granted",
             "type": "CHECKBOX",
+            "alwaysInSummary": true,
             "enablingConditions": [
               {
                 "paramName": "url_passthrough",
@@ -1631,7 +1635,7 @@ ___TEMPLATE_PARAMETERS___
         "simpleValueType": true,
         "defaultValue": false,
         "alwaysInSummary": true,
-        "help": "This tag prepares the Facebook consent default itself, before any CMP script has run, so this setting decides and the CMP configuration is not read. Checked prepares the Facebook default and queue for the official template; the CMP sends every subsequent update. Unchecked sends no Facebook consent command at all. Custom HTML and third-party templates are not guaranteed. This feature does not prevent the Facebook SDK from being downloaded. The GDPR/US regime is unavailable synchronously on the first page, so a marked temporary revoke is queued. It is not equivalent to Limited Data Use; the CMP removes or neutralizes only that marked entry before applying the regional update."
+        "help": "This tag prepares the Facebook consent default itself, before any CMP script has run, so this setting decides and the CMP configuration is not read. Checked prepares the Facebook default and queue for the official template; the CMP sends every subsequent update. Unchecked sends no Facebook consent command at all. Custom HTML and third-party templates are not guaranteed. This feature does not prevent the Facebook SDK from being downloaded. The GDPR/US regime is unavailable synchronously on the first page, so a marked temporary revoke is queued. That temporary revoke is not itself Limited Data Use; the CMP removes or neutralizes only that marked entry before applying the regional update. That update differs by region: under the GDPR the CMP sends Meta a consent grant or revoke, while in the United States it sends Limited Data Use (dataProcessingOptions) instead, which is the form Meta expects there."
       }
     ]
   },

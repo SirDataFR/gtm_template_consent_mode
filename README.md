@@ -33,8 +33,9 @@ can recognise its own provisional entry.
 The Meta reading is deliberately one-way — a positive bit raises the default to a grant, a negative
 one never lowers it further. The stored Meta bit does not mean the same thing under both regimes: a
 consent under GDPR, the absence of an objection under the US one. Only the first calls for a
-`revoke`, which pauses the pixel outright, where a US objection limits data use and keeps it
-sending. Reading the bit symmetrically would therefore pause the pixel for a returning US visitor
+`revoke`, which pauses the pixel outright. A US objection travels as Limited Data Use instead —
+`dataProcessingOptions: ['LDU']`, with the visitor's state — which is the form Meta expects there:
+it limits what may be done with the data and keeps the pixel sending rather than pausing it. Reading the bit symmetrically would therefore pause the pixel for a returning US visitor
 who objected, costing them their whole measurement instead of limiting it.
 
 If a vendor SDK is already initialized, the template sends that default directly without replacing
@@ -152,6 +153,21 @@ per-country rules as before and replaces both commands with them — a recorded 
 precedence over whatever they declare. The box starts unchecked and the rules are stored under a
 new name, so a container upgraded from an earlier version moves to the automatic state instead of
 replaying rules nobody reviewed.
+
+## What these boxes decide, and what they do not
+
+A consent mode exists so that each vendor gates itself: its own SDK reads the signal and holds back
+what it may not do, so a publisher does not build a trigger, an exception or a blocking rule tag by
+tag. That is the reason to turn one on, and it is what the whole tag is arranged around.
+
+All three activation boxes — Google, Meta, OpenAI — publish a value on both branches, so the box in
+front of you is what applies. None of them falls back to the matching setting stored in the CMP
+account: this tag runs before any CMP script and cannot read it, so unchecked means off here rather
+than "use what is stored".
+
+None of that is a compliance verdict. These settings describe what the tag emits and when; whether
+the resulting setup is lawful on a given site is a question for that site's data protection officer,
+and it should be reviewed as one.
 
 ## Loading the CMP is not optional
 
