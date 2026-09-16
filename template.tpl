@@ -2433,8 +2433,17 @@ const appendOpenAiCommands = (target, source) => {
   }
 };
 
-const isOpenAiMeasure = (command) => {
-  return command === 'measure' || command === 'measureSingle';
+// The commands kept out of the queue the pixel drains while the stored default refuses. It is a
+// LIST rather than "everything that is not consent": a command nobody has read is forwarded, which
+// is visible, where one silently held would be a measurement that never runs with no trace of why.
+//
+// `init` is on it because initialising the pixel is not free: it sends a diagnostic event of its
+// own, carrying `consent: false`, before the visitor has answered anything. Observed on a real
+// page as a request to the pixel's event endpoint on a page where this template had refused for
+// every vendor. Holding it costs nothing — the pixel has nothing to measure until consent — and
+// the consent script replays it ahead of the measurements it configures.
+const isHeldUntilConsent = (command) => {
+  return command === 'measure' || command === 'measureSingle' || command === 'init';
 };
 
 // The OpenAI pixel DROPS a measurement it receives while consent is denied — it does not hold it,
@@ -2448,11 +2457,11 @@ const isOpenAiMeasure = (command) => {
 //
 // Only while the stored default is a refusal: under a stored grant the pixel accepts them, and
 // holding them back would delay what already works.
-const holdOpenAiMeasurements = (commands) => {
+const holdOpenAiCommands = (commands) => {
   const kept = [];
   const held = [];
   for (let i = 0; i < commands.length; i++) {
-    if (isOpenAiMeasure(commandName(commands[i]))) {
+    if (isHeldUntilConsent(commandName(commands[i]))) {
       held.push(commands[i]);
     } else {
       kept.push(commands[i]);
@@ -2489,7 +2498,7 @@ const prepareOpenAiDefault = (granted) => {
       ABconsentCMP.openai.preQueue = [];
     }
     setInWindow('ABconsentCMP', ABconsentCMP, true);
-    commands = holdOpenAiMeasurements(commands);
+    commands = holdOpenAiCommands(commands);
   }
   setInWindow('oaiq', function(command, arg1, arg2, arg3) {
     if (command === 'consent') return;
@@ -2504,7 +2513,7 @@ const prepareOpenAiDefault = (granted) => {
     } else if (typeof(arg1) !== 'undefined') {
       queuedArguments.push(arg1);
     }
-    if (!granted && isOpenAiMeasure(command)) {
+    if (!granted && isHeldUntilConsent(command)) {
       // A LITERAL path, never a concatenation: it is what the declared permission names, and
       // what a reader greps for.
       callInWindow('ABconsentCMP.openai.preQueue.push', queuedArguments);

@@ -1557,17 +1557,20 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     const hostileOpenAiCommands = commandList(hostileOpenAi.globals.oaiq.queue);
     check("OpenAI survives a queue whose methods throw",
         Array.isArray(hostileOpenAi.globals.oaiq.queue), JSON.stringify(hostileOpenAiCommands));
-    // The measurement is still PRESERVED -- it is preserved somewhere else, which is the whole
-    // point of holding it: under a refusing default the pixel would drain it and DROP it, so it is
-    // parked on the resumption point instead of being handed over to be thrown away.
+    // The commands are still PRESERVED -- they are preserved somewhere else, which is the whole
+    // point of holding them: under a refusing default the pixel would drain them and DROP them, so
+    // they are parked on the resumption point instead of being handed over to be thrown away.
+    // Both names are read, and both their commands are held: `init` joined the held list when it
+    // turned out to send a diagnostic event of its own before the visitor has answered.
     const hostileHeld = commandList(hostileOpenAi.globals.ABconsentCMP.openai.preQueue);
     check("OpenAI preserves business commands from both names when methods throw",
         hostileHeld.some((command) =>
             command[0] === "measure" && command[1] === "survives-throwing-methods") &&
-        hostileOpenAiCommands.some((command) => command[0] === "init"),
+        hostileHeld.some((command) => command[0] === "init"),
         JSON.stringify([hostileOpenAiCommands, hostileHeld]));
-    check("and a held measurement is NOT left in the drained queue as well",
-        !hostileOpenAiCommands.some((command) => command[0] === "measure"),
+    check("and nothing held is left in the drained queue as well",
+        !hostileOpenAiCommands.some((command) =>
+            command[0] === "measure" || command[0] === "init"),
         JSON.stringify(hostileOpenAiCommands));
     check("OpenAI publishes no mark and no sentinel when methods throw",
         hostileOpenAiCommands.every((command) => typeof command[0] === "string") &&
@@ -1622,8 +1625,9 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
     twinOaiq.queue = twinQueue;
     const twins = run({sddan: SDDAN_LOCAL, globals: {oaiq: twinOaiq}, data: {openAiConsentMode: true}});
     const twinCommands = commandList(twins.globals.oaiq.queue);
+    const twinHeld = commandList(twins.globals.ABconsentCMP.openai.preQueue);
     check("distinct lists with identical commands are kept apart",
-        named(twinCommands, "init").length === 2, JSON.stringify(twinCommands));
+        named(twinHeld, "init").length === 2, JSON.stringify([twinCommands, twinHeld]));
     check("the mark is cleared on distinct lists too",
         twinQueue.__sdSharedStorage === undefined && twinQ.__sdSharedStorage === undefined,
         JSON.stringify([twinQueue.__sdSharedStorage, twinQ.__sdSharedStorage]));
@@ -1937,10 +1941,23 @@ console.log("\n24. A measurement is held out of the queue the pixel drains while
         named(commandList(refus.globals.ABconsentCMP.openai.preQueue), "measureSingle").length === 1 &&
         commandList(refus.globals.ABconsentCMP.openai.preQueue)[1].length === 4,
         JSON.stringify(commandList(refus.globals.ABconsentCMP.openai.preQueue)));
+    // `init` is held too, and this assertion USED to pin the opposite: it read "a command that is
+    // not a measurement still goes to the queue" and named `init` as the example. The premise
+    // changed rather than the code drifting -- initialising the pixel sends a diagnostic event
+    // carrying `consent: false`, so it is not free to hand over before the visitor has answered.
     refus.globals.oaiq("init", {pixelId: "pix"});
-    check("a command that is NOT a measurement still goes to the queue",
-        named(commandList(refus.globals.oaiq.queue), "init").length === 1 &&
-        named(commandList(refus.globals.ABconsentCMP.openai.preQueue), "init").length === 0,
+    check("initialising the pixel is held too, out of the queue it drains",
+        named(commandList(refus.globals.ABconsentCMP.openai.preQueue), "init").length === 1 &&
+        named(commandList(refus.globals.oaiq.queue), "init").length === 0,
+        JSON.stringify([commandList(refus.globals.oaiq.queue),
+            commandList(refus.globals.ABconsentCMP.openai.preQueue)]));
+    // The witness that the held set is a LIST and not "everything that is not consent": a command
+    // nobody has read still goes to the queue, where it is visible, rather than being held with no
+    // trace of why it never ran.
+    refus.globals.oaiq("someLaterCommand", "x");
+    check("a command that is on neither list still goes to the queue",
+        named(commandList(refus.globals.oaiq.queue), "someLaterCommand").length === 1 &&
+        named(commandList(refus.globals.ABconsentCMP.openai.preQueue), "someLaterCommand").length === 0,
         JSON.stringify([commandList(refus.globals.oaiq.queue),
             commandList(refus.globals.ABconsentCMP.openai.preQueue)]));
 
