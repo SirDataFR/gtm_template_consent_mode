@@ -2266,24 +2266,8 @@ const applyUsDefaultRefusal = (consentObject) => {
 const REGULATED_REGIONS = [
   'AT', 'BE', 'BG', 'BL', 'BR', 'CH', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GB',
   'GF', 'GP', 'GR', 'HR', 'HU', 'IE', 'IS', 'IT', 'LI', 'LT', 'LU', 'LV', 'MF', 'MQ', 'MT',
-  'NC', 'NL', 'NO', 'PF', 'PL', 'PM', 'PT', 'RE', 'RO', 'SE', 'SI', 'SK', 'WF', 'YT'
-];
-
-// The US states where the CMP shows a notice -- the same twenty its server-side determination
-// covers, as ISO 3166-2 subdivision codes, which is the format the region parameter takes.
-//
-// NOT the whole country. A single `US` row denied the other thirty states too, where no notice is
-// ever shown and therefore no update is ever pushed: the denial was permanent, which is the very
-// fault the missing global row was removed for, one level down and inside the US.
-//
-// A publisher who extends the regulation to all fifty states is the one case this list is narrower
-// than the notice, and the trade is deliberate: those extra states get no default, so Google leaves
-// them unrestricted until the CMP's update lands -- which it does, because a notice IS shown there.
-// Temporary and self-correcting, against permanent and silent. Under an opt-out regime, unrestricted
-// until the visitor objects is also the regime's own posture.
-const CCPA_US_STATES = [
-  'US-CA', 'US-CO', 'US-CT', 'US-DE', 'US-FL', 'US-IA', 'US-IN', 'US-KY', 'US-MD', 'US-MN',
-  'US-MT', 'US-NE', 'US-NH', 'US-NJ', 'US-OR', 'US-RI', 'US-TN', 'US-TX', 'US-UT', 'US-VA'
+  'NC', 'NL', 'NO', 'PF', 'PL', 'PM', 'PT', 'RE', 'RO', 'SE', 'SI', 'SK', 'WF', 'YT',
+  'US'
 ];
 
 // What the tag emits when the publisher has not taken the defaults over -- that is, the nominal
@@ -2320,16 +2304,27 @@ const AUTOMATIC_CONSENT_SETTINGS = [{
   wait_for_update: 1000,
   region: REGULATED_REGIONS
 }, {
-  // The twenty covered states, not the country. This row also carries the US refusal of the chain
-  // below, which `isUsRegion` reads off the list -- a no-op while the row is already denied, and
-  // what keeps the two from disagreeing the day one of them moves.
-  ad_storage: 'denied',
-  analytics_storage: 'denied',
-  personalization_storage: 'denied',
-  functionality_storage: 'denied',
-  security_storage: 'denied',
-  wait_for_update: 1000,
-  region: CCPA_US_STATES
+  // THE GLOBAL ROW -- no region, so it is the status for every visitor the row above does not
+  // name. It GRANTS, and that is what the documented region table says the unnamed case already
+  // is: "Non specifie | granted | Utilise la valeur par defaut de 'granted'". Stating it makes
+  // that explicit instead of leaning on the ambient default.
+  //
+  // The three advertising signals are named because the generator denies the two v2 ones on any
+  // row that does not mention them -- granting storage while denying user data and personalization
+  // would be incoherent.
+  //
+  // The other four are left UNSET rather than granted: outside the perimeter no notice is shown,
+  // so there is nothing to state about them, and an unset signal already behaves as granted.
+  //
+  // `wait_for_update` is absent, as in the documented example: no notice is coming here, so there
+  // is nothing to wait for.
+  ad_storage: 'granted',
+  ad_user_data: 'granted',
+  ad_personalization: 'granted',
+  analytics_storage: 'not used',
+  personalization_storage: 'not used',
+  functionality_storage: 'not used',
+  security_storage: 'not used'
 }];
 
 // The override is a CHECKBOX, so "unchecked" and "never set" read the same -- which is what makes

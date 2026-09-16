@@ -108,49 +108,46 @@ fallback are preserved.
 These controls do not inject a vendor SDK or prevent another tag from downloading one. Custom HTML
 and third-party templates are not guaranteed to use the compatible queue shapes.
 
-## A default is set only where a notice is shown
+## Two default commands: a regional refusal, then a global grant
 
 The template sets the Google Consent Mode default state on its own, and that is the nominal path.
-It denies where a consent regulation applies — and sets **nothing at all** everywhere else. On top
-of that, a returning visitor's recorded choice is replayed from the stored container before the
-page runs, a privacy signal short-circuits the chain to a denial, and on the US perimeter silence
-is treated as a refusal rather than as agreement. Nothing has to be configured for any of that.
+It is the shape the documentation illustrates — one region-scoped command for the perimeter where
+a notice is shown, and one command with no region that is the status for everyone else:
 
-Setting nothing outside those regions is Google's own instruction, not a reading of the mechanism:
+| command | region | values |
+|---|---|---|
+| the regulated perimeter | 45 codes: the CMP's country list plus `US` | the five signals denied, `wait_for_update` 1000 |
+| the global status | *none* | the three advertising signals granted, no wait |
 
-> Il est recommandé de limiter les paramètres de consentement par défaut aux régions où vous
-> diffusez des bannières de consentement auprès de vos visiteurs. […] Vous évitez également toute
-> perte de mesure lorsqu'aucune bannière de consentement n'est appliquée ou ne s'applique.
+On top of that, a returning visitor's recorded choice is replayed from the stored container before
+the page runs, a privacy signal short-circuits the chain to a denial, and on the US perimeter
+silence is treated as a refusal rather than as agreement. Nothing has to be configured for any of
+that.
 
-And a signal nobody has set is not a signal in limbo. Consent Mode starts with no value set, and
-the region table on that same page says what that means: *Non spécifié | `granted` | Utilise la
-valeur par défaut de `granted`*. A visitor no regulation covers is therefore served correctly by
-being told nothing.
+**The global command grants, and that is what the unnamed case already is.** The region table in
+the documentation states it outright — *Non spécifié | `granted` | Utilise la valeur par défaut de
+`granted`* — because Consent Mode starts with no value set. Stating it makes the status explicit
+instead of leaning on the ambient default.
 
-**There is no row for the rest of the world, and adding one is the mistake not to make.** It was
-made twice here, in opposite directions, and both shapes reached a branch. A single all-denied row
-with no region denied the whole world with nothing able to lift it, since those visitors are never
-shown a notice and so never produce an update. Replacing it with an all-*granted* row with no
-region looked like the fix and was not: it is still a default outside the banner regions, so it
-still runs through the chain above — a stored container or a privacy marker denies it exactly like
-the others, and the denial is permanent again for want of a notice that could lift it. Emitting
-nothing is the only shape with no such branch.
+It carries the three advertising signals rather than `ad_storage` alone, because the generator
+denies the two Consent Mode v2 signals on any row that does not name them, and granting storage
+while denying user data and personalization would be incoherent. The remaining four are left
+**unset**: outside the perimeter no notice is shown, so there is nothing to state about them, and
+an unset signal already behaves as granted.
 
-`wait_for_update` is the same idea from the other end: these rows are defaults awaiting an answer,
-and an answer is only ever coming where a notice is shown.
+`wait_for_update` follows the same split: the regional command is a default awaiting an answer, and
+an answer is only ever coming where a notice is shown. The global command waits for nothing.
 
-The regulated list is the CMP's own perimeter rather than one invented here, so a visitor never
-gets a denied default from one and "no regulation applies" from the other. It is wider than the
-EEA — the United Kingdom, Switzerland, Brazil and the French overseas territories have their own
-ISO codes and would not be matched by a neighbour's.
+The perimeter is the CMP's own country list rather than one invented here, so a visitor never gets
+a denied default from one and "no regulation applies" from the other. It is wider than the EEA —
+the United Kingdom, Switzerland, Brazil and the French overseas territories have their own ISO
+codes and would not be matched by a neighbour's — and it carries `US`, where the CCPA path applies.
 
 Publishers who need their own regional defaults check a single box, which reveals the same
-per-country rules as before and replaces the automatic state with them — a recorded choice still
-takes precedence over whatever they declare. A publisher's table is emitted as written, a
-region-less row included: the instruction above is ours to follow in the automatic state, while a
-publisher taking the defaults over is stating their own perimeter. The box starts unchecked and
-the rules are stored under a new name, so a container upgraded from an earlier version moves to
-the automatic state instead of replaying rules nobody reviewed.
+per-country rules as before and replaces both commands with them — a recorded choice still takes
+precedence over whatever they declare. The box starts unchecked and the rules are stored under a
+new name, so a container upgraded from an earlier version moves to the automatic state instead of
+replaying rules nobody reviewed.
 
 ## Loading the CMP is not optional
 

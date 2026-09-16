@@ -339,8 +339,9 @@ function purgeEvent(cookieList) {
 console.log("\n1. With no cookie at all: the ordinary path");
 {
     const r = run({sddan: SDDAN_LOCAL});
-    check("two defaults set, and BOTH name a region: the regulated perimeter and the US",
-        r.calls.defaults.length === 2 && r.calls.defaults.every((d) => d.region),
+    check("two defaults set: the regulated perimeter, then the global one",
+        r.calls.defaults.length === 2 && r.calls.defaults[0].region &&
+        r.calls.defaults[1].region === undefined,
         JSON.stringify(r.calls.defaults.map((d) => d.region)));
     check("default all denied", r.calls.defaults[0].ad_storage === "denied" && r.calls.defaults[0].analytics_storage === "denied");
     check("wait_for_update preserved at 1000", r.calls.defaults[0].wait_for_update === 1000, JSON.stringify(r.calls.defaults[0]));
@@ -1879,105 +1880,75 @@ console.log("\n24. A measurement is held out of the queue the pixel drains while
         JSON.stringify(commandList(repris.globals.ABconsentCMP.openai.preQueue)));
 }
 
-console.log("\n25. A default is emitted ONLY where a notice is shown");
+console.log("\n25. A regional refusal, then a global one that carries the ad signals");
 {
-    // Google's instruction, not a reading of the mechanism: "Il est recommande de limiter les
-    // parametres de consentement par defaut aux regions ou vous diffusez des bannieres de
-    // consentement aupres de vos visiteurs [...] Vous evitez egalement toute perte de mesure
-    // lorsqu'aucune banniere de consentement n'est appliquee ou ne s'applique."
-    //
-    // So a visitor no regulation covers must be told NOTHING. Consent Mode starts with no value
-    // set, and the region table on that page states what an unset signal does:
-    // "Non specifie | granted | Utilise la valeur par defaut de 'granted'".
+    // The documented shape: one region-scoped default for the perimeter where a notice is shown,
+    // and one region-less default that is the status for everyone else.
     const r = run({sddan: SDDAN_LOCAL});
     const defauts = r.calls.defaults;
-    check("witness -- the automatic state emits two defaults",
-        defauts.length === 2, JSON.stringify(defauts.map((d) => d.region)));
-
-    // THE assertion of this section, and the one the previous shape had inverted: it asserted that
-    // a third, region-less row existed and granted. A region-less row is a default for the whole
-    // world, which is exactly what must not be sent.
-    check("NO default is emitted without a region",
-        defauts.every((d) => d.region !== undefined && d.region.length > 0),
+    check("witness -- two defaults", defauts.length === 2,
         JSON.stringify(defauts.map((d) => d.region)));
 
-    // Both rows deny and both wait, because both name regions where a notice is shown and an
-    // answer is therefore coming.
-    check("both rows deny every signal they carry",
-        defauts.every((d) => d.ad_storage === "denied" && d.analytics_storage === "denied" &&
-            d.personalization_storage === "denied" && d.functionality_storage === "denied" &&
-            d.security_storage === "denied"), JSON.stringify(defauts));
-    check("including the two ad signals no settings row can name",
-        defauts.every((d) => d.ad_user_data === "denied" && d.ad_personalization === "denied"),
-        JSON.stringify(defauts));
-    check("and both wait for the answer a notice will produce",
-        defauts.every((d) => d.wait_for_update === 1000), JSON.stringify(defauts));
+    const regional = defauts[0];
+    const global = defauts[1];
+    check("the first names the perimeter, the second names no region",
+        regional.region && regional.region.length > 0 && global.region === undefined,
+        JSON.stringify(defauts.map((d) => d.region)));
 
-    // The perimeter is the CMP's own, not a list invented in the template: wider than the EEA,
-    // and naming the French overseas territories, which have their own codes.
-    // Defaulted so a row that LOST its region reddens the assertion above rather than aborting
-    // the run here -- same reason as the guard further down.
-    const regule = defauts[0].region || [];
-    check("the regulated perimeter carries the EEA, the UK, Switzerland and Brazil",
-        ["FR", "DE", "IT", "GB", "CH", "BR"].every((c) => regule.indexOf(c) >= 0),
+    // The regional row refuses everything and waits, because a notice is coming there.
+    check("the regional row denies every signal and waits",
+        regional.ad_storage === "denied" && regional.analytics_storage === "denied" &&
+        regional.personalization_storage === "denied" &&
+        regional.functionality_storage === "denied" &&
+        regional.security_storage === "denied" && regional.wait_for_update === 1000,
+        JSON.stringify(regional));
+
+    // THE assertion of this section: the global row GRANTS. That is what the documented region
+    // table says the unnamed case already is -- stating it makes it explicit rather than leaning
+    // on the ambient default. All three advertising signals, because the generator denies the two
+    // v2 ones on any row that does not name them.
+    check("the global row GRANTS advertising",
+        global.ad_storage === "granted" && global.ad_user_data === "granted" &&
+        global.ad_personalization === "granted", JSON.stringify(global));
+    // And carries nothing else: outside the perimeter there is no notice, so the remaining signals
+    // are left unset -- which behaves as granted.
+    check("and carries no other signal",
+        global.analytics_storage === undefined && global.functionality_storage === undefined &&
+        global.security_storage === undefined && global.personalization_storage === undefined,
+        JSON.stringify(global));
+    check("and does not make gtag wait, there being no answer coming",
+        !global.wait_for_update, JSON.stringify(global));
+
+    // The perimeter is the CMP's own list plus the US, not one invented here.
+    const regule = regional.region || [];
+    check("the perimeter carries the EEA, the UK, Switzerland, Brazil and the US",
+        ["FR", "DE", "IT", "GB", "CH", "BR", "US"].every((c) => regule.indexOf(c) >= 0),
         JSON.stringify(regule));
     check("and the overseas territories a country code would not match",
         ["MQ", "GP", "RE", "YT", "GF"].every((c) => regule.indexOf(c) >= 0), JSON.stringify(regule));
-    check("it does NOT carry the US, which has its own row",
-        regule.indexOf("US") === -1, JSON.stringify(regule));
-    // The point of the whole section, stated as the countries it must NOT name: a visitor there
-    // gets no default at all, and Google leaves them unrestricted.
-    check("nor a country where no regulation applies",
+    // Everywhere else is covered by the global row rather than by being named.
+    check("it does NOT name a country where no regulation applies",
         regule.indexOf("IL") === -1 && regule.indexOf("JP") === -1, JSON.stringify(regule));
-    // Guarded on the region existing: a region-less row is caught by the assertion above, and
-    // dereferencing it here would ABORT the run instead of reddening -- which reads exactly like a
-    // proven falsifiability while the remaining sections never execute.
-    check("and no other row names them either",
-        defauts.every((d) => !d.region || (d.region.indexOf("IL") === -1 && d.region.indexOf("JP") === -1)),
-        JSON.stringify(defauts.map((d) => d.region)));
-    // The US row names the twenty COVERED states, not the country: the other thirty are never shown
-    // a notice, so a default there could never be lifted -- the same fault as a region-less row,
-    // one level down and inside the US.
-    const usRow = defauts[1].region;
-    check("the US row names the covered states, not the country",
-        usRow.indexOf("US") === -1 && usRow.length === 20 &&
-        usRow.every((c) => c.indexOf("US-") === 0), JSON.stringify(usRow));
-    check("it carries California, Texas and Virginia",
-        ["US-CA", "US-TX", "US-VA"].every((c) => usRow.indexOf(c) >= 0), JSON.stringify(usRow));
-    // The states no US privacy regulation covers: a visitor there gets no default at all.
-    check("and NOT a state where no regulation applies",
-        ["US-WI", "US-OH", "US-NY", "US-AK"].every((c) => usRow.indexOf(c) === -1),
-        JSON.stringify(usRow));
-    check("the row still denies", defauts[1].ad_storage === "denied", JSON.stringify(defauts[1]));
-    // NO assertion pins that `isUsRegion` reads the list, and the absence is deliberate rather than
-    // an oversight: the row it guards is already all-denied, so the US refusal is a no-op on every
-    // input that exists today. An assertion here passes whether or not the list is read -- measured,
-    // not assumed: removing the list branch leaves the whole suite GREEN. Reading the list is
-    // defensive, and what it defends against is the day the row stops being denied; a check that
-    // cannot fail would only claim otherwise.
 
-    // The chain runs per row. With no region-less row there is nothing for it to deny outside the
-    // banner regions -- which is the second half of the fix: the previous shape emitted a granted
-    // global row and then let a stored container or a privacy marker deny it, permanently, for
-    // want of a notice able to lift it.
+    // The chain still runs per row, and on a denied global row it can only relax -- which is the
+    // property that makes this shape safe where the granted one was not.
+    // The chain still runs per row. A visitor who carries nothing -- which is every first-time
+    // visitor outside the perimeter -- keeps the granted global row, and that is the case the
+    // reported defect was about.
     const gpc = run({sddan: SDDAN_LOCAL, cookies: {"__gpcactive": "1", "__sdgcm": "2.g:1:1111111"}});
-    check("a privacy marker denies the rows that exist, and adds none",
+    check("a privacy marker denies both rows, global one included",
         gpc.calls.defaults.length === 2 &&
-        gpc.calls.defaults.every((d) => d.region && d.ad_storage === "denied" &&
-            d.analytics_storage === "denied" && d.wait_for_update === 0),
+        gpc.calls.defaults.every((d) => d.ad_storage === "denied"),
         JSON.stringify(gpc.calls.defaults));
 
     const stocke = run({sddan: SDDAN_LOCAL,
         cookies: {"__sdgcm": "1.1111111", "euconsent-v2": "CP..."}});
-    check("and a recorded choice replays onto those rows, and adds none",
+    check("a recorded choice is replayed onto both",
         stocke.calls.defaults.length === 2 &&
-        stocke.calls.defaults.every((d) => d.region && d.ad_storage === "granted" &&
-            d.wait_for_update === 0),
+        stocke.calls.defaults.every((d) => d.ad_storage === "granted"),
         JSON.stringify(stocke.calls.defaults));
 
-    // NOTHING changes for a publisher who declares their own table: their rows are emitted as
-    // written, region-less ones included. The instruction above is ours to follow in the automatic
-    // state; a publisher who takes the defaults over is stating their own perimeter.
+    // NOTHING changes for a publisher who declares their own table.
     const manuel = run({sddan: SDDAN_LOCAL, data: withRows([{ad_storage: "granted",
         analytics_storage: "granted", personalization_storage: "granted",
         functionality_storage: "granted", security_storage: "granted",
