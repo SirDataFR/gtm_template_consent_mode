@@ -1987,6 +1987,142 @@ console.log("\n25. A regional refusal, then a global one that carries the ad sig
         JSON.stringify(manuel.calls.defaults[0]));
 }
 
+// Every declared function is called with the number of arguments it declares.
+//
+// WHY: a caller was removed and its callee kept its signature. `generateConsentObject` went on
+// declaring four parameters while the one remaining call passed three, so a whole branch of every
+// ternary in it -- and the comment explaining that branch -- described behaviour no call could
+// reach. Nothing here saw it, because a parameter left `undefined` is not an error in JS: it just
+// makes a test that never fails.
+//
+// This reads the sandboxed body rather than replaying it, so it covers functions no scenario
+// exercises. Its own scanner is pinned first: a scanner that finds nothing reads exactly like a
+// clean template.
+{
+    const code = stripComments(SRC);
+
+    // Walks from the "(" at `start` to its matching ")", following quotes, and returns what is
+    // between them. Returns null on an unterminated call rather than a truncated one -- a partial
+    // argument list would be counted, and counted wrong.
+    function insideParens(text, start) {
+        let depth = 0;
+        let quote = null;
+        for (let j = start; j < text.length; j += 1) {
+            const c = text[j];
+            if (quote) {
+                if (c === "\\") { j += 1; continue; }
+                if (c === quote) { quote = null; }
+                continue;
+            }
+            if (c === "\"" || c === "'" || c === "`") { quote = c; continue; }
+            if (c === "(") { depth += 1; }
+            else if (c === ")") {
+                depth -= 1;
+                if (depth === 0) { return {body: text.slice(start + 1, j), end: j}; }
+            }
+        }
+        return null;
+    }
+
+    // Splits on top-level commas only: `fn(a, g(b, c))` is TWO arguments, not three.
+    function topLevelParts(body) {
+        const parts = [];
+        let cur = "";
+        let depth = 0;
+        let quote = null;
+        for (let i = 0; i < body.length; i += 1) {
+            const c = body[i];
+            if (quote) {
+                cur += c;
+                if (c === "\\") { cur += body[i + 1] || ""; i += 1; continue; }
+                if (c === quote) { quote = null; }
+                continue;
+            }
+            if (c === "\"" || c === "'" || c === "`") { quote = c; cur += c; continue; }
+            if (c === "(" || c === "[" || c === "{") { depth += 1; }
+            if (c === ")" || c === "]" || c === "}") { depth -= 1; }
+            if (c === "," && depth === 0) { parts.push(cur); cur = ""; continue; }
+            cur += c;
+        }
+        if (cur.trim()) { parts.push(cur); }
+        return parts.filter((s) => s.trim().length > 0);
+    }
+
+    // The three declaration forms this template actually uses. The `function` expression form is
+    // the one the defect hid behind: a scanner that only knew arrows and named declarations read
+    // the file clean.
+    function declarations(text) {
+        const found = {};
+        const forms = [
+            [/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\(/g, true],
+            [/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*function\s*\(/g, false],
+            [/function\s+([A-Za-z_$][\w$]*)\s*\(/g, false]
+        ];
+        forms.forEach((form) => {
+            const re = form[0];
+            const mustBeArrow = form[1];
+            let m;
+            while ((m = re.exec(text)) !== null) {
+                const open = m.index + m[0].length - 1;
+                const span = insideParens(text, open);
+                if (!span) { continue; }
+                // `const x = (a + b) * c` is not a function; only an arrow follows the ")".
+                if (mustBeArrow && text.slice(span.end + 1, span.end + 12).replace(/\s/g, "").indexOf("=>") !== 0) {
+                    continue;
+                }
+                found[m[1]] = {at: open, params: topLevelParts(span.body).length};
+            }
+        });
+        return found;
+    }
+
+    function mismatches(text) {
+        const decls = declarations(text);
+        const bad = [];
+        Object.keys(decls).forEach((name) => {
+            const re = new RegExp("(^|[^\\w$.])" + name + "\\s*\\(", "g");
+            let m;
+            while ((m = re.exec(text)) !== null) {
+                const open = m.index + m[0].length - 1;
+                if (open === decls[name].at) { continue; }
+                const span = insideParens(text, open);
+                if (!span) { continue; }
+                const given = topLevelParts(span.body).length;
+                if (given !== decls[name].params) {
+                    bad.push(name + " declares " + decls[name].params + ", called with " + given);
+                }
+            }
+        });
+        return bad;
+    }
+
+    // Pinned on synthetic sources, both ways, because the whole value of this guard is that it
+    // reddens: one that silently finds nothing is indistinguishable from a clean template.
+    [
+        ["an arrow called short", "const f = (a, b) => a; f(1);", 1],
+        ["a function expression called short -- the form that hid the defect",
+            "const g = function(a, b, c, d) { return a; }; g(1, 2, 3);", 1],
+        ["a named declaration called long", "function h(a) { return a; } h(1, 2);", 1],
+        ["a nested call is ONE argument", "const k = function(a, b) { return a; }; k(1, m(2, 3));", 0],
+        ["a comma inside a string is not a separator", "const s = (a, b) => a; s('x,y', 2);", 0],
+        ["a value passed, never called, is not a call site", "const v = (a, b) => a; reg('e', v);", 0],
+        ["matching arities are silent", "const ok = function(a, b) { return a; }; ok(1, 2);", 0]
+    ].forEach((c) => {
+        check("arity scanner: " + c[0], mismatches(c[1]).length === c[2],
+            JSON.stringify(mismatches(c[1])));
+    });
+
+    // Witness: the scanner must be seeing real functions here, otherwise "no mismatch" means
+    // "nothing was read".
+    const declared = Object.keys(declarations(code));
+    check("the scanner reads the template's functions", declared.length > 20, String(declared.length));
+    check("including the one the defect was in", declared.indexOf("generateConsentObject") !== -1,
+        declared.join(","));
+
+    const bad = mismatches(code);
+    check("no function is called with the wrong number of arguments", bad.length === 0, bad.join(" | "));
+}
+
 // Assertion floor: deleting a test section must fail loudly rather than reporting a vacuous green.
 const MIN_CHECKS = 150;
 if (checksRun < MIN_CHECKS) {

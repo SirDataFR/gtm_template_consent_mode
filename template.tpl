@@ -2067,9 +2067,9 @@ const isGpcActive = () => readFirstCookie(GPC_MARKER_COOKIE_NAME) === '1';
 //   false     -- not objected: a `usprivacy` string exists and does not carry the opt-out
 //   undefined -- nothing to go on here, so the ordinary derivation stands
 //
-// The value is a verdict, never a claim about the GDPR. What it feeds is documented on
-// `generateConsentObject`; the point is that the objection is now stated instead of being
-// simulated by pretending another regulation applies.
+// The value is a verdict, never a claim about the GDPR. Its ONE reader is `onUserChoice`, which
+// uses it to decide whether cookies must be deleted; the point is that the objection is stated
+// instead of being simulated by pretending another regulation applies.
 const readUsOptOut = () => {
   if (isGpcActive()) {
     return true;
@@ -2298,20 +2298,17 @@ const consentSettings = (data.overrideDefaultConsent === true && data.customCons
     data.customConsentSettings.length > 0) ? data.customConsentSettings : AUTOMATIC_CONSENT_SETTINGS;
 
 // generate object
-const generateConsentObject = function(setting, tcData, isUpdate, usOptOut) {
+const generateConsentObject = function(setting) {
   let consentObject = {};
 
-  // `hasConsent` reads `!tcData.gdprApplies || <lookup>`: where the GDPR does not apply, every
-  // lookup answers "granted". That is right for a visitor outside both regimes, and wrong for
-  // one who has objected under the US regulation -- there, silence is not agreement.
+  // ONE parameter, and it used to be four. The three others -- a `tcData`, an `isUpdate` flag and
+  // a US verdict -- existed for a second caller that emitted the `update` command. That caller is
+  // gone: the update belongs to the served CMP, which is the only side that knows what the visitor
+  // answered. What was left behind was a function whose every ternary had a branch no call could
+  // reach, and a block of comment describing a US rule that nothing could run. Dead on both sides,
+  // and the comment was the worse half: it asserted a behaviour the code could no longer produce.
   //
-  // So when a US verdict exists it REPLACES the lookup, for the five signals an objection to
-  // sale and sharing actually covers. `functionality_storage` and `security_storage` are not
-  // among them and keep the ordinary rule, so they can stay granted throughout.
-  const usGranted = usOptOut === undefined ? undefined : !usOptOut;
-  const consented = function(path) {
-    return usGranted === undefined ? hasConsent(tcData, path) : usGranted;
-  };
+  // So this now reads a row and emits it. Nothing is derived from a consent state here.
 
   // These two have no column in the settings table, so a row that does not name them keeps the
   // restrictive value they have always had -- which is every row a publisher can write. A row MAY
@@ -2319,45 +2316,40 @@ const generateConsentObject = function(setting, tcData, isUpdate, usOptOut) {
   // to hold back, and leaving them denied there would throttle personalization for the rest of the
   // world with no update able to lift it. That is the one place the old single row got wrong and
   // could not express.
-  consentObject.ad_user_data = tcData ? (consented(['vendor', 'consents', 755]) ? 'granted' : 'denied') : (setting.ad_user_data || 'denied');
-  consentObject.ad_personalization = tcData ? consented(['purpose', 'consents', 1]) && consented(['purpose', 'consents', 3]) ? consentObject.ad_user_data : 'denied' : (setting.ad_personalization || 'denied');
+  consentObject.ad_user_data = setting.ad_user_data || 'denied';
+  consentObject.ad_personalization = setting.ad_personalization || 'denied';
 
+  // `defaultConsent` is NOT the row. It is the summary published to the served tag on
+  // `gtmTemplateDefaultConsent`, and for the three advertising and measurement signals it records
+  // the literal `denied` rather than what the row says -- deliberately, and unchanged here. A row
+  // that grants is the global status for visitors nobody regulates; the summary describes the
+  // restrictive side, which is the one a handoff has to be right about.
   if (setting.ad_storage !== 'not used') {
-    consentObject.ad_storage = tcData ? (consented(['purpose', 'consents', 1]) && consented(['purpose', 'consents', 3]) ? 'granted' : 'denied') : setting.ad_storage;
-    if (!isUpdate) {
-      defaultConsent.ad_storage = 'denied';
-    }
+    consentObject.ad_storage = setting.ad_storage;
+    defaultConsent.ad_storage = 'denied';
   }
 
   if (setting.analytics_storage !== 'not used') {
-    consentObject.analytics_storage = tcData ? (consented(['purpose', 'consents', 1]) && (consented(['purpose', 'consents', 8]) || consented(['purpose', 'legitimateInterests', 8])) ? 'granted' : 'denied') : setting.analytics_storage;
-    if (!isUpdate) {
-      defaultConsent.analytics_storage = 'denied';
-    }
+    consentObject.analytics_storage = setting.analytics_storage;
+    defaultConsent.analytics_storage = 'denied';
   }
 
   if (setting.personalization_storage !== 'not used') {
-    consentObject.personalization_storage = tcData ? (consented(['purpose', 'consents', 1]) && consented(['purpose', 'consents', 5]) ? 'granted' : 'denied') : setting.personalization_storage;
-    if (!isUpdate) {
-      defaultConsent.personalization_storage = 'denied';
-    }
+    consentObject.personalization_storage = setting.personalization_storage;
+    defaultConsent.personalization_storage = 'denied';
   }
 
   if (setting.functionality_storage !== 'not used') {
-    consentObject.functionality_storage = tcData && hasConsent(tcData, ['purpose', 'consents', 1]) ? 'granted' : setting.functionality_storage;
-    if (!isUpdate) {
-      defaultConsent.functionality_storage = (consentSettings.length == 1 || (setting.region && setting.region === 'ALL')) ? setting.functionality_storage : (defaultConsent.functionality_storage == 'not used' ? setting.functionality_storage : defaultConsent.functionality_storage);
-    }
+    consentObject.functionality_storage = setting.functionality_storage;
+    defaultConsent.functionality_storage = (consentSettings.length == 1 || (setting.region && setting.region === 'ALL')) ? setting.functionality_storage : (defaultConsent.functionality_storage == 'not used' ? setting.functionality_storage : defaultConsent.functionality_storage);
   }
 
   if (setting.security_storage !== 'not used') {
-    consentObject.security_storage = tcData && hasConsent(tcData, ['purpose', 'consents', 1]) ? 'granted' : setting.security_storage;
-    if (!isUpdate) {
-      defaultConsent.security_storage = (consentSettings.length == 1 || (setting.region && setting.region === 'ALL')) ? setting.security_storage : (defaultConsent.security_storage == 'not used' ? setting.security_storage : defaultConsent.security_storage);
-    }
+    consentObject.security_storage = setting.security_storage;
+    defaultConsent.security_storage = (consentSettings.length == 1 || (setting.region && setting.region === 'ALL')) ? setting.security_storage : (defaultConsent.security_storage == 'not used' ? setting.security_storage : defaultConsent.security_storage);
   }
 
-  if (setting.wait_for_update && setting.wait_for_update > 0 && !isUpdate) {
+  if (setting.wait_for_update && setting.wait_for_update > 0) {
     consentObject.wait_for_update = makeInteger(setting.wait_for_update);
   }
 
@@ -2650,7 +2642,7 @@ if (data.consentMode) {
 
   // Process default consent state
   consentSettings.forEach(setting => {
-    var consentModeState = generateConsentObject(setting, null, false);
+    var consentModeState = generateConsentObject(setting);
     // The precedence is STATED here, as a chain, instead of being an emergent property of the
     // order of two blocks:
     //
