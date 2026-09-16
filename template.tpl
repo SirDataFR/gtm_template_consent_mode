@@ -2805,10 +2805,15 @@ const registerCookieDeletionListener = () => {
 
 // The CMP is requested directly, with no stub request in front of it.
 //
-// That request existed to prepare the page before the CMP arrived: the early command queues, and
-// the consent defaults. This tag now does both itself -- the mini-stubs above, and the prepared
+// That request existed to prepare the page before the CMP arrived: the early command queue, and
+// the consent defaults. This tag now does both itself -- the mini-stub above, and the prepared
 // defaults further up -- so a stub in front of it would be a round trip spent re-doing what has
 // already been done on this page.
+
+// The served script still carries the stub body on this request, and that is what makes preparing
+// one API enough: it is the stub body that takes the marked mini-stub over, installs the iframe
+// locators and the postMessage bridges, and picks the legacy bundle. None of those three is
+// reachable from here -- this sandbox has no DOM access at all.
 //
 // `tms=gtm` names the tag manager that did the preparing. It travels with the request so the
 // served script knows a template ran before it, rather than having to infer it from what happens

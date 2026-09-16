@@ -95,16 +95,25 @@ tag template aliases it — so a distinct `_fbq.queue` belongs to another advert
 than to a second copy of this one's pending work. Only the canonical `fbq.queue` is read, and that
 other pixel's commands are no longer merged in.
 
-Once the partner and configuration identifiers are set, the template installs same-window
-mini-stubs only for missing CMP APIs so synchronous callers can queue work, then asks for the CMP
-bundle directly. The request that used to go in front of it existed to prepare the page — the early
-command queues and the consent defaults — and this tag now does both itself, so that request would
-be a round trip spent re-doing work already done on this page. The bundle takes the marked
-mini-stubs over, preserving their queues and events, and adds the iframe locators, `postMessage`
-bridges and legacy-bundle selection. The template creates no locator iframe or message listener
-itself. The request carries `tms=gtm`, which names the tag manager that prepared the page, so the
-served script is told rather than left to infer it. The first-party loader and its regular-host
-fallback are preserved.
+Once the partner and configuration identifiers are set, the template installs one same-window
+mini-stub — for Sirdata's own CMP API, and only if the page has none — so synchronous callers can
+queue work, then asks for the CMP bundle directly. The request that used to go in front of it
+existed to prepare the page — the early command queue and the consent defaults — and this tag now
+does both itself, so that request would be a round trip spent re-doing work already done on this
+page. The served script takes the marked mini-stub over, preserving its queue, and adds the iframe
+locators, `postMessage` bridges and legacy-bundle selection. The template creates no locator iframe
+or message listener itself. The request carries `tms=gtm`, which names the tag manager that prepared
+the page, so the served script is told rather than left to infer it. The first-party loader and its
+regular-host fallback are preserved.
+
+**Only that one API is prepared, and that is the point.** The other consent APIs a page can carry —
+the TCF one, the US Privacy one, the GPP one — are each withdrawable by the configuration the CMP
+serves: a publisher can switch the TCF or the GPP off, and the US Privacy API has no place under
+GDPR. This tag runs before any of that is known, so preparing one of them would mean answering
+`ping` for an API the served configuration then has to take back down — and the GPP one would
+confirm an event-listener registration it could not honour. Sirdata's own API is the one no
+configuration removes, so it is the one that is safe to prepare. The US Privacy API is read, never
+written: its presence on the page is how a stored objection is found.
 
 These controls do not inject a vendor SDK or prevent another tag from downloading one. Custom HTML
 and third-party templates are not guaranteed to use the compatible queue shapes.
@@ -173,8 +182,8 @@ and it should be reviewed as one.
 
 Loading the CMP is no longer a choice: the partner and configuration identifiers are required
 fields. This tag only ever prepares defaults that the CMP is then responsible for resolving, and it
-installs mini-stub queues the CMP is responsible for taking over. Skipping the load left both
-half-done — defaults posted with nobody to update them, queues with nobody to drain them.
+installs a mini-stub queue the CMP is responsible for taking over. Skipping the load left both
+half-done — defaults posted with nobody to update them, a queue with nobody to drain it.
 
 ## The US regulation scope is not set here
 
@@ -187,7 +196,7 @@ configuration.
 ## Before submitting a change
 
 The `___TESTS___` section of `template.tpl` only runs inside the GTM template editor, and in
-practice it only reaches the Google `default` path. The same-window mini-stubs, loader ordering,
+practice it only reaches the Google `default` path. The same-window mini-stub, loader ordering,
 cookie-deletion listener, and vendor defaults are covered by the standalone harness instead:
 
 ```sh
