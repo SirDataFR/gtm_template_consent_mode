@@ -1398,11 +1398,15 @@ console.log("\n21. Activation overrides and loader ordering");
     const auto = automatic.calls.defaults[0] || {};
     check("the automatic default state is emitted once per perimeter",
         automatic.calls.defaults.length === 2, JSON.stringify(automatic.calls.defaults));
-    check("the automatic default state denies every signal",
+    check("the automatic default state refuses what the notice is about",
         auto.ad_storage === "denied" && auto.ad_user_data === "denied" &&
         auto.ad_personalization === "denied" && auto.analytics_storage === "denied" &&
-        auto.personalization_storage === "denied" && auto.functionality_storage === "denied" &&
-        auto.security_storage === "denied", JSON.stringify(auto));
+        auto.personalization_storage === "denied", JSON.stringify(auto));
+    // And grants the two that are not. One keeps the page working, the other keeps sign-in and
+    // anti-fraud working; denying them buys no protection and breaks both until the answer arrives.
+    check("and grants the two a notice is not about",
+        auto.functionality_storage === "granted" && auto.security_storage === "granted",
+        JSON.stringify(auto));
     // A default awaiting an answer, so there IS something to wait for -- and it names the regions
     // where a regulation applies, which is what leaves everywhere else to the global row.
     check("the regulated default waits for an update and names its perimeter",
@@ -1440,8 +1444,8 @@ console.log("\n21. Activation overrides and loader ordering");
     const handoff = JSON.parse(automatic.globals.ABconsentCMP.gtmTemplateDefaultConsent || "{}");
     check("the automatic state is handed to the CMP as a real snapshot",
         handoff.ad_storage === "denied" && handoff.analytics_storage === "denied" &&
-        handoff.personalization_storage === "denied" && handoff.functionality_storage === "denied" &&
-        handoff.security_storage === "denied",
+        handoff.personalization_storage === "denied" &&
+        handoff.functionality_storage === "granted" && handoff.security_storage === "granted",
         JSON.stringify(handoff));
     // One request, and it is the bundle. The page is prepared by this tag -- queues and defaults
     // -- so a request in front of the bundle would spend a round trip re-doing that work.
@@ -1978,12 +1982,15 @@ console.log("\n25. A regional refusal, then a global one that carries the ad sig
         regional.region && regional.region.length > 0 && global.region === undefined,
         JSON.stringify(defauts.map((d) => d.region)));
 
-    // The regional row refuses everything and waits, because a notice is coming there.
-    check("the regional row denies every signal and waits",
+    // The regional row refuses what the notice is about, and waits, because an answer is coming
+    // there. It does NOT refuse the other two: one keeps the page working, the other keeps sign-in
+    // and anti-fraud working, and neither is what a notice asks about.
+    check("the regional row denies what the notice is about and waits",
         regional.ad_storage === "denied" && regional.analytics_storage === "denied" &&
-        regional.personalization_storage === "denied" &&
-        regional.functionality_storage === "denied" &&
-        regional.security_storage === "denied" && regional.wait_for_update === 1000,
+        regional.personalization_storage === "denied" && regional.wait_for_update === 1000,
+        JSON.stringify(regional));
+    check("and grants the two it is not about",
+        regional.functionality_storage === "granted" && regional.security_storage === "granted",
         JSON.stringify(regional));
 
     // THE assertion of this section: the global row GRANTS. That is what the documented region
@@ -1993,11 +2000,13 @@ console.log("\n25. A regional refusal, then a global one that carries the ad sig
     check("the global row GRANTS advertising",
         global.ad_storage === "granted" && global.ad_user_data === "granted" &&
         global.ad_personalization === "granted", JSON.stringify(global));
-    // And carries nothing else: outside the perimeter there is no notice, so the remaining signals
-    // are left unset -- which behaves as granted.
-    check("and carries no other signal",
-        global.analytics_storage === undefined && global.functionality_storage === undefined &&
-        global.security_storage === undefined && global.personalization_storage === undefined,
+    // And it names EVERY signal, not just the advertising ones. Leaving the other four unset was
+    // defensible -- an unset signal behaves as granted -- and it read as an omission beside a
+    // regional command that states all of them. Two commands describing the same seven signals in
+    // two vocabularies is a thing a reader has to check twice.
+    check("the global row names every signal",
+        global.analytics_storage === "granted" && global.personalization_storage === "granted" &&
+        global.functionality_storage === "granted" && global.security_storage === "granted",
         JSON.stringify(global));
     check("and does not make gtag wait, there being no answer coming",
         !global.wait_for_update, JSON.stringify(global));

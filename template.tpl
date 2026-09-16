@@ -2251,11 +2251,18 @@ const REGULATED_REGIONS = [
 // `wait_for_update` is the same idea seen from the other end: these rows are defaults AWAITING an
 // answer, and an answer is only ever coming where a notice is shown.
 const AUTOMATIC_CONSENT_SETTINGS = [{
+  // THE REGULATED PERIMETER -- the visitors who are shown a notice, so the three signals a notice
+  // is about start refused and wait for the answer.
+  //
+  // `functionality_storage` and `security_storage` are GRANTED here, not denied. They are not what
+  // a notice asks about: one keeps the page working, the other keeps sign-in and anti-fraud
+  // working, and denying them buys no protection while breaking both for every visitor until the
+  // answer arrives. This is the same position the served stub and bootstrap take.
   ad_storage: 'denied',
   analytics_storage: 'denied',
   personalization_storage: 'denied',
-  functionality_storage: 'denied',
-  security_storage: 'denied',
+  functionality_storage: 'granted',
+  security_storage: 'granted',
   wait_for_update: 1000,
   region: REGULATED_REGIONS
 }, {
@@ -2268,18 +2275,21 @@ const AUTOMATIC_CONSENT_SETTINGS = [{
   // row that does not mention them -- granting storage while denying user data and personalization
   // would be incoherent.
   //
-  // The other four are left UNSET rather than granted: outside the perimeter no notice is shown,
-  // so there is nothing to state about them, and an unset signal already behaves as granted.
+  // EVERY signal is named, not just the advertising ones. Leaving the other four unset was
+  // defensible -- an unset signal already behaves as granted -- and it read as an omission next to
+  // a regional row that states all of them. Two commands describing the same seven signals in two
+  // different vocabularies is a thing to check twice, and the reader's first reading is that the
+  // global command forgot half its columns.
   //
   // `wait_for_update` is absent, as in the documented example: no notice is coming here, so there
   // is nothing to wait for.
   ad_storage: 'granted',
   ad_user_data: 'granted',
   ad_personalization: 'granted',
-  analytics_storage: 'not used',
-  personalization_storage: 'not used',
-  functionality_storage: 'not used',
-  security_storage: 'not used'
+  analytics_storage: 'granted',
+  personalization_storage: 'granted',
+  functionality_storage: 'granted',
+  security_storage: 'granted'
 }];
 
 // The override is a CHECKBOX, so "unchecked" and "never set" read the same -- which is what makes

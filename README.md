@@ -116,8 +116,8 @@ a notice is shown, and one command with no region that is the status for everyon
 
 | command | region | values |
 |---|---|---|
-| the regulated perimeter | 45 codes: the CMP's country list plus `US` | the five signals denied, `wait_for_update` 1000 |
-| the global status | *none* | the three advertising signals granted, no wait |
+| the regulated perimeter | 45 codes: the CMP's country list plus `US` | advertising, analytics and personalization denied; functionality and security granted; `wait_for_update` 1000 |
+| the global status | *none* | all seven granted, no wait |
 
 On top of that, a returning visitor's recorded choice is replayed from the stored container before
 the page runs, a privacy signal short-circuits the chain to a denial, and on the US perimeter
@@ -129,11 +129,15 @@ the documentation states it outright — *Non spécifié | `granted` | Utilise l
 `granted`* — because Consent Mode starts with no value set. Stating it makes the status explicit
 instead of leaning on the ambient default.
 
-It carries the three advertising signals rather than `ad_storage` alone, because the generator
-denies the two Consent Mode v2 signals on any row that does not name them, and granting storage
-while denying user data and personalization would be incoherent. The remaining four are left
-**unset**: outside the perimeter no notice is shown, so there is nothing to state about them, and
-an unset signal already behaves as granted.
+It names **every** signal, not just the advertising ones. Leaving the other four unset was
+defensible — an unset signal already behaves as granted — and it read as an omission beside a
+regional command that states all of them. Two commands describing the same seven signals in two
+different vocabularies is a thing a reader has to check twice.
+
+**Neither command denies `functionality_storage` or `security_storage`.** They are not what a
+notice asks about: one keeps the page working, the other keeps sign-in and anti-fraud working, and
+denying them buys no protection while breaking both for every visitor until the answer arrives.
+The served stub and bootstrap take the same position.
 
 `wait_for_update` follows the same split: the regional command is a default awaiting an answer, and
 an answer is only ever coming where a notice is shown. The global command waits for nothing.
