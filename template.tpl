@@ -2527,12 +2527,27 @@ const prepareOpenAiDefault = (granted) => {
 };
 
 const META_TEMPORARY_MARKER = '__abconsent_temporary__';
+
+// EVERY consent entry is dropped, not just this template's own provisional one, and that is the
+// whole point. On a page where a second Meta template also sets consent, its signal sits in the
+// list the pixel drains and CANCELS the pause this one just installed. Observed on a real page:
+// an unmarked `grant` immediately behind the marked revoke, with the pixel's `init` and its
+// PageView right after it -- so every one of them was drained under "granted".
+//
+// The CMP's served script already removes every consent entry from every one of the pixel's
+// queues, whoever wrote it, so the rule is not new. What is new is WHEN: that script lands last,
+// and the pixel may have drained long before. Measured, same list, both orders:
+//
+//     served script first  ->  one consent entry left, the pause holds
+//     pixel drains first   ->  init, set and PageView all processed under "granted"
+//
+// Nothing is lost by dropping them. The CMP holds the visitor's answer and emits the signal
+// itself; a publisher who wants to own that signal turns this mode off.
 const appendMetaCommands = (target, source) => {
   if (!source || typeof(source.length) !== 'number') return;
   for (let i = 0; i < source.length; i++) {
-    const entry = source[i];
-    if (!(commandName(entry) === 'consent' && entry[2] === META_TEMPORARY_MARKER)) {
-      target.push(entry);
+    if (commandName(source[i]) !== 'consent') {
+      target.push(source[i]);
     }
   }
 };
@@ -2571,6 +2586,26 @@ const prepareFacebookDefault = (granted) => {
   // documented Meta command, `dataProcessingOptions` included.
   if (!copyFromWindow('fbq')) {
     setInWindow('fbq', function(command, arg1, arg2, arg3) {
+      // The same rule, at the other moment this template has a hand on the list: the rebuild above
+      // can only drop what is already there, and a second Meta template loading afterwards pushes
+      // through THIS function. Dropping it here is what closes the window between the two.
+      //
+      // `arg2` is the marker position -- this template calls `fbq('consent', signal, marker)` --
+      // so its own entry always passes.
+      //
+      // THE GATE IS THE SERVED CONTROLLER'S OWN INSTALL FLAG, and it has to be: once that
+      // controller exists it owns the signal and emits it THROUGH this function, unmarked and
+      // indistinguishable by shape from a third party's. Without the gate its own grant would be
+      // dropped and the pixel would stay paused for the whole page view.
+      //
+      // That is also where this stops being a copy of the OpenAI shim above. There a held command
+      // is released once consent is known; here there is nothing to release -- a third party's
+      // signal replayed after ours would simply override it again. So it is a suppression, which
+      // is what the served script already does, moved earlier.
+      if (command === 'consent' && arg2 !== META_TEMPORARY_MARKER &&
+          copyFromWindow('ABconsentCMP.facebook._installed') !== true) {
+        return;
+      }
       const forwarded = [command];
       if (typeof(arg3) !== 'undefined') {
         forwarded.push(arg1);
@@ -3114,6 +3149,45 @@ ___WEB_PERMISSIONS___
                   {
                     "type": 8,
                     "boolean": true
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "ABconsentCMP.facebook._installed"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
                   }
                 ]
               },

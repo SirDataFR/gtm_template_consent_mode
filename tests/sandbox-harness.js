@@ -1696,11 +1696,17 @@ console.log("\n22. Early vendor defaults preserve files and callbacks produce no
         JSON.stringify(metaCommands));
     check("Meta publishes the matching temporary marker",
         meta.globals.ABconsentCMP.gtmTemplateFacebookTemporaryRevoke === true);
-    check("Meta preserves publisher consent, DPO, init, and track commands",
+    // This USED to pin the opposite -- that a publisher's own consent entry survived the rebuild.
+    // It cannot: a second consent authority in the list the pixel drains cancels the pause this
+    // template just installed, and the served script removes those entries for that very reason.
+    // The premise changed; the business commands still survive, which is what matters.
+    check("Meta preserves the DPO, init, and track commands",
         JSON.stringify(metaCommands.slice(1)) === JSON.stringify([
-            ["consent", "publisher"], ["dataProcessingOptions", ["LDU"], 0, 0],
+            ["dataProcessingOptions", ["LDU"], 0, 0],
             ["init", "pixel", {em: "hash"}], ["track", "PageView"]
         ]), JSON.stringify(metaCommands));
+    check("and a consent entry that is not this template's is dropped",
+        named(metaCommands, "consent").length === 1, JSON.stringify(metaCommands));
     meta.globals.fbq("consent", "after-default");
     meta.globals.fbq("track", "Purchase");
     metaCommands = commandList(meta.globals.fbq.queue);
@@ -1883,9 +1889,11 @@ console.log("\n23. The privacy marker and the stored bits reach the Meta and Ope
     const recus = [];
     neuf.globals.fbq.callMethod = function () { recus.push(Array.prototype.slice.call(arguments)); };
     const apresSdk = commandList(neuf.globals.fbq.queue).length;
-    neuf.globals.fbq("consent", "grant");
+    // The probe is deliberately NOT a consent command: those are gated until the served
+    // controller is installed, and what these three pin is the ROUTING and the arity.
+    neuf.globals.fbq("track", "AfterTheSdk");
     check("once the SDK is there the call REACHES it",
-        recus.length === 1 && recus[0][0] === "consent" && recus[0][1] === "grant",
+        recus.length === 1 && recus[0][0] === "track" && recus[0][1] === "AfterTheSdk",
         JSON.stringify(recus));
     check("a short call arrives SHORT, not padded with undefined",
         recus[0] && recus[0].length === 2, JSON.stringify(recus));
@@ -1984,7 +1992,60 @@ console.log("\n24. A measurement is held out of the queue the pixel drains while
         JSON.stringify(commandList(repris.globals.ABconsentCMP.openai.preQueue)));
 }
 
-console.log("\n25. A regional refusal, then a global one that carries the ad signals");
+console.log("\n25. A second consent authority never reaches the list the pixel drains");
+{
+    const META_ON = {facebookConsentMode: true};
+
+    // The list exactly as a real page produced it: this template's marked revoke, then ANOTHER
+    // Meta template's unmarked grant, then that template's own business commands. Drained in that
+    // order, every one of them is processed under "granted".
+    function fbqDeLaPage() {
+        function fbq() { fbq.queue.push(Array.prototype.slice.call(arguments)); }
+        fbq.queue = [["consent", "grant"], ["init", "1111", {}], ["track", "PageView"]];
+        return fbq;
+    }
+    const avant = run({sddan: SDDAN_LOCAL, globals: {fbq: fbqDeLaPage()}, data: META_ON});
+    const listeAvant = commandList(avant.globals.fbq.queue);
+    check("a consent already waiting is dropped, whoever wrote it",
+        named(listeAvant, "consent").length === 1 &&
+        listeAvant[0][2] === "__abconsent_temporary__", JSON.stringify(listeAvant));
+    check("witness -- the business commands behind it are untouched",
+        JSON.stringify(listeAvant.slice(1)) ===
+        JSON.stringify([["init", "1111", {}], ["track", "PageView"]]), JSON.stringify(listeAvant));
+
+    // And the other moment: a second template loading AFTER this one pushes through the function
+    // this one installed. The rebuild cannot see that call; the function can.
+    const apres = run({sddan: SDDAN_LOCAL, data: META_ON});
+    const base = commandList(apres.globals.fbq.queue).length;
+    apres.globals.fbq("consent", "grant");
+    check("a consent pushed AFTER the rebuild never lands",
+        commandList(apres.globals.fbq.queue).length === base,
+        JSON.stringify(commandList(apres.globals.fbq.queue)));
+    apres.globals.fbq("track", "Purchase");
+    check("witness -- a business command pushed at the same moment does land",
+        commandList(apres.globals.fbq.queue).length === base + 1,
+        JSON.stringify(commandList(apres.globals.fbq.queue)));
+
+    // THE GATE OPENS for the served controller, and it must: that controller emits its signal
+    // through this same function, unmarked. Without this, its own grant would be dropped and the
+    // pixel would stay paused for the whole page view.
+    apres.globals.ABconsentCMP.facebook = {_installed: true};
+    apres.globals.fbq("consent", "grant");
+    const ouvert = commandList(apres.globals.fbq.queue);
+    check("once the served controller is installed, consent passes again",
+        JSON.stringify(ouvert[ouvert.length - 1]) === JSON.stringify(["consent", "grant"]),
+        JSON.stringify(ouvert));
+
+    // And this template's own entry is never its own victim.
+    const marque = run({sddan: SDDAN_LOCAL, data: META_ON});
+    marque.globals.fbq("consent", "revoke", "__abconsent_temporary__");
+    check("this template's own marked entry always passes",
+        named(commandList(marque.globals.fbq.queue), "consent")
+            .filter((c) => c[2] === "__abconsent_temporary__").length === 2,
+        JSON.stringify(commandList(marque.globals.fbq.queue)));
+}
+
+console.log("\n26. A regional refusal, then a global one that carries the ad signals");
 {
     // The documented shape: one region-scoped default for the perimeter where a notice is shown,
     // and one region-less default that is the status for everyone else.
