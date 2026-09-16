@@ -633,30 +633,38 @@ console.log("\n14. The marker SHORT-CIRCUITS the default: nothing else is consul
         s.ad_storage === "denied", JSON.stringify(s));
     check("a known choice leaves nothing to wait for", s.wait_for_update === 0, JSON.stringify(s));
 
-    // Third branch, US perimeter: neither marker nor container, so nothing was ever recorded --
-    // and on that perimeter silence is not agreement. The configured row grants everything, which
-    // is what makes the denial visible.
+    // Third branch: neither marker nor container, so nothing was ever recorded -- and the row is
+    // emitted AS WRITTEN. There used to be a US perimeter test here that forced the five signals
+    // to denied; it overrode a publisher who had stated a value for their own perimeter, so it is
+    // gone. A declared table is applied as declared.
     const US_ROW = Object.assign({}, ALL_GRANTED_ROW, {region: "US-CA"});
     const us = run({sddan: SDDAN_LOCAL, data: withRows([US_ROW])});
     const u = us.calls.defaults[0];
-    check("US perimeter: the stored-nothing default is denied",
-        u.ad_storage === "denied" && u.ad_user_data === "denied" &&
-        u.ad_personalization === "denied" && u.analytics_storage === "denied" &&
-        u.personalization_storage === "denied", JSON.stringify(u));
-    check("US perimeter: strictly-necessary signals keep the configured value",
+    check("a declared US row is applied as declared, not overridden",
+        u.ad_storage === "granted" && u.analytics_storage === "granted" &&
+        u.personalization_storage === "granted", JSON.stringify(u));
+    check("including the strictly-necessary signals",
         u.functionality_storage === "granted" && u.security_storage === "granted",
         JSON.stringify(u));
-    // A starting position, NOT a recorded decision: there is still a choice to wait for.
-    check("US perimeter: wait_for_update is preserved", u.wait_for_update === 1000, JSON.stringify(u));
-    check("US perimeter: the region is still carried",
+    // Still a default awaiting a choice, so there is still something to wait for.
+    check("and its wait_for_update is preserved", u.wait_for_update === 1000, JSON.stringify(u));
+    check("and its region is still carried",
         JSON.stringify(u.region) === JSON.stringify(["US-CA"]), JSON.stringify(u.region));
 
-    // The plain country value belongs to the same perimeter as its states.
+    // The plain country value is treated no differently: no region is special to this branch.
     const usPlain = run({sddan: SDDAN_LOCAL,
         data: withRows([Object.assign({}, ALL_GRANTED_ROW, {region: "US"})])});
-    check("US perimeter: the country value counts too",
-        usPlain.calls.defaults[0].ad_storage === "denied",
+    check("the plain country value is not special either",
+        usPlain.calls.defaults[0].ad_storage === "granted",
         JSON.stringify(usPlain.calls.defaults[0]));
+    // AUTOMATIC mode is where the US denial lives, and it is carried by the perimeter row rather
+    // than by a test: `US` sits in the regional list, which is all-denied.
+    const auto = run({sddan: SDDAN_LOCAL});
+    check("AUTO: the US is denied, by the perimeter row",
+        auto.calls.defaults[0].region.indexOf("US") >= 0 &&
+        auto.calls.defaults[0].ad_storage === "denied" &&
+        auto.calls.defaults[0].analytics_storage === "denied",
+        JSON.stringify(auto.calls.defaults[0]));
 
     // Outside that perimeter NOTHING changes: the configured regional default stands. Without
     // this the US rule above would be satisfied by a template denying everything everywhere.

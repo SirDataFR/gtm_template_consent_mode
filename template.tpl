@@ -2215,49 +2215,7 @@ const applyGpcRefusal = (consentObject) => {
   return consentObject;
 };
 
-// The US perimeter: the country value and every state value the settings table can carry. Matched
-// on the `US-` prefix rather than against a list of states, so a state added to the parameters
-// tomorrow is covered without a second edit here -- and `RU`, which merely contains the letters,
-// is not.
-//
-// A row's region is either ONE STRING, as the settings table offers it, or a LIST, which is how
-// the automatic row names a whole perimeter in a single default. Both shapes are read: a list that
-// silently answered "not the US" would leave the refusal below unreachable without changing a
-// single emitted value, since the row it guards is already denied.
-//
-// CONSEQUENCE OF THE LIST, and it is not what the name suggests: the automatic perimeter carries
-// `US` alongside the European codes, so this answers TRUE for that row -- a row that also covers
-// forty-four other countries. It is a no-op there, the row being already all-denied, and the
-// function earns its name only on a row a publisher wrote by hand.
-const isUsRegion = (region) => {
-  if (typeof(region) === 'string') {
-    return region === 'US' || region.indexOf('US-') === 0;
-  }
-  if (region) {
-    for (let i = 0; i < region.length; i++) {
-      if (region[i] === 'US' || region[i].indexOf('US-') === 0) return true;
-    }
-  }
-  return false;
-};
 
-// The starting position on that perimeter when NOTHING was ever recorded -- no marker, no
-// container. Silence there is not agreement, so the five signals an objection to sale and sharing
-// covers start denied; `functionality_storage` and `security_storage` are not among them and keep
-// the configured value, as everywhere else in this file.
-//
-// Unlike the two functions above, `wait_for_update` is NOT zeroed: this is a default awaiting a
-// choice, not a choice already made. Zeroing it would tell gtag the answer is in when nobody has
-// answered.
-const applyUsDefaultRefusal = (consentObject) => {
-  for (let i = 0; i < GPC_DENIED_SIGNALS.length; i++) {
-    const name = GPC_DENIED_SIGNALS[i];
-    if (consentObject[name] !== undefined) {
-      consentObject[name] = 'denied';
-    }
-  }
-  return consentObject;
-};
 
 // The regions where a consent regulation applies, and therefore where the default must refuse
 // until the visitor has answered. It is the CMP's OWN perimeter, not a list invented here: the
@@ -2699,20 +2657,25 @@ if (data.consentMode) {
     //
     //     1. __gpcactive  ->  denial, and NOTHING else is consulted
     //     2. else __sdgcm ->  replay of the stored bits
-    //     3. else         ->  regional default; on the US perimeter it is denied
+    //     3. else         ->  the row is emitted AS WRITTEN
     //
     // The first branch is a SHORT-CIRCUIT, not an override applied last. Reading the container and
     // then overwriting what it said would emit the same values while consulting a cookie whose
     // answer cannot change the outcome -- a read that costs something and decides nothing. The
     // difference is invisible in the emitted object, which is why the harness counts the reads.
+    //
+    // THERE IS NO FOURTH BRANCH, and there used to be: a US perimeter test that forced the five
+    // signals to denied when nothing had been recorded. It is gone, for two reasons pointing the
+    // same way. In the automatic state it decided nothing -- the regional row already carries `US`
+    // and is already all-denied. And on a row a publisher wrote by hand it OVERRODE them: they
+    // stated a value for their own perimeter and this replaced it. A declared table is applied as
+    // declared, and nothing here second-guesses it.
     if (gpcActive) {
       consentModeState = applyGpcRefusal(consentModeState);
     } else {
       const storedConsentSignals = readStoredConsentSignals(getCookieSegments());
       if (storedConsentSignals) {
         consentModeState = applyStoredSignals(consentModeState, storedConsentSignals);
-      } else if (isUsRegion(setting.region)) {
-        consentModeState = applyUsDefaultRefusal(consentModeState);
       }
     }
     // Publish the handoff only when this loop is about to emit a real Google default -- so it
