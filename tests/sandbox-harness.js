@@ -1074,6 +1074,23 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
         }
         return [row.key, row.read, row.write, row.execute];
     });
+    // Every entry must carry the NUMERIC type code GTM serializes maps with -- 3, not the string
+    // "MAP". Two entries shipped with the string form and nothing here saw it: this block parses
+    // mapKey/mapValue and never looked at the item's own type, so a shape the editor may refuse
+    // was invisible to a green harness.
+    globalItems.forEach((item) => {
+        const key = (item.mapValue && item.mapValue[0] && item.mapValue[0].string) || "?";
+        check("access_globals entry " + key + " carries the numeric map type",
+            item.type === 3, JSON.stringify(item.type));
+    });
+    // And nothing may be declared that the sandboxed code never touches: an unused permission is
+    // access granted for nothing. `SDDAN` was declared readable and never read.
+    const sandboxed = SRC;
+    rows.forEach((row) => {
+        const root = row[0].split(".")[0];
+        check("access_globals entry " + row[0] + " is actually reached by the code",
+            sandboxed.indexOf(root) !== -1, row[0]);
+    });
     ["__tcfapi", "__sdcmpapi", "__uspapi", "__gpp", "__gpp.queue", "__gpp.events",
         "fbq", "fbq.queue", "fbq.queue.push", "fbq.push", "_fbq",
         "oaiq", "oaiq.q", "oaiq.queue", "oaiq.queue.push",
