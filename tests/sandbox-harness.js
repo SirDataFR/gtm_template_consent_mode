@@ -31,7 +31,7 @@ function extractSandboxedJs(tpl) {
     const src = parts[1].split(CLOSE)[0];
     // Sentinels: symbols the sandboxed body MUST carry. Their absence means the split landed in
     // the wrong place, not that the template is at fault.
-    ["setDefaultConsentState", "updateConsentState", "CONSENT_MODE_SIGNALS", "onUserChoice"].forEach((s) => {
+    ["setDefaultConsentState", "CONSENT_MODE_SIGNALS", "onUserChoice", "loadCmpScript"].forEach((s) => {
         if (src.indexOf(s) === -1) {
             throw new Error("suspicious sandboxed body: '" + s + "' not found");
         }
@@ -43,25 +43,174 @@ function extractSandboxedJs(tpl) {
 }
 const SRC = extractSandboxedJs(TPL);
 
+// Strips comments so the syntax guard below reads CODE and not prose. Without this it reddens on
+// the very comment that explains why a construct is avoided -- a check that fails on its own
+// documentation, which is worse than no check: the next reader removes the explanation, not the
+// cause. It follows quotes because the body carries URLs, and `https://` would otherwise be cut at
+// its own `//`; an escaped quote inside a string keeps the string open.
+function stripComments(src) {
+    let out = "";
+    let quote = null;
+    let i = 0;
+    while (i < src.length) {
+        const c = src[i];
+        if (quote) {
+            out += c;
+            if (c === "\\") { out += src[i + 1] === undefined ? "" : src[i + 1]; i += 2; continue; }
+            if (c === quote) { quote = null; }
+            i += 1;
+            continue;
+        }
+        if (c === "\"" || c === "'" || c === "`") { quote = c; out += c; i += 1; continue; }
+        if (c === "/" && src[i + 1] === "/") {
+            while (i < src.length && src[i] !== "\n") { i += 1; }
+            continue;
+        }
+        if (c === "/" && src[i + 1] === "*") {
+            i += 2;
+            while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) { i += 1; }
+            i += 2;
+            continue;
+        }
+        out += c;
+        i += 1;
+    }
+    return out;
+}
+
+// The stripper decides what the guard sees, so it is pinned before being trusted: a false positive
+// here rejects a valid template, a false negative lets a forbidden construct through.
+[
+    ["a line comment goes", "var a = 1; // arguments\n", false],
+    ["a block comment goes", "var a = 1; /* arguments */ var b = 2;", false],
+    ["a URL survives its own slashes", "var u = 'https://x/arguments';", true],
+    ["an escaped quote keeps the string open", "var s = 'a\\' // arguments'; var t = 1;", true],
+    ["real code is kept", "fn(arguments);", true]
+].forEach((c) => {
+    const seen = /(^|[^A-Za-z_$])arguments([^A-Za-z0-9_$]|$)/.test(stripComments(c[1]));
+    if (seen !== c[2]) {
+        throw new Error("stripComments is unreliable: " + c[0] + " -> " + seen);
+    }
+});
+
+function assertGtmSandboxSubset(src) {
+    const code = stripComments(src);
+    const forbidden = [
+        ["try/catch", /(^|[^A-Za-z_$])(try|catch)([^A-Za-z0-9_$]|$)/],
+        ["bare arguments", /(^|[^A-Za-z_$])arguments([^A-Za-z0-9_$]|$)/]
+    ];
+    forbidden.forEach((entry) => {
+        if (entry[1].test(code)) {
+            throw new Error("GTM sandbox subset forbids " + entry[0]);
+        }
+    });
+}
+assertGtmSandboxSubset(SRC);
+
+function extractJsonSection(open, close) {
+    const afterOpen = TPL.split(open);
+    if (afterOpen.length !== 2 || afterOpen[1].indexOf(close) === -1) {
+        throw new Error("cannot extract " + open);
+    }
+    return afterOpen[1].split(close)[0].trim();
+}
+
 function run(opts) {
     const cookies = Object.assign({}, opts.cookies || {});
-    const calls = {defaults: [], updates: [], setCookies: [], injected: []};
+    // `cookieReads` counts reads PER NAME. Without it a short-circuit can only be checked on the
+    // value it produces, and an implementation that reads the container and then overwrites the
+    // result would pass while consulting a cookie it must never touch.
+    const calls = {defaults: [], defaultStates: [], updates: [], setCookies: [], injected: [], injectionStates: [], cookieReads: {}, successes: 0, failures: 0, listenerAfterInjections: null};
     let listener = null;
     const globals = Object.assign({SDDAN: opts.sddan}, opts.globals || {});
 
+    function getPath(pathName) {
+        const parts = pathName.split(".");
+        let value = globals;
+        for (let i = 0; i < parts.length; i++) {
+            if (value === undefined || value === null) return undefined;
+            value = value[parts[i]];
+        }
+        return value;
+    }
+
+    function getOwner(pathName) {
+        const parts = pathName.split(".");
+        parts.pop();
+        return parts.length ? getPath(parts.join(".")) : globals;
+    }
+
+    function setPath(pathName, value, overrideExisting) {
+        const parts = pathName.split(".");
+        let owner = globals;
+        for (let i = 0; i < parts.length - 1; i++) {
+            if (owner[parts[i]] === undefined || owner[parts[i]] === null) return false;
+            owner = owner[parts[i]];
+        }
+        const key = parts[parts.length - 1];
+        if (!overrideExisting && owner[key] !== undefined) return false;
+        owner[key] = value;
+        return true;
+    }
+
+    // The documented API returns a copied/coerced sandbox value, not an identity handle. Arrays
+    // are copied here so production code cannot pass by comparing host references.
+    function copyWindowValue(pathName) {
+        const value = getPath(pathName);
+        return Array.isArray(value) ? value.slice() : value;
+    }
+
     const api = {
-        callInWindow: (name, method, _v, fn) => { if (name === "__sdcmpapi" && method === "addEventListener") listener = fn; },
+        callInWindow: (name, ...args) => {
+            if (name === "__sdcmpapi" && args[0] === "addEventListener") {
+                listener = args[2];
+                // How many requests had already gone out when the listener was registered. The
+                // queue is installed by this tag, so the command can wait in it -- but only if it
+                // is issued before the CMP is asked for.
+                if (calls.listenerAfterInjections === null) { calls.listenerAfterInjections = calls.injected.length; }
+            }
+            const fn = getPath(name);
+            if (typeof fn !== "function") return undefined;
+            return fn.apply(getOwner(name), args);
+        },
         gtagSet: () => {},
         logToConsole: () => {},
         makeTableMap: () => ({}),
-        setDefaultConsentState: (o) => calls.defaults.push(JSON.parse(JSON.stringify(o))),
+        setDefaultConsentState: (o) => {
+            calls.defaults.push(JSON.parse(JSON.stringify(o)));
+            const cmp = globals.ABconsentCMP || {};
+            calls.defaultStates.push({googleDefaultSet: cmp.gtmGoogleConsentModeDefaultSet});
+        },
         updateConsentState: (o) => calls.updates.push(JSON.parse(JSON.stringify(o))),
         // The URL is RECORDED, not just the callback run: without it no test can assert that the
         // CMP is actually loaded, only that nothing threw.
-        injectScript: (u, ok) => { calls.injected.push(u); if (ok) { ok(); } },
+        injectScript: (u, ok, fail) => {
+            calls.injected.push(u);
+            const cmp = globals.ABconsentCMP || {};
+            calls.injectionStates.push({
+                facebook: cmp.gtmFacebookConsentMode,
+                openai: cmp.gtmOpenAiConsentMode,
+                enableConsentMode: cmp.enableConsentMode,
+                googleDefaultSet: cmp.gtmGoogleConsentModeDefaultSet,
+                containerId: cmp.gtmTemplateContainerId,
+                miniStubApis: Object.assign({}, cmp.gtmTemplateMiniStubApis || {})
+            });
+            if (opts.failInjection && u.indexOf(opts.failInjection) !== -1) {
+                if (fail) fail();
+                return;
+            }
+            if (u.indexOf("cmp_loader.js") !== -1) {
+                const callbacks = (globals.sdCmpTemplateCallback || []).slice();
+                callbacks.forEach((callback) => callback());
+            }
+            if (ok) { ok(); }
+        },
         encodeUriComponent: encodeURIComponent,
         makeInteger: (v) => parseInt(v, 10),
-        getCookieValues: (name) => (cookies[name] === undefined ? [] : [cookies[name]]),
+        getCookieValues: (name) => {
+            calls.cookieReads[name] = (calls.cookieReads[name] || 0) + 1;
+            return cookies[name] === undefined ? [] : [cookies[name]];
+        },
         setCookie: (name, value, options, encode) => {
             calls.setCookies.push({name, value, options, encode});
             // `max-age: -1` is the DELETION instruction, not a write. The stub honours it so the
@@ -70,8 +219,32 @@ function run(opts) {
             if (options && options["max-age"] === -1) { delete cookies[name]; }
             else { cookies[name] = value; }
         },
-        copyFromWindow: (name) => globals[name],
-        setInWindow: (name, value) => { globals[name] = value; },
+        copyFromWindow: copyWindowValue,
+        setInWindow: setPath,
+        aliasInWindow: (toPath, fromPath) => setPath(toPath, getPath(fromPath), true),
+        createArgumentsQueue: (fnKey, arrayKey) => {
+            let queue = getPath(arrayKey);
+            if (!Array.isArray(queue)) queue = [];
+            let fn = getPath(fnKey);
+            if (typeof fn !== "function") {
+                fn = function () {
+                    queue.push(Array.prototype.slice.call(arguments));
+                };
+                setPath(fnKey, fn, true);
+            }
+            if (!Array.isArray(getPath(arrayKey))) setPath(arrayKey, queue, true);
+            return fn;
+        },
+        createQueue: (arrayKey) => {
+            let queue = getPath(arrayKey);
+            if (!Array.isArray(queue)) {
+                queue = [];
+                setPath(arrayKey, queue, true);
+            }
+            return function () {
+                for (let i = 0; i < arguments.length; i++) queue.push(arguments[i]);
+            };
+        },
         copyFromDataLayer: () => "gtm.init_consent",
         getContainerVersion: () => ({containerId: "GTM-TEST", version: "1", firstPartyServing: false}),
         JSON: JSON
@@ -79,22 +252,25 @@ function run(opts) {
 
     const data = Object.assign({
         consentMode: true,
-        loadCmpScripts: false,
-        settingsTable: [{
-            ad_storage: "denied", analytics_storage: "denied", personalization_storage: "denied",
-            functionality_storage: "denied", security_storage: "denied",
-            wait_for_update: 1000, region: "ALL"
-        }],
         gtmOnSuccess: () => {}, gtmOnFailure: () => {}
     }, opts.data || {});
+
+    const success = data.gtmOnSuccess;
+    const failure = data.gtmOnFailure;
+    data.gtmOnSuccess = () => { calls.successes++; success(); };
+    data.gtmOnFailure = () => { calls.failures++; failure(); };
 
     new Function("data", "require", SRC)(data, (n) => {
         if (!(n in api)) throw new Error("API not stubbed: " + n);
         return api[n];
     });
 
-    return {calls, listener, cookies};
+    return {calls, listener, cookies, globals};
 }
+
+// Declaring rows is an OVERRIDE: the two travel together, because rows alone read as "left the
+// defaults alone" and the run would silently exercise the automatic path instead of the case.
+const withRows = (rows) => ({overrideDefaultConsent: true, customConsentSettings: rows});
 
 const TC_ALL_GRANTED = {
     gdprApplies: true, eventStatus: "useractioncomplete",
@@ -164,11 +340,13 @@ function purgeEvent(cookieList) {
 console.log("\n1. With no cookie at all: the ordinary path");
 {
     const r = run({sddan: SDDAN_LOCAL});
-    check("one default set", r.calls.defaults.length === 1);
+    check("two defaults set: the regulated perimeter, then the global one",
+        r.calls.defaults.length === 2 && r.calls.defaults[0].region &&
+        r.calls.defaults[1].region === undefined,
+        JSON.stringify(r.calls.defaults.map((d) => d.region)));
     check("default all denied", r.calls.defaults[0].ad_storage === "denied" && r.calls.defaults[0].analytics_storage === "denied");
     check("wait_for_update preserved at 1000", r.calls.defaults[0].wait_for_update === 1000, JSON.stringify(r.calls.defaults[0]));
-    r.listener(TC_ALL_GRANTED, true);
-    check("one update pushed", r.calls.updates.length === 1);
+    check("template emits no update", r.calls.updates.length === 0);
     check("NO cookie written", r.calls.setCookies.length === 0, JSON.stringify(r.calls.setCookies));
 }
 
@@ -177,8 +355,7 @@ console.log("\n2. The default comes from the stored cookie");
     const r = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "1.1111111", "euconsent-v2": "CP..."}});
     check("default all granted", r.calls.defaults[0].ad_storage === "granted" && r.calls.defaults[0].analytics_storage === "granted", JSON.stringify(r.calls.defaults[0]));
     check("wait_for_update = 0", r.calls.defaults[0].wait_for_update === 0);
-    r.listener(TC_ALL_GRANTED, true);
-    check("NO update (deduplicated)", r.calls.updates.length === 0, JSON.stringify(r.calls.updates));
+    check("template emits no update", r.calls.updates.length === 0, JSON.stringify(r.calls.updates));
     check("and still no write", r.calls.setCookies.length === 0);
 
     // The cookie is read with NO condition on what surrounds it, and that is the invariant to
@@ -240,25 +417,10 @@ console.log("\n4. Guards: a MALFORMED string is ignored and nothing changes");
     }
 }
 
-console.log("\n5. Update deduplication");
-{
-    const r = run({sddan: SDDAN_LOCAL});
-    r.listener(TC_ALL_GRANTED, true);
-    r.listener(TC_ALL_GRANTED, true);
-    check("two identical events -> a single update", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
-    check("and nothing is written", r.calls.setCookies.length === 0);
-    r.listener(TC_ONLY_P1, true);
-    check("a change pushes an update again", r.calls.updates.length === 2);
-    // Purpose 1 only: functionality and security pass, but analytics also needs purpose 8, and
-    // every ad_* needs vendor 755. Hence 0,1,1,0,0,0,0.
-    check("and the second update carries the new state",
-        r.calls.updates[1].analytics_storage === "denied", JSON.stringify(r.calls.updates[1]));
-}
-
 console.log("\n6. The template NEVER writes this cookie -- whatever the scope");
 {
     // One producer, one consumer. The consent script serving the page owns the cookie; the
-    // template READS it for its default and pushes the `update`s. Two producers on one segment
+    // template READS it for its default while the CMP pushes the `update`s. Two producers on one segment
     // means two derivations that do not coincide -- this template takes `ad_user_data` from
     // vendor 755 alone -- so a value that flips between page views depending on who wrote last.
     const cas = [
@@ -269,7 +431,6 @@ console.log("\n6. The template NEVER writes this cookie -- whatever the scope");
     ];
     for (let i = 0; i < cas.length; i++) {
         const r = run(cas[i][1]);
-        r.listener(TC_ALL_GRANTED, true);
         check(cas[i][0] + ": no write", r.calls.setCookies.length === 0,
             JSON.stringify(r.calls.setCookies));
     }
@@ -277,84 +438,8 @@ console.log("\n6. The template NEVER writes this cookie -- whatever the scope");
     // WITNESS, and it is load-bearing: without it, a template doing NOTHING at all would satisfy
     // the four assertions above.
     const temoin = run({sddan: SDDAN_LOCAL});
-    temoin.listener(TC_ALL_GRANTED, true);
-    check("witness -- it still pushes its default and its update",
-        temoin.calls.defaults.length === 1 && temoin.calls.updates.length === 1);
-}
-
-console.log("\n7. A 'not used' signal: absent from the default and from the update");
-{
-    const r = run({
-        sddan: SDDAN_LOCAL,
-        data: {settingsTable: [{
-            ad_storage: "not used", analytics_storage: "denied", personalization_storage: "denied",
-            functionality_storage: "denied", security_storage: "denied", wait_for_update: 1000, region: "ALL"
-        }]},
-        cookies: {"__sdgcm": "1.1111111", "euconsent-v2": "x"}
-    });
-    check("ad_storage absent from the default", r.calls.defaults[0].ad_storage === undefined, JSON.stringify(r.calls.defaults[0]));
-    check("analytics comes from the cookie", r.calls.defaults[0].analytics_storage === "granted");
-    r.listener(TC_ALL_GRANTED, true);
-    check("and nothing is written", r.calls.setCookies.length === 0);
-}
-
-console.log("\n8. With NO cookie, a choice equal to the default: no update");
-{
-    // The default IS a push: an update repeating it teaches gtag nothing. This is by far the most
-    // common case -- a visitor refusing on their first page view -- so seeding the deduplication
-    // from the EMITTED default, and not from the cookie, is what keeps it quiet here.
-    const r = run({sddan: SDDAN_LOCAL});
-    check("default all denied", r.calls.defaults[0].ad_storage === "denied");
-    r.listener(TC_ALL_DENIED, true);
-    check("NO update (identical to the default)", r.calls.updates.length === 0, JSON.stringify(r.calls.updates));
-    check("and nothing is written", r.calls.setCookies.length === 0);
-    // Decision 2 stays independent of decision 1: the cookie is written without an update going out.
-    r.listener(TC_ALL_GRANTED, true);
-    check("a real change pushes an update again", r.calls.updates.length === 1);
-}
-
-console.log("\n9. Diverging regional rows: the ambiguous signal is pushed again");
-{
-    // gtag applies the FR row to FR visitors and the ALL row to the others -- the template does
-    // not know which one this visitor received. Skipping the update on a guess would leave the
-    // tags running under a state they never chose, so the ambiguous must be pushed.
-    const r = run({
-        sddan: SDDAN_LOCAL,
-        data: {settingsTable: [row({region: "ALL"}), row({analytics_storage: "granted", region: "FR"})]}
-    });
-    check("two defaults set", r.calls.defaults.length === 2);
-    r.listener(TC_ALL_DENIED, true);
-    check("update pushed despite the apparent equality", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
-}
-
-console.log("\n10. No global row: nothing is seeded");
-{
-    // A table with regional rows only sets NO default at all for visitors outside those regions,
-    // so nothing can be asserted about what they received.
-    const r = run({sddan: SDDAN_LOCAL, data: {settingsTable: [row({region: "FR"})]}});
-    check("the default does carry a region", r.calls.defaults[0].region[0] === "FR", JSON.stringify(r.calls.defaults[0]));
-    r.listener(TC_ALL_DENIED, true);
-    check("update pushed (nothing seeded)", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
-}
-
-console.log("\n11. 'not used' on ONE row only: the unemitted signal must be pushed");
-{
-    // The global row marks ad_storage "not used", the FR row emits it. A visitor OUTSIDE FR
-    // therefore received no default for ad_storage -- while the update does emit it
-    // (defaultConsent is a global accumulator: one row using it is enough to set it to 'denied').
-    //
-    // Seeding ad_storage from the cookie would suggest gtag already knows it and would drop the
-    // update. gtag state does NOT survive from one page view to the next: this visitor would never
-    // have received ad_storage, and their tags would stay off despite a granted consent.
-    const r = run({
-        sddan: SDDAN_LOCAL,
-        data: {settingsTable: [row({ad_storage: "not used", region: "ALL"}), row({region: "FR"})]},
-        cookies: {"__sdgcm": "1.1111111", "euconsent-v2": "x"}
-    });
-    check("ad_storage absent from the global default", r.calls.defaults[0].ad_storage === undefined, JSON.stringify(r.calls.defaults[0]));
-    check("but present on the FR row", r.calls.defaults[1].ad_storage === "granted", JSON.stringify(r.calls.defaults[1]));
-    r.listener(TC_ALL_GRANTED, true);
-    check("update pushed (ad_storage never set as a default)", r.calls.updates.length === 1, JSON.stringify(r.calls.updates));
+    check("witness -- it still pushes its defaults but no update",
+        temoin.calls.defaults.length === 2 && temoin.calls.updates.length === 0);
 }
 
 console.log("\n12. Segmented container: only the segment we own is read");
@@ -421,7 +506,7 @@ console.log("\n13. Global Privacy Control takes precedence in the default");
         functionality_storage: "granted", security_storage: "granted",
         wait_for_update: 1000, region: "ALL"
     };
-    const GRANTED = {settingsTable: [ALL_GRANTED_ROW]};
+    const GRANTED = withRows([ALL_GRANTED_ROW]);
     // A FACTORY, never a shared constant: each case must start from a fresh object. A tcData
     // reused from one case to the next can arrive already altered, `onUserChoice`'s entry guard
     // then rejects it for want of a `purpose`, and the case yields zero updates -- which reads
@@ -481,82 +566,123 @@ console.log("\n13. Global Privacy Control takes precedence in the default");
     check("any value other than '1' is ignored", zero.calls.defaults[0].ad_storage === "granted",
         JSON.stringify(zero.calls.defaults[0]));
 
-    // The UPDATE's US path. The marker appears between the default and the event, which is what
-    // isolates the update path from the default path: otherwise deduplication would drop the
-    // update (the default having already said the same thing) and the test would prove nothing.
-    const upd = run({sddan: SDDAN_LOCAL, data: GRANTED});
-    upd.cookies["__gpcactive"] = "1";
-    upd.listener(usEvent(), true);
-    check("an update goes out on the US path", upd.calls.updates.length === 1, JSON.stringify(upd.calls.updates));
-    const u = upd.calls.updates[0];
-    check("update -- ad_storage denied", u.ad_storage === "denied", JSON.stringify(u));
-    check("update -- analytics denied", u.analytics_storage === "denied");
-    check("update -- functionality kept", u.functionality_storage === "granted");
-    check("update -- security kept", u.security_storage === "granted");
 
-    // Discriminator: the same US event with NO marker and no objecting string denies nothing.
-    // Without it, the check above would pass even if the marker were never read.
-    // The VALUE is asserted, not the absence of an update: "zero updates" is also what an event
-    // rejected at the entry guard produces, so accepting that would prove nothing.
-    const noGpc = run({sddan: SDDAN_LOCAL, data: GRANTED});
-    noGpc.listener(usEvent(), true);
-    check("discriminator -- without the marker, ad_storage stays granted",
-        noGpc.calls.updates.length === 1 && noGpc.calls.updates[0].ad_storage === "granted",
-        JSON.stringify(noGpc.calls.updates));
-
-    // An objecting usprivacy string keeps working: the marker ADDS to the existing rule, it does
-    // not replace it.
-    // `__uspapi` must exist AS A FUNCTION: it is the gate of the usprivacy branch, and without it
-    // this path cannot be reached at all.
-    const usp = run({
-        sddan: SDDAN_LOCAL, data: GRANTED,
-        cookies: {"usprivacy": "1YYN"}, globals: {"__uspapi": () => {}}
-    });
-    usp.listener(usEvent(), true);
-    check("an objecting usprivacy is still honoured",
-        usp.calls.updates.length === 1 && usp.calls.updates[0].ad_storage === "denied",
-        JSON.stringify(usp.calls.updates));
 }
 
-console.log("\n14. Mutual exclusion: who PUSHES the updates into the dataLayer");
+console.log("\n14. The marker SHORT-CIRCUITS the default: nothing else is consulted");
 {
-    // The most load-bearing invariant in the file. The template
-    // claims Consent Mode by setting `ABconsentCMP.enableConsentMode = false`; the CMP script
-    // registers its own listener only when that flag is TRUE. The two derivations are not
-    // identical -- this template takes ad_user_data from vendor 755 alone -- so two simultaneous
-    // writers would contradict each other from one page view to the next.
-    //
-    // Witness first: without the flag, everything goes out normally. Without it, a template doing
-    // nothing at all would satisfy the three assertions that follow.
-    const claimed = run({sddan: SDDAN_LOCAL});
-    claimed.listener(TC_ALL_GRANTED, true);
-    check("witness -- without the flag, the template leads", claimed.calls.defaults.length === 1 &&
-        claimed.calls.updates.length === 1 && claimed.calls.setCookies.length === 0);
+    // A row granting EVERYTHING, for the same reason as section 13: against an all-denied table a
+    // denial would be indistinguishable from the configured value.
+    const ALL_GRANTED_ROW = {
+        ad_storage: "granted", analytics_storage: "granted", personalization_storage: "granted",
+        functionality_storage: "granted", security_storage: "granted",
+        wait_for_update: 1000, region: "ALL"
+    };
+    const GRANTED = withRows([ALL_GRANTED_ROW]);
+    const readsOf = (r, name) => (r.calls.cookieReads[name] || 0);
 
-    const ceded = run({sddan: SDDAN_LOCAL, globals: {ABconsentCMP: {enableConsentMode: true}}});
-    check("no default set", ceded.calls.defaults.length === 0, JSON.stringify(ceded.calls.defaults));
-    check("the listener is registered all the same", typeof ceded.listener === "function");
-    ceded.listener(TC_ALL_GRANTED, true);
-    check("no update pushed", ceded.calls.updates.length === 0, JSON.stringify(ceded.calls.updates));
-    check("and still no write", ceded.calls.setCookies.length === 0, JSON.stringify(ceded.calls.setCookies));
+    // Witness: WITHOUT the marker the container IS read. Without it, the count asserted below
+    // would also be satisfied by a harness that reads no cookie at all, or by a template that
+    // stopped reading `__sdgcm` entirely -- a check that cannot fail checks nothing.
+    const temoin = run({sddan: SDDAN_LOCAL, data: GRANTED, cookies: {"__sdgcm": "2.g:1:1111111"}});
+    check("witness -- without the marker the container IS read",
+        readsOf(temoin, "__sdgcm") >= 1, String(readsOf(temoin, "__sdgcm")));
 
-    // The flag at `false` is the template having ALREADY claimed Consent Mode on an earlier run:
-    // it must keep leading, not fall silent.
-    const reclaimed = run({sddan: SDDAN_LOCAL, globals: {ABconsentCMP: {enableConsentMode: false}}});
-    check("flag at false: the template still leads", reclaimed.calls.defaults.length === 1,
-        JSON.stringify(reclaimed.calls.defaults));
+    // THE short-circuit, pinned on the READ rather than on the result. An implementation that
+    // reads the container and then overwrites what it found emits exactly the same values while
+    // consulting a cookie that must never be consulted; only the count separates the two.
+    const court = run({sddan: SDDAN_LOCAL, data: GRANTED, cookies: {"__gpcactive": "1"}});
+    check("the container is NOT consulted when the marker is present",
+        readsOf(court, "__sdgcm") === 0, String(readsOf(court, "__sdgcm")));
+    check("the marker itself is still read", readsOf(court, "__gpcactive") >= 1,
+        String(readsOf(court, "__gpcactive")));
+    const c = court.calls.defaults[0];
+    check("short-circuit denies the five signals an objection covers",
+        c.ad_storage === "denied" && c.ad_user_data === "denied" &&
+        c.ad_personalization === "denied" && c.analytics_storage === "denied" &&
+        c.personalization_storage === "denied", JSON.stringify(c));
+    // FIVE, not seven: an objection to sale and sharing is not a refusal of what is strictly
+    // necessary. Moving the denial to the head of the chain must not change which signals it
+    // covers -- only when it is decided.
+    check("and leaves the two strictly-necessary signals alone",
+        c.functionality_storage === "granted" && c.security_storage === "granted",
+        JSON.stringify(c));
+    check("nothing left to wait for", c.wait_for_update === 0, JSON.stringify(c));
 
-    // Cookie deletion is NOT Consent Mode: it does not depend on the exclusion and must keep
-    // working when the CMP script is the one leading.
-    const purge = run({
-        sddan: SDDAN_LOCAL,
-        globals: {ABconsentCMP: {enableConsentMode: true}},
-        data: {handleCookiesDeletion: true},
-        cookies: {"_ga": "x"}
+    // Same short-circuit, with a container that would grant EVERYTHING. This is the case where a
+    // post-hoc implementation and a short-circuit diverge on the read while agreeing on the value.
+    const contre = run({
+        sddan: SDDAN_LOCAL, data: GRANTED,
+        cookies: {"__gpcactive": "1", "__sdgcm": "2.g:1:1111111", "euconsent-v2": "x"}
     });
-    purge.listener(purgeEvent("_ga"), true);
-    check("but cookie deletion stays active", deletedNames(purge.calls).indexOf("_ga") !== -1,
-        JSON.stringify(deletedNames(purge.calls)));
+    check("an all-granting container is not even read",
+        readsOf(contre, "__sdgcm") === 0, String(readsOf(contre, "__sdgcm")));
+    check("and the result stays denied",
+        contre.calls.defaults[0].ad_storage === "denied" &&
+        contre.calls.defaults[0].analytics_storage === "denied", JSON.stringify(contre.calls.defaults[0]));
+
+    // Marker ABSENT, container present: the second branch keeps behaving exactly as before. The
+    // bits are mixed on purpose -- an all-granted or all-denied string would pass against a
+    // template that ignored the container altogether.
+    const stocke = run({sddan: SDDAN_LOCAL, data: GRANTED, cookies: {"__sdgcm": "2.g:1:1010000"}});
+    const s = stocke.calls.defaults[0];
+    check("without the marker the container is read", readsOf(stocke, "__sdgcm") >= 1,
+        String(readsOf(stocke, "__sdgcm")));
+    check("stored signals still drive the default, signal by signal",
+        s.analytics_storage === "granted" && s.functionality_storage === "denied" &&
+        s.security_storage === "granted" && s.personalization_storage === "denied" &&
+        s.ad_storage === "denied", JSON.stringify(s));
+    check("a known choice leaves nothing to wait for", s.wait_for_update === 0, JSON.stringify(s));
+
+    // Third branch: neither marker nor container, so nothing was ever recorded -- and the row is
+    // emitted AS WRITTEN. There used to be a US perimeter test here that forced the five signals
+    // to denied; it overrode a publisher who had stated a value for their own perimeter, so it is
+    // gone. A declared table is applied as declared.
+    const US_ROW = Object.assign({}, ALL_GRANTED_ROW, {region: "US-CA"});
+    const us = run({sddan: SDDAN_LOCAL, data: withRows([US_ROW])});
+    const u = us.calls.defaults[0];
+    check("a declared US row is applied as declared, not overridden",
+        u.ad_storage === "granted" && u.analytics_storage === "granted" &&
+        u.personalization_storage === "granted", JSON.stringify(u));
+    check("including the strictly-necessary signals",
+        u.functionality_storage === "granted" && u.security_storage === "granted",
+        JSON.stringify(u));
+    // Still a default awaiting a choice, so there is still something to wait for.
+    check("and its wait_for_update is preserved", u.wait_for_update === 1000, JSON.stringify(u));
+    check("and its region is still carried",
+        JSON.stringify(u.region) === JSON.stringify(["US-CA"]), JSON.stringify(u.region));
+
+    // The plain country value is treated no differently: no region is special to this branch.
+    const usPlain = run({sddan: SDDAN_LOCAL,
+        data: withRows([Object.assign({}, ALL_GRANTED_ROW, {region: "US"})])});
+    check("the plain country value is not special either",
+        usPlain.calls.defaults[0].ad_storage === "granted",
+        JSON.stringify(usPlain.calls.defaults[0]));
+    // AUTOMATIC mode is where the US denial lives, and it is carried by the perimeter row rather
+    // than by a test: `US` sits in the regional list, which is all-denied.
+    const auto = run({sddan: SDDAN_LOCAL});
+    check("AUTO: the US is denied, by the perimeter row",
+        auto.calls.defaults[0].region.indexOf("US") >= 0 &&
+        auto.calls.defaults[0].ad_storage === "denied" &&
+        auto.calls.defaults[0].analytics_storage === "denied",
+        JSON.stringify(auto.calls.defaults[0]));
+
+    // Outside that perimeter NOTHING changes: the configured regional default stands. Without
+    // this the US rule above would be satisfied by a template denying everything everywhere.
+    const fr = run({sddan: SDDAN_LOCAL,
+        data: withRows([Object.assign({}, ALL_GRANTED_ROW, {region: "FR"})])});
+    const f = fr.calls.defaults[0];
+    check("outside the US perimeter the configured default is untouched",
+        f.ad_storage === "granted" && f.analytics_storage === "granted" &&
+        f.personalization_storage === "granted", JSON.stringify(f));
+    check("outside the US perimeter wait_for_update is untouched", f.wait_for_update === 1000,
+        JSON.stringify(f));
+    // `US` must match the perimeter, `USA`-like neighbours must not: the prefix is a perimeter,
+    // not a substring match.
+    const ru = run({sddan: SDDAN_LOCAL,
+        data: withRows([Object.assign({}, ALL_GRANTED_ROW, {region: "RU"})])});
+    check("a region merely containing the letters is not the US perimeter",
+        ru.calls.defaults[0].ad_storage === "granted", JSON.stringify(ru.calls.defaults[0]));
 }
 
 console.log("\n15. Cookie deletion: the four preservation rules");
@@ -574,6 +700,33 @@ console.log("\n15. Cookie deletion: the four preservation rules");
     check("euconsent-v2 never deleted", d0.indexOf("euconsent-v2") === -1, JSON.stringify(d0));
     check("usprivacy never deleted", d0.indexOf("usprivacy") === -1);
     check("the rest is deleted", d0.indexOf("_ga") !== -1 && d0.indexOf("_fbp") !== -1);
+
+    // The two above were the only exempt names pinned, and the list has six. The one that mattered
+    // most was not among them: the container this template READS for its default. Deleting it would
+    // erase the very choice the default replays, on the page view where the visitor has just
+    // refused -- and the sweep matches by name over everything on the page, so a name missing from
+    // the exempt list is deleted in silence.
+    //
+    // The names are READ FROM THE SOURCE rather than written here. A list written twice diverges,
+    // and the half that diverges is the one nobody re-reads.
+    const exemptSource = stripComments(SRC).split("exemptedCookiesNames = [")[1];
+    if (exemptSource === undefined) { throw new Error("the exempt cookie list was not found"); }
+    const exemptNames = (exemptSource.split("]")[0].match(/'[^']+'/g) || [])
+        .map((quoted) => quoted.slice(1, -1));
+    check("the exempt list was read from the source", exemptNames.length >= 6, exemptNames.join(","));
+
+    const everyCookie = {};
+    exemptNames.forEach((name) => { everyCookie[name] = "1"; });
+    everyCookie._ga = "1";
+    const sweep = run({sddan: SDDAN_LOCAL, data: {handleCookiesDeletion: true}, cookies: everyCookie});
+    sweep.listener(purgeEvent(exemptNames.concat(["_ga"]).join(",")), true);
+    const swept = deletedNames(sweep.calls);
+    // Witness first: without a cookie actually being deleted, the loop below holds on an empty
+    // sweep and every exempt name passes for the wrong reason.
+    check("the sweep ran", swept.indexOf("_ga") !== -1, JSON.stringify(swept));
+    exemptNames.forEach((name) => {
+        check(name + " survives the sweep", swept.indexOf(name) === -1, JSON.stringify(swept));
+    });
 
     const rules = {
         "cookie_equals": {value: "sd_keep", kept: "sd_keep", gone: "_ga"},
@@ -595,7 +748,7 @@ console.log("\n15. Cookie deletion: the four preservation rules");
 
     // The flag governs everything: without it nothing is deleted, even with a list supplied.
     const off = run({sddan: SDDAN_LOCAL, cookies: PRESENT, data: {handleCookiesDeletion: false}});
-    off.listener(purgeEvent(LIST), true);
+    check("flag off: no listener is registered", off.listener === null);
     check("flag off: nothing is deleted", deletedNames(off.calls).length === 0,
         JSON.stringify(deletedNames(off.calls)));
 
@@ -722,19 +875,19 @@ console.log("\n18. GPC acts on the consent-mode STATUS, never on LOADING the CMP
         functionality_storage: "granted", security_storage: "granted",
         wait_for_update: 1000, region: "ALL"
     };
-    const CMP = {settingsTable: [ROW], loadCmpScripts: true, partnerId: "1020", configId: "hmDnl"};
+    const CMP = Object.assign(withRows([ROW]), {partnerId: "1020", configId: "hmDnl"});
 
     const sans = run({sddan: SDDAN_LOCAL, data: CMP});
     const avec = run({sddan: SDDAN_LOCAL, data: CMP, cookies: {"__gpcactive": "1"}});
 
     // Witness: without it, a harness injecting NOTHING would satisfy the equality below.
-    check("witness -- two scripts injected without the marker", sans.calls.injected.length === 2,
+    check("witness -- one script injected without the marker", sans.calls.injected.length === 1,
         JSON.stringify(sans.calls.injected));
-    check("witness -- the stub then the bundle",
-        sans.calls.injected[0].indexOf("/stub") !== -1 && sans.calls.injected[1].indexOf("/cmp") !== -1,
+    check("witness -- and it is the bundle",
+        sans.calls.injected[0].indexOf("/cmp") !== -1,
         JSON.stringify(sans.calls.injected));
 
-    check("the marker removes no script", avec.calls.injected.length === 2,
+    check("the marker removes no script", avec.calls.injected.length === 1,
         JSON.stringify(avec.calls.injected));
     check("and they are exactly the same URLs",
         JSON.stringify(avec.calls.injected) === JSON.stringify(sans.calls.injected),
@@ -745,106 +898,1666 @@ console.log("\n18. GPC acts on the consent-mode STATUS, never on LOADING the CMP
     check("while the status itself does change",
         sans.calls.defaults[0].ad_storage === "granted" && avec.calls.defaults[0].ad_storage === "denied",
         JSON.stringify([sans.calls.defaults[0].ad_storage, avec.calls.defaults[0].ad_storage]));
-    check("and loading is unchanged when the CMP is switched off by CONFIGURATION",
-        run({sddan: SDDAN_LOCAL, data: {settingsTable: [ROW]}, cookies: {"__gpcactive": "1"}})
+    check("and loading is unchanged when the identifiers are missing",
+        run({sddan: SDDAN_LOCAL, data: withRows([ROW]), cookies: {"__gpcactive": "1"}})
             .calls.injected.length === 0);
 }
 
-console.log("\n19. The US path DECIDES, instead of borrowing another regulation");
-{
-    // `hasConsent` returns `!gdprApplies || <lookup>`: outside the GDPR, everything is granted.
-    // Flipping `tcData.gdprApplies` would be one way to get "no consent" out of it, but it mutates
-    // the CMP's object, and it makes the "five denied, TWO kept" rule impossible to hold: an
-    // all-denied derivation catches functionality and security along with the rest.
-    const TOUT_ACCORDE = {
-        ad_storage: "granted", analytics_storage: "granted", personalization_storage: "granted",
-        functionality_storage: "granted", security_storage: "granted",
-        wait_for_update: 1000, region: "ALL"
-    };
-    const US = {settingsTable: [TOUT_ACCORDE]};
-    const USPAPI = {"__uspapi": function () { return undefined; }};
-    // A FACTORY: one of the tests below asserts that the US rule does not mutate its argument, so
-    // each case must start from a fresh object.
-    const evUs = () => ({gdprApplies: false, eventStatus: "useractioncomplete"});
 
-    // The marker appears AFTER the default (the consent script writes it during the page view):
-    // the default goes out granted, and it is the update that must deny. This is the case that
-    // shows the two kept signals, the others being absorbed by deduplication.
-    const objecte = run({sddan: SDDAN_LOCAL, data: US, globals: USPAPI});
-    objecte.cookies["__gpcactive"] = "1";
-    objecte.listener(evUs(), true);
-    const u = objecte.calls.updates[0] || {};
-    check("US objection -- ad_storage denied", u.ad_storage === "denied", JSON.stringify(u));
-    check("US objection -- analytics_storage denied", u.analytics_storage === "denied");
-    check("US objection -- personalization_storage denied", u.personalization_storage === "denied");
-    check("US objection -- ad_user_data denied", u.ad_user_data === "denied");
-    check("US objection -- ad_personalization denied", u.ad_personalization === "denied");
-    check("US objection -- functionality_storage KEPT", u.functionality_storage === "granted", JSON.stringify(u));
-    check("US objection -- security_storage KEPT", u.security_storage === "granted", JSON.stringify(u));
-    check("and nothing is written, even under an objection", objecte.calls.setCookies.length === 0,
-        JSON.stringify(objecte.calls.setCookies));
-
-    // `usprivacy` says the same thing as the marker, and must produce the same verdict.
-    const parChaine = run({sddan: SDDAN_LOCAL, data: US, cookies: {"usprivacy": "1YYN"}, globals: USPAPI});
-    parChaine.listener(evUs(), true);
-    const uc = parChaine.calls.updates[0] || {};
-    check("the usprivacy opt-out yields the same verdict",
-        uc.ad_storage === "denied" && uc.functionality_storage === "granted", JSON.stringify(uc));
-
-    // An ALL-DENIED row for these two cases: the default then goes out denied, so a "granted"
-    // verdict shows up as an update. With the all-granted row, deduplication absorbs it and the
-    // test would pass without exercising anything.
-    const TOUT_REFUSE = {
-        ad_storage: "denied", analytics_storage: "denied", personalization_storage: "denied",
-        functionality_storage: "denied", security_storage: "denied",
-        wait_for_update: 1000, region: "ALL"
-    };
-    const US_REFUSE = {settingsTable: [TOUT_REFUSE]};
-
-    // A string with NO objection is a decision, not an absence: everything granted.
-    const pasObjecte = run({sddan: SDDAN_LOCAL, data: US_REFUSE, cookies: {"usprivacy": "1YNN"}, globals: USPAPI});
-    pasObjecte.listener(evUs(), true);
-    const up = pasObjecte.calls.updates[0] || {};
-    check("no objection -- all granted",
-        up.ad_storage === "granted" && up.analytics_storage === "granted", JSON.stringify(up));
-
-    // An objection ON an all-denied row: the ONLY case where routing the two kept signals through
-    // the verdict would show. With the all-granted row, the `setting.X` fallback returns 'granted'
-    // anyway, so the "two kept" assertion above passes without exercising the rule.
-    const objecteRefuse = run({sddan: SDDAN_LOCAL, data: US_REFUSE, cookies: {"usprivacy": "1YYN"}, globals: USPAPI});
-    objecteRefuse.listener(evUs(), true);
-    const ur = objecteRefuse.calls.updates[0] || {};
-    check("objection on a denying row -- the two kept signals stay granted",
-        ur.functionality_storage === "granted" && ur.security_storage === "granted", JSON.stringify(ur));
-
-    // WITNESS, and load-bearing: outside the US, "the GDPR does not apply" still means
-    // "everything is allowed". Without it, a verdict denying by default would go unnoticed and
-    // would switch off measurement for the rest of the world.
-    const horsUs = run({sddan: SDDAN_LOCAL, data: US_REFUSE});
-    horsUs.listener(evUs(), true);
-    const uh = horsUs.calls.updates[0] || {};
-    check("witness -- outside the US, everything stays granted",
-        uh.ad_storage === "granted" && uh.analytics_storage === "granted", JSON.stringify(uh));
-
-    // The object belongs to the CMP. Mutating it would borrow another regulation's machinery to
-    // say something simple, and any other reader of that object would inherit the change.
-    const ev = evUs();
-    const sansMutation = run({sddan: SDDAN_LOCAL, data: US, cookies: {"__gpcactive": "1"}, globals: USPAPI});
-    sansMutation.listener(ev, true);
-    check("tcData is NOT mutated", ev.gdprApplies === false, JSON.stringify(ev));
-
-    // A US objection also closes purpose 1, and therefore opens the cookie deletion path. Stated
-    // here rather than reached as a side effect of how the verdict is derived.
-    const purge = run({sddan: SDDAN_LOCAL, data: {settingsTable: [TOUT_ACCORDE], handleCookiesDeletion: true},
-        cookies: {"__gpcactive": "1", "_ga": "x"}, globals: USPAPI});
-    purge.listener(Object.assign(evUs(), {hostName: "example.com", cookieList: "_ga"}), true);
-    check("a US objection still opens the deletion",
-        deletedNames(purge.calls).indexOf("_ga") !== -1, JSON.stringify(deletedNames(purge.calls)));
+function commandList(queue) {
+    return (queue || []).map((entry) => Array.prototype.slice.call(entry));
 }
 
-// Assertion floor: "zero red" must never be able to mean "nothing ran". A section deleted by
-// accident would otherwise come out ALL GREEN. Raise it along with the harness.
-const MIN_CHECKS = 137;
+function named(commands, name) {
+    return commands.filter((command) => command[0] === name);
+}
+
+function without(commands, names) {
+    return commands.filter((command) => names.indexOf(command[0]) === -1);
+}
+
+console.log("\n19. Vendor selectors, ownership contract, and minimal permissions");
+{
+    const info = JSON.parse(extractJsonSection("___INFO___", "___VENDOR_DETAILS___"));
+    const currentVersionMatch = SRC.match(/const currentVersion = '([^']+)';/);
+    check("___INFO___ version matches the sandbox currentVersion",
+        currentVersionMatch !== null && String(info.version) === currentVersionMatch[1],
+        JSON.stringify({infoVersion: info.version, currentVersion: currentVersionMatch && currentVersionMatch[1]}));
+
+    const parameters = JSON.parse(extractJsonSection(
+        "___TEMPLATE_PARAMETERS___", "___SANDBOXED_JS_FOR_WEB_TEMPLATE___"));
+    const flatten = (params) => params.reduce((all, param) =>
+        all.concat([param], flatten(param.subParams || [])), []);
+    const byName = (name) => flatten(parameters).filter((param) => param.name === name)[0];
+
+    // The form asks for the CMP first and shows nothing else until it has an answer. What is
+    // pinned is that ORDER -- the two identifiers before any other field the publisher can set,
+    // then the four sections -- and NOT whether the identifiers sit at the top level or inside the
+    // opening section. Both assertions below cited a literal top-level list and a positional
+    // slice(4), so a presentation pass that wrapped the identifiers in a ZIPPY group reddened them
+    // without touching their object. An assertion that reads a layout is broken by a layout pass;
+    // one that reads the invariant is not.
+    const HOLDS_NO_VALUE = ["LABEL", "GROUP"];
+    const topLevel = parameters.map((param) => param.name);
+    const settableOrder = flatten(parameters)
+        .filter((param) => HOLDS_NO_VALUE.indexOf(param.type) === -1).map((param) => param.name);
+    check("the form opens on the CMP identifiers, then the three consent modes",
+        settableOrder[0] === "partnerId" && settableOrder[1] === "configId" &&
+        JSON.stringify(topLevel.slice(-4)) === JSON.stringify(["consent Mode",
+            "facebookConsentModeGroup", "openAiConsentModeGroup", "Cookies"]),
+        JSON.stringify({firstFields: settableOrder.slice(0, 3), topLevel: topLevel}));
+    // The sections below the opening declare NO condition, and that is a DECISION rather than an
+    // omission. They used to wait for the configuration id; the identifiers then moved inside the
+    // opening section, which put that id one level down from the sections keying on it -- and a
+    // condition naming a field outside its own level is the shape measured as non-resolving. So
+    // the declaration had become either redundant or inert, and an inert condition is worse than
+    // none: it READS as a protection that is in place. The sections show from the start.
+    //
+    // What makes that acceptable is asserted further down and not here -- "both CMP identifiers
+    // are unconditional and non-empty": they are required fields, so a tag whose ids are not
+    // filled cannot load anything whatever the form chooses to show. The scenarios pin the same
+    // thing from the other end ("loading is unchanged when the identifiers are missing").
+    //
+    // DERIVED, not positional: the opening entries are the ones that CARRY an identifier -- the
+    // section they were moved into, or the fields themselves when they sit at the top level.
+    const carriesId = (param) => flatten([param]).some((child) => child.name === "partnerId" ||
+        child.name === "configId" || child.name === "firstPartyHost");
+    let firstGated = -1;
+    parameters.forEach((param, index) => { if (carriesId(param)) { firstGated = index + 1; } });
+    const below = firstGated > 0 ? parameters.slice(firstGated) : parameters;
+    // The witness is firstGated > 0: a tree that lost its identifiers would otherwise satisfy the
+    // rule by having no opening to locate, and every section would read as correctly declared.
+    check("no section below the identifiers declares a condition it cannot resolve",
+        firstGated > 0 && below.length === 4 &&
+        below.every((param) => param.enablingConditions === undefined),
+        JSON.stringify(parameters.map((param, index) => [param.name, index < firstGated,
+            (param.enablingConditions || []).map((condition) => condition.paramName)])));
+
+    // ONE condition per field, everywhere. Multiple conditions are read as "any of these", not
+    // "all of these" -- which is how a table that asked for the activation AND the override went
+    // on showing with only the activation ticked. A second condition is therefore never a
+    // narrowing; it is a widening, and the field it widens is the one nobody re-reads.
+    const multiGated = flatten(parameters).filter((param) =>
+        (param.enablingConditions || []).length > 1);
+    check("no field carries more than one enabling condition",
+        multiGated.length === 0, JSON.stringify(multiGated.map((param) =>
+            [param.name, (param.enablingConditions || []).length])));
+
+    // And the condition must name a SIBLING -- a field declared at the same level, in the same
+    // list. That is what every working gate in this file does, and the one that did not was the
+    // measured symptom: a table that went on showing because its gate named a field one level up.
+    //
+    // The cookie exception table carried the same shape, and its own group already gated it from
+    // the right level, so its condition could only be redundant or non-resolving. It is removed
+    // rather than left to be discovered a second time: whichever of the two it was, the field is
+    // hidden by its group exactly as before.
+    const crossLevel = [];
+    (function walkLevels(list) {
+        const siblings = list.filter((param) => param.name).map((param) => param.name);
+        list.forEach((param) => {
+            (param.enablingConditions || []).forEach((condition) => {
+                if (siblings.indexOf(condition.paramName) === -1) {
+                    crossLevel.push(param.name + " -> " + condition.paramName);
+                }
+            });
+            ["subParams", "parameters"].forEach((key) => {
+                if (param[key]) { walkLevels(param[key]); }
+            });
+        });
+    })(parameters);
+    check("every enabling condition names a field at its own level",
+        crossLevel.length === 0, crossLevel.join(" | "));
+
+    // Witness: conditions exist at all. Without it, a tree that lost every gate would satisfy the
+    // two checks above by having nothing to check. The floor is SIX since the four section
+    // conditions were removed -- the opening note, three inside the Google section, and the cookie
+    // exception group -- and it is a floor rather than an equality so that adding a field with a
+    // gate does not redden a witness that exists to refuse the empty case.
+    const gateCount = flatten(parameters).reduce((n, param) =>
+        n + ((param.enablingConditions || []).length), 0);
+    check("the form still carries its gates", gateCount >= 6, String(gateCount));
+
+    // Each vendor has its own section, at the level of Google's, and carries the link to the
+    // official template it coordinates with -- a single shared section could only name both.
+    const VENDOR_SECTIONS = [
+        ["facebookConsentModeGroup", "Facebook Consent Mode", "facebookConsentMode",
+            "Activate Facebook Consent Mode",
+            "https://github.com/facebook/GoogleTagManager-WebTemplate-For-FacebookPixel"],
+        ["openAiConsentModeGroup", "OpenAI/GPT Ads Consent Mode", "openAiConsentMode",
+            "Activate OpenAI/GPT Ads Consent Mode",
+            "https://github.com/openai/ads-measurement-pixel-gtm-template"]];
+    const selectors = VENDOR_SECTIONS.map((section) => byName(section[2]));
+    VENDOR_SECTIONS.forEach((section) => {
+        const vendorGroup = byName(section[0]) || {};
+        const selector = byName(section[2]) || {};
+        check("the " + section[1] + " section is named like Google's and links its template",
+            vendorGroup.type === "GROUP" && vendorGroup.displayName === section[1] &&
+            (vendorGroup.help || "").indexOf(section[4]) !== -1 &&
+            selector.checkboxText === section[3],
+            JSON.stringify([vendorGroup.displayName, selector.checkboxText]));
+    });
+    check("both vendor settings are binary checkboxes that default to off",
+        selectors.length === 2 && selectors.every((selector) =>
+            selector && selector.type === "CHECKBOX" && selector.defaultValue === false &&
+            selector.selectItems === undefined),
+        JSON.stringify(selectors.map((selector) => selector &&
+            [selector.name, selector.type, selector.defaultValue])));
+
+    // The page-level settings are binary BY DESIGN, and this guard is what keeps them so. A third
+    // "inherit the CMP configuration" state is not a nicety this tag chose to skip: it runs before
+    // any CMP script, so there is no configuration for it to read, and it is itself the one
+    // preparing these defaults. A selector reintroduced on either brings back a state nothing can
+    // honour. They are found by name anywhere in the parameter tree, so moving one between groups
+    // does not quietly drop it from this check.
+    const PAGE_LEVEL = ["facebookConsentMode", "openAiConsentMode"];
+    const pageLevel = flatten(parameters).filter((param) => PAGE_LEVEL.indexOf(param.name) !== -1);
+    check("the page-level settings exist and neither is a selector",
+        pageLevel.length === PAGE_LEVEL.length && pageLevel.every((param) =>
+            param.type === "CHECKBOX" && param.defaultValue === false &&
+            param.selectItems === undefined),
+        JSON.stringify(pageLevel.map((param) => [param.name, param.type, param.defaultValue])));
+
+    // The US regulation scope is NOT a template setting, and its absence is load-bearing: this tag
+    // never acts on it -- it cannot know the visitor's state -- so exposing it would have been a
+    // pure pass-through whose only effect was to override the CMP from a page with no opinion.
+    // An unchecked box would then have silently narrowed a scope the publisher had widened.
+    const scopeParams = flatten(parameters).filter((param) =>
+        String(param.name || "").toLowerCase().indexOf("allstates") !== -1);
+    check("no parameter offers the US regulation scope", scopeParams.length === 0,
+        JSON.stringify(scopeParams.map((param) => param.name)));
+    check("the sandboxed body publishes no US scope property",
+        SRC.indexOf("gtmCcpaApplyToAllStates") === -1);
+
+    // Loading the CMP is no longer a choice, and its absence is load-bearing twice over: this tag
+    // prepares the defaults that only the CMP can then resolve, and it installs the mini-stubs the
+    // CMP takes over. A box that skipped the load would leave both half-done -- defaults posted
+    // with nobody to update them, queues with nobody to drain them.
+    const skipParams = flatten(parameters).filter((param) =>
+        String(param.name || "").toLowerCase().indexOf("loadcmp") !== -1);
+    check("no parameter offers to skip loading the CMP", skipParams.length === 0,
+        JSON.stringify(skipParams.map((param) => param.name)));
+    check("the sandboxed body reads no such setting", SRC.indexOf("loadCmpScripts") === -1);
+    // Required, and unconditionally shown: a field revealed by a condition that no longer exists
+    // is a field nobody can fill.
+    const IDENTIFIERS = ["partnerId", "configId"];
+    const identifiers = flatten(parameters).filter((param) => IDENTIFIERS.indexOf(param.name) !== -1);
+    check("both CMP identifiers are unconditional and non-empty",
+        identifiers.length === IDENTIFIERS.length && identifiers.every((param) =>
+            param.enablingConditions === undefined &&
+            (param.valueValidators || []).some((validator) => validator.type === "NON_EMPTY")),
+        JSON.stringify(identifiers.map((param) =>
+            [param.name, param.enablingConditions !== undefined,
+             (param.valueValidators || []).map((validator) => validator.type)])));
+
+    // The fine-grained area is an OVERRIDE of the automatic default state, so it hangs off a box
+    // that starts unchecked -- which is what makes a container saved against an earlier version
+    // fall back to the automatic path.
+    const override = byName("overrideDefaultConsent");
+    check("the override is a checkbox that starts unchecked",
+        override !== undefined && override.type === "CHECKBOX" && override.defaultValue === false,
+        JSON.stringify(override && [override.type, override.defaultValue]));
+    const gatedOn = (param) => ((param || {}).enablingConditions || []).map((condition) =>
+        condition.paramName + "=" + condition.paramValue).sort().join(",");
+    check("the override hangs off the activation, at its own level",
+        gatedOn(override) === "consentMode=true" &&
+        (byName("consent Mode").subParams || []).some((param) => param.name === "consentMode"),
+        gatedOn(override));
+    // The table IS the fine-grained area now. The group that used to wrap it carried the heading
+    // and the condition, and could gate neither: a section cannot hide itself, and the condition
+    // it handed down named a field one level above the table's own. The table carries the heading
+    // and one condition naming its own neighbour, which is the shape the shipped templates use.
+    check("the fine-grained table is gated on the override alone, beside it",
+        gatedOn(byName("customConsentSettings")) === "overrideDefaultConsent=true" &&
+        byName("defaultSettings") === undefined &&
+        (byName("consent Mode").subParams || []).some((param) =>
+            param.name === "customConsentSettings"),
+        JSON.stringify([gatedOn(byName("customConsentSettings")),
+            byName("defaultSettings") !== undefined]));
+    // An empty table is a legitimate state rather than a mistake, and the body already treats it
+    // as one: the override falls back to the automatic default state when no rule is declared,
+    // which the behaviour run below exercises. An editor rule demanding a row would refuse to save
+    // exactly that container -- a publisher who checks the box, looks at the rules, and decides the
+    // automatic state was right after all would be stuck with a form they cannot leave.
+    const table = byName("customConsentSettings");
+    check("the fine-grained table demands no row",
+        table !== undefined && (table.valueValidators || []).length === 0,
+        JSON.stringify(table && (table.valueValidators || []).map((validator) => validator.type)));
+    // The table was RENAMED so rows saved against an earlier version are dropped rather than
+    // replayed unreviewed. The old name coming back would silently carry them over again.
+    check("the earlier table name is gone from the parameters and the body",
+        flatten(parameters).every((param) => param.name !== "settingsTable") &&
+        SRC.indexOf("data.settingsTable") === -1);
+    check("the fine-grained area keeps its name in the interface",
+        table !== undefined && table.displayName === "Default Consent Mode Settings",
+        JSON.stringify(table && table.displayName));
+
+    // The summary panel shows a field only when its value differs from its default -- unless the
+    // field carries alwaysInSummary. The Google activation box was the single activation box in
+    // this form without that flag AND the only one whose default IS the on state, so the section
+    // disappeared from the summary at exactly the moment the feature was on: the reader saw two
+    // sub-options under a sub-heading of their own, and no "Google Consent Mode" above them.
+    //
+    // What is pinned is THAT defect, not a house style, and the distinction is the whole point:
+    // the rule used to read "every settable field", which is strictly wider than what was
+    // measured. A box that defaults to off, or a table that defaults to empty, is already surfaced
+    // by the panel as soon as the publisher touches it -- so taking the flag off one hides nothing,
+    // and a presentation pass that trims summary noise is not a regression. A field whose default
+    // IS its active state is the only one the panel can hide at the moment it matters.
+    //
+    // The rule is DERIVED from the tree rather than written as a list, so a field added later is
+    // covered without anyone remembering this: a list would have to be extended by the same person
+    // who forgot the flag. LABEL and GROUP are exempt because they hold no value to summarize --
+    // they are the heading the flag makes appear.
+    const HAS_DEFAULT_ON = (param) => param.defaultValue !== undefined &&
+        param.defaultValue !== false && param.defaultValue !== "" &&
+        !(Array.isArray(param.defaultValue) && param.defaultValue.length === 0);
+    const settable = flatten(parameters).filter((param) =>
+        HOLDS_NO_VALUE.indexOf(param.type) === -1);
+    const missingFromSummary = settable.filter((param) =>
+        HAS_DEFAULT_ON(param) && param.alwaysInSummary !== true);
+    check("every field whose default is its active state shows in the summary",
+        missingFromSummary.length === 0,
+        JSON.stringify(missingFromSummary.map((param) => [param.name, param.type])));
+    // Witness: such a field exists at all. Without it, a form whose every default was the off
+    // state would satisfy the rule above by having nothing to check -- and the flag could then be
+    // dropped from the one box that needs it without a single assertion moving.
+    check("the form still has a field whose default is its active state",
+        settable.some(HAS_DEFAULT_ON),
+        JSON.stringify(settable.filter(HAS_DEFAULT_ON).map((param) => param.name)));
+    // Witness: there are fields to check at all. Without it, a tree reduced to headings would
+    // satisfy the check above by having nothing to check.
+    check("the form still has fields to summarize", settable.length >= 10, String(settable.length));
+
+    const uiCopy = VENDOR_SECTIONS.map((section) => {
+        const vendorGroup = byName(section[0]) || {};
+        const selector = byName(section[2]) || {};
+        return [vendorGroup.displayName, vendorGroup.help,
+            selector.checkboxText, selector.help].join(" ");
+    }).join(" ");
+    check("wording describes the prepared default and CMP-owned updates",
+        uiCopy.indexOf("default") !== -1 &&
+        uiCopy.indexOf("the CMP sends every subsequent update") !== -1, uiCopy);
+    check("wording states that the CMP configuration is not consulted",
+        uiCopy.indexOf("the CMP configuration is not read") !== -1, uiCopy);
+    check("UI no longer says GTM owns vendor updates",
+        uiCopy.indexOf("GTM owns consent commands") === -1 && uiCopy.indexOf("responsible for updates") === -1, uiCopy);
+    check("tooltips keep compatibility and SDK download limits",
+        uiCopy.indexOf("Custom HTML") !== -1 && uiCopy.indexOf("third-party") !== -1 &&
+        uiCopy.indexOf("does not prevent") !== -1 && uiCopy.indexOf("SDK") !== -1);
+
+    // What the form has to say for itself, read from the whole tree rather than from the two
+    // vendor sections: three of these sentences live on fields that are not vendor sections.
+    const formCopy = flatten(parameters).map((param) =>
+        [param.displayName, param.help, param.checkboxText].join(" ")).join(" ");
+    check("the heading states that the CMP is loaded and cannot be skipped",
+        formCopy.indexOf("always loads the Sirdata CMP") !== -1 &&
+        formCopy.indexOf("no option to skip it") !== -1, formCopy.slice(0, 400));
+    // Compliance is not a property of these boxes, and saying so is the point: every other line in
+    // this form describes what the tag does, and a reader can take the sum of them for a verdict.
+    check("the heading asks for a review by a data protection officer",
+        formCopy.indexOf("DPO") !== -1 && formCopy.indexOf("review the result") !== -1,
+        formCopy.slice(0, 400));
+    check("the form still offers to create an account",
+        formCopy.indexOf("Create a free") !== -1 && formCopy.indexOf("abconsent.com") !== -1);
+    // The reason to turn a consent mode on at all: the vendor's own SDK reads the signal and holds
+    // itself back, so the publisher does not build a trigger or a blocking rule per tag. Nothing
+    // else in this form says what these sections are FOR.
+    check("wording explains that a consent mode makes a vendor gate itself",
+        formCopy.indexOf("gate itself") !== -1 && formCopy.indexOf("tag by tag") !== -1, formCopy);
+    // The Google section is the one that never said it. Its two vendor neighbours have carried
+    // "the CMP configuration is not read" since they were written, and this box -- the only one of
+    // the three whose default is ON -- is the one a publisher is most likely to assume inherits.
+    const googleCopy = [(byName("consent Mode") || {}).help,
+        (byName("consentMode") || {}).help].join(" ");
+    check("the Google section says its box decides over the stored configuration",
+        googleCopy.indexOf("never read from this page") !== -1 &&
+        googleCopy.indexOf("unchecked means off here") !== -1, googleCopy);
+    // Meta answers a US visitor with Limited Data Use, not with a consent command, and the two are
+    // not interchangeable: a publisher reading only "consent grant or revoke" would look for a
+    // signal that never comes there. The neighbouring sentence already says the temporary revoke
+    // is NOT Limited Data Use, which makes the omission easy to read as "there is none".
+    const metaCopy = (byName("facebookConsentMode") || {}).help || "";
+    check("the Meta wording names Limited Data Use as the United States form",
+        metaCopy.indexOf("United States") !== -1 &&
+        metaCopy.indexOf("Limited Data Use (dataProcessingOptions)") !== -1, metaCopy);
+
+    const permissionsText = extractJsonSection("___WEB_PERMISSIONS___", "___TESTS___");
+    const permissionObjects = JSON.parse(permissionsText);
+    const accessGlobals = permissionObjects.filter((permission) =>
+        permission.instance.key.publicId === "access_globals")[0];
+    const globalItems = accessGlobals.instance.param.filter((parameter) => parameter.key === "keys")[0].value.listItem;
+    const rows = globalItems.map((item) => {
+        const row = {};
+        for (let i = 0; i < item.mapKey.length; i++) {
+            const key = item.mapKey[i].string;
+            const value = item.mapValue[i];
+            row[key] = value.type === 1 ? value.string : value.boolean;
+        }
+        return [row.key, row.read, row.write, row.execute];
+    });
+    // Every entry must carry the NUMERIC type code GTM serializes maps with -- 3, not the string
+    // "MAP". Two entries shipped with the string form and nothing here saw it: this block parses
+    // mapKey/mapValue and never looked at the item's own type, so a shape the editor may refuse
+    // was invisible to a green harness.
+    globalItems.forEach((item) => {
+        const key = (item.mapValue && item.mapValue[0] && item.mapValue[0].string) || "?";
+        check("access_globals entry " + key + " carries the numeric map type",
+            item.type === 3, JSON.stringify(item.type));
+    });
+    // And nothing may be declared that the sandboxed code never touches: an unused permission is
+    // access granted for nothing. `SDDAN` was declared readable and never read.
+    const sandboxed = stripComments(SRC);
+    rows.forEach((row) => {
+        const root = row[0].split(".")[0];
+        check("access_globals entry " + row[0] + " is actually reached by the code",
+            sandboxed.indexOf(root) !== -1, row[0]);
+    });
+    ["__sdcmpapi", "__uspapi",
+        "fbq", "fbq.queue", "fbq.queue.push", "fbq.push", "_fbq",
+        "oaiq", "oaiq.q", "oaiq.queue", "oaiq.queue.push",
+        "oaiq.queue.__sdSharedStorage", "oaiq.q.__sdSharedStorage"].forEach((key) => {
+        check("access_globals includes " + key, rows.some((row) => row[0] === key), JSON.stringify(rows));
+    });
+    // THE PERMISSIONS FOLLOW WHAT THE TEMPLATE PREPARES, and these three are the ones it stopped
+    // preparing. A declared permission that nothing uses is access granted for nothing, and the
+    // check above only says what must be present -- the absence needs saying too, or the entries
+    // would linger with no call behind them.
+    ["__tcfapi", "__gpp", "__gpp.queue", "__gpp.events"].forEach((key) => {
+        check("access_globals no longer declares " + key,
+            !rows.some((row) => row[0] === key), JSON.stringify(rows));
+    });
+    // `__uspapi` stays READABLE and nothing more: `readUsOptOut` uses its presence as the witness
+    // that the page is under that regulation. It is never written nor called.
+    check("the US Privacy API is read and nothing else",
+        rows.some((row) => row[0] === "__uspapi" && row[1] === true &&
+            row[2] === false && row[3] === false), JSON.stringify(rows));
+    // The shared-storage question is asked for OpenAI ONLY. Meta reads its canonical list alone,
+    // because a distinct `_fbq.queue` belongs to another advertiser's pixel rather than to a second
+    // copy of this one's pending work.
+    const probeCalls = Array.from(SRC.matchAll(/queuesShareStorage\('([^']+)',\s*'([^']+)'\)/g));
+    check("the shared-storage question is asked once, for OpenAI", probeCalls.length === 1 &&
+        probeCalls[0][1] === "oaiq.queue" && probeCalls[0][2] === "oaiq.q",
+        JSON.stringify(probeCalls.map((match) => [match[1], match[2]])));
+    // The mark is a named property written and read back, so what it needs is read/write on two
+    // exact paths -- and crucially NO execute anywhere: an execute permission would be the sign
+    // that a publisher-supplied method is being called again.
+    probeCalls.forEach((match) => {
+        const written = match[1] + ".__sdSharedStorage";
+        const observed = match[2] + ".__sdSharedStorage";
+        check("the mark is writable on " + written,
+            rows.some((row) => row[0] === written && row[1] === true && row[2] === true && row[3] === false),
+            JSON.stringify(rows));
+        check("the mark is readable on " + observed,
+            rows.some((row) => row[0] === observed && row[1] === true && row[3] === false),
+            JSON.stringify(rows));
+    });
+    check("no queue method carries an execute permission",
+        !rows.some((row) => /\.(push|splice)$/.test(row[0]) && row[3] === true &&
+            row[0] !== "fbq.queue.push" && row[0] !== "oaiq.queue.push" &&
+            // OUR OWN list, not a publisher's: the consent namespace is created by this template or
+            // by the consent script, never supplied by the page. The rule this guard enforces is
+            // about calling back into a method the PUBLISHER put there.
+            row[0] !== "ABconsentCMP.openai.preQueue.push"), JSON.stringify(rows));
+    check("the removed check leaves no permission behind",
+        !rows.some((row) => row[0] === "fbq.queue.splice" || row[0] === "oaiq.queue.splice" ||
+            row[0] === "_fbq.queue"), JSON.stringify(rows));
+    // The sentinel concept is gone entirely, so "no sentinel is ever published" holds by
+    // construction rather than by filtering it back out of the rebuilt queues.
+    check("no sentinel value is written into a queue at all",
+        SRC.indexOf("QUEUE_STORAGE_PROBE") === -1 && SRC.indexOf("__sd_queue_storage_probe__") === -1);
+    check("no publisher queue method is ever called",
+        SRC.indexOf("'.push'") === -1 && SRC.indexOf("'.splice'") === -1, SRC.indexOf("'.splice'"));
+    check("initialized SDK detection permissions stay minimal",
+        rows.some((row) => row[0] === "fbq.callMethod" && row[1] === true && row[2] === false && row[3] === false) &&
+        rows.some((row) => row[0] === "oaiq.__oaiqInitialized" && row[1] === true && row[2] === false && row[3] === false),
+        JSON.stringify(rows));
+    check("the Meta globals stay exact read/write paths",
+        rows.some((row) => row[0] === "fbq" && row[1] === true && row[2] === true) &&
+        rows.some((row) => row[0] === "fbq.queue" && row[1] === true && row[2] === true),
+        JSON.stringify(rows));
+    // This assertion said the opposite until the routing was fixed: it pinned the ABSENCE of this
+    // permission, which is what a queue that only ever appends needs. The permission is now what
+    // lets the installed function hand a call to the SDK, so its absence is the defect.
+    check("the installed function may hand a call to the SDK",
+        rows.some((row) => row[0] === "fbq.callMethod.apply" && row[1] === true && row[3] === true),
+        JSON.stringify(rows));
+    check("no vendor SDK domain was added to inject_script",
+        permissionsText.indexOf("connect.facebook.net") === -1 && permissionsText.indexOf("bzrcdn.openai.com") === -1);
+    // READ WITH COMMENTS STRIPPED, and that is not a nicety: the comment explaining that the
+    // served stub is what installs the locators and the `postMessage` bridges NAMES both, so the
+    // raw source made this assertion fail on its own documentation -- which invites deleting the
+    // explanation rather than the cause.
+    const withoutComments = stripComments(SRC);
+    check("template creates no locator iframe or message listener",
+        withoutComments.indexOf("Locator") === -1 && withoutComments.indexOf("postMessage") === -1 &&
+        withoutComments.indexOf("addEventListener('message'") === -1);
+}
+
+console.log("\n20. Same-window mini-stubs and takeover handoff");
+{
+    const thirdPartyUsp = function () { return "publisher"; };
+    const valid = run({sddan: SDDAN_LOCAL, globals: {__uspapi: thirdPartyUsp}, data: {
+        partnerId: "1020", configId: "public"
+    }});
+    check("only the Sirdata mini-stub is installed", typeof valid.globals.__sdcmpapi === "function");
+    check("pre-existing third-party CMP API is never replaced", valid.globals.__uspapi === thirdPartyUsp);
+
+    // THE THREE WITHDRAWABLE APIs ARE LEFT ALONE, and this is the assertion that carries the
+    // decision. The served configuration can take each of them away -- `__uspapi` under GDPR,
+    // `__tcfapi` when the publisher has turned TCF off, `__gpp` when they have turned GPP off --
+    // and this tag runs before any CMP script, so it cannot know which. Preparing one meant
+    // posting an API that the configuration then removes; the GPP one went further and answered
+    // `listenerRegistered` with an id, confirming a registration it could not honour.
+    //
+    // `__sdcmpapi` is the exception BECAUSE it is ours: every entry point installs it and none
+    // withdraws it, so it cannot become a lie. It is also what this tag's own cookie-deletion
+    // listener registers on, before the request rather than after it.
+    ["__tcfapi", "__uspapi", "__gpp"].forEach((apiName) => {
+        const untouched = run({sddan: SDDAN_LOCAL, data: {partnerId: "1020", configId: "public"}});
+        check("the template does not prepare " + apiName,
+            untouched.globals[apiName] === undefined, String(untouched.globals[apiName]));
+    });
+
+    check("handoff marks only APIs actually installed by the template",
+        JSON.stringify(valid.globals.ABconsentCMP.gtmTemplateMiniStubApis) ===
+        JSON.stringify({__sdcmpapi: true}),
+        JSON.stringify(valid.globals.ABconsentCMP.gtmTemplateMiniStubApis));
+
+    // Le `ping` du mini-stub, desormais atteignable par le seul `__sdcmpapi` : c'est la meme
+    // branche de `installQueuedMiniStub`, elle change juste de nom d'API.
+    let sdPing = null;
+    if (typeof valid.globals.__sdcmpapi === "function") valid.globals.__sdcmpapi("ping", 2, (value, ok) => { sdPing = [value, ok]; });
+    check("the Sirdata mini-stub ping reports a pending stub", sdPing && sdPing[1] === true &&
+        sdPing[0].cmpLoaded === false && sdPing[0].cmpStatus === "stub" && sdPing[0].gdprApplies === undefined,
+        JSON.stringify(sdPing));
+
+    const sdArgs = ["getConfig", 2, function () {}];
+    if (typeof valid.globals.__sdcmpapi === "function") valid.globals.__sdcmpapi.apply(null, sdArgs);
+    const sdQueue = typeof valid.globals.__sdcmpapi === "function" ? valid.globals.__sdcmpapi() : [];
+    // L'APPEL EST GARDE, et il ne l'etait pas : un appel nu dans l'expression de la verification
+    // faisait CRASHER le harnais quand `__sdcmpapi` manque, au lieu de rendre un FAIL. Les
+    // sections suivantes ne s'executaient alors plus, et l'injection se lisait comme prouvee
+    // alors que rien n'avait tourne apres elle.
+    check("Sirdata API queue is recoverable and preserves every named argument",
+        typeof valid.globals.__sdcmpapi === "function" &&
+        sdQueue === valid.globals.__sdcmpapi() && sdQueue.length === 1 &&
+        sdQueue[0] && sdQueue[0].length === 3 && sdQueue[0][2] === sdArgs[2],
+        JSON.stringify(sdQueue));
+    if (typeof valid.globals.__sdcmpapi === "function") {
+        valid.globals.__sdcmpapi("removeEventListener", 2, function () {}, 42);
+    }
+    check("Sirdata API queue preserves the optional parameter without padding calls that omit it",
+        sdQueue[0] && sdQueue[0].length === 3 &&
+        sdQueue[1] && sdQueue[1].length === 4 && sdQueue[1][3] === 42,
+        JSON.stringify(sdQueue));
+
+    // `.queue` et `.events` etaient propres au mini-stub GPP -- la seule des quatre a repondre
+    // `addEventListener`. Les deux proprietes partent avec lui, et leur absence se dit : les
+    // declarer sans les ecrire serait une permission accordee pour rien.
+    check("no GPP queue or events property is published",
+        valid.globals["__gpp.queue"] === undefined && valid.globals["__gpp.events"] === undefined &&
+        stripComments(SRC).indexOf("__gpp") === -1, stripComments(SRC).indexOf("__gpp"));
+
+    const replayed = [];
+    function replayTarget() {
+        replayed.push(Array.prototype.slice.call(arguments));
+    }
+    if (sdQueue[0]) replayTarget.apply(null, sdQueue[0]);
+    check("the mini-stub queue uses arrays replayable via apply",
+        Array.isArray(sdQueue[0]) && replayed.length === 1 && replayed[0][0] === "getConfig",
+        JSON.stringify(replayed.map((entry) => entry[0])));
+
+    const noConfig = run({sddan: SDDAN_LOCAL, data: {partnerId: "1020"}});
+    check("mini-stubs are absent when the configuration identifier is missing",
+        noConfig.globals.__tcfapi === undefined && noConfig.globals.__sdcmpapi === undefined &&
+        noConfig.globals.__uspapi === undefined && noConfig.globals.__gpp === undefined);
+    const noPartner = run({sddan: SDDAN_LOCAL, data: {configId: "public"}});
+    check("mini-stubs are absent when the partner identifier is missing",
+        noPartner.globals.__tcfapi === undefined && noPartner.globals.__sdcmpapi === undefined &&
+        noPartner.globals.__uspapi === undefined && noPartner.globals.__gpp === undefined);
+
+    function thirdPartyApi() { return "third-party"; }
+    thirdPartyApi.queue = ["keep"];
+    thirdPartyApi.events = ["keep-event"];
+    const allThirdParty = run({sddan: SDDAN_LOCAL, globals: {
+        __tcfapi: thirdPartyApi, __sdcmpapi: thirdPartyApi, __uspapi: thirdPartyApi, __gpp: thirdPartyApi
+    }, data: {partnerId: "1020", configId: "public"}});
+    check("no pre-existing CMP API is replaced",
+        allThirdParty.globals.__tcfapi === thirdPartyApi && allThirdParty.globals.__sdcmpapi === thirdPartyApi &&
+        allThirdParty.globals.__uspapi === thirdPartyApi && allThirdParty.globals.__gpp === thirdPartyApi);
+    check("no false handoff marker is published for third-party APIs",
+        !allThirdParty.globals.ABconsentCMP.gtmTemplateMiniStubApis ||
+        Object.keys(allThirdParty.globals.ABconsentCMP.gtmTemplateMiniStubApis).length === 0,
+        JSON.stringify(allThirdParty.globals.ABconsentCMP.gtmTemplateMiniStubApis));
+
+    const staleMarkerMap = {__tcfapi: true, __sdcmpapi: true, __uspapi: true, __gpp: true};
+    const staleThirdParty = run({sddan: SDDAN_LOCAL, globals: {
+        ABconsentCMP: {gtmTemplateMiniStubApis: staleMarkerMap},
+        __tcfapi: thirdPartyApi, __sdcmpapi: thirdPartyApi, __uspapi: thirdPartyApi, __gpp: thirdPartyApi
+    }, data: {partnerId: "1020", configId: "public"}});
+    check("stale handoff markers never claim pre-existing third-party APIs",
+        staleThirdParty.globals.__tcfapi === thirdPartyApi &&
+        staleThirdParty.globals.__sdcmpapi === thirdPartyApi &&
+        staleThirdParty.globals.__uspapi === thirdPartyApi && staleThirdParty.globals.__gpp === thirdPartyApi &&
+        Object.keys(staleThirdParty.globals.ABconsentCMP.gtmTemplateMiniStubApis).length === 0,
+        JSON.stringify(staleThirdParty.globals.ABconsentCMP.gtmTemplateMiniStubApis));
+}
+
+console.log("\n21. Activation overrides and loader ordering");
+{
+    const publishesVendorUpdateOwnership = (cmp) => Object.keys(cmp || {}).some((key) =>
+        key.indexOf("Updates" + "OwnedByGtm") !== -1);
+    const enabled = run({sddan: SDDAN_LOCAL, data: {
+        facebookConsentMode: true, openAiConsentMode: true,
+        partnerId: "1020", configId: "public"
+    }});
+    check("enabled publishes activation overrides",
+        enabled.globals.ABconsentCMP.gtmFacebookConsentMode === true &&
+        enabled.globals.ABconsentCMP.gtmOpenAiConsentMode === true);
+    check("enabled publishes no vendor update ownership marker",
+        !publishesVendorUpdateOwnership(enabled.globals.ABconsentCMP));
+    check("Google updates are delegated to the CMP when Consent Mode is active",
+        enabled.globals.ABconsentCMP.enableConsentMode === true);
+    check("Google default handoff is true before the first default is emitted",
+        enabled.calls.defaults.length > 0 && enabled.calls.defaultStates[0].googleDefaultSet === true,
+        JSON.stringify(enabled.calls.defaultStates));
+    const firstState = enabled.calls.injectionStates[0] || {};
+    // L'invariant est un ORDRE : le marqueur doit etre visible AU MOMENT de l'injection, donc le
+    // mini-stub est pose avant que la requete ne partre. Les trois autres cles sont assertees
+    // ABSENTES ici aussi, sans quoi un marqueur reintroduit passerait par ce controle-ci.
+    check("overrides and handoff are visible at the CMP injection",
+        firstState.facebook === true && firstState.openai === true &&
+        firstState.enableConsentMode === true && firstState.googleDefaultSet === true &&
+        JSON.stringify(firstState.miniStubApis) === JSON.stringify({__sdcmpapi: true}),
+        JSON.stringify(firstState));
+    // The container identity is published too, and NOTHING pinned it: the three properties could
+    // have gone in a later pass without a single assertion reddening, and the served script has no
+    // other way to know which container loaded it -- the request carries the tag manager's NAME,
+    // never its container.
+    //
+    // It is written on the first run only. That is idempotence, not an omission: `cmpLoaded` is a
+    // re-entry guard, and a second firing has nothing new to say. The one case where it would be
+    // new -- a publisher's own snippet booted the CMP first, then this tag fires -- is a write
+    // after the reader has already run, so it could not be read in time either way.
+    //
+    // The injection snapshot is what makes this an ORDER rather than a value: the identity has to
+    // be on the published object BEFORE the request goes out, or nothing on the served side could
+    // act on it.
+    check("the container identity is published, and visible at the injection",
+        enabled.globals.ABconsentCMP.gtmTemplateContainerId === "GTM-TEST" &&
+        enabled.globals.ABconsentCMP.gtmTemplateContainerVersion === "1" &&
+        enabled.globals.ABconsentCMP.gtmTemplateContainerFirstPartyServing === false &&
+        firstState.containerId === "GTM-TEST",
+        JSON.stringify(enabled.globals.ABconsentCMP) + " | " + JSON.stringify(firstState));
+    const noGoogle = run({sddan: SDDAN_LOCAL, data: {
+        consentMode: false, partnerId: "1020", configId: "public"
+    }});
+    check("Google Consent Mode switched off publishes no default handoff",
+        noGoogle.calls.defaults.length === 0 &&
+        noGoogle.globals.ABconsentCMP.gtmGoogleConsentModeDefaultSet === undefined &&
+        (noGoogle.calls.injectionStates[0] || {}).googleDefaultSet === undefined,
+        JSON.stringify(noGoogle.calls));
+    // Switched off has to be ANNOUNCED, not left absent. An absent property resolves to whatever
+    // the served script has stored, so a publisher who unticks the box would keep the default and
+    // the updates of a configuration this page no longer drives -- the switch would do nothing.
+    check("Google Consent Mode switched off is announced as false",
+        noGoogle.globals.ABconsentCMP.enableConsentMode === false &&
+        (noGoogle.calls.injectionStates[0] || {}).enableConsentMode === false,
+        JSON.stringify(noGoogle.globals.ABconsentCMP));
+    // The nominal path: nothing declared, so the automatic default state is what goes out. A
+    // publisher who takes the defaults over but leaves the table empty lands here too -- emitting
+    // no default at all would be worse than either mode.
+    const automatic = run({sddan: SDDAN_LOCAL, data: {partnerId: "1020", configId: "public"}});
+    const auto = automatic.calls.defaults[0] || {};
+    check("the automatic default state is emitted once per perimeter",
+        automatic.calls.defaults.length === 2, JSON.stringify(automatic.calls.defaults));
+    check("the automatic default state refuses what the notice is about",
+        auto.ad_storage === "denied" && auto.ad_user_data === "denied" &&
+        auto.ad_personalization === "denied" && auto.analytics_storage === "denied" &&
+        auto.personalization_storage === "denied", JSON.stringify(auto));
+    // And grants the two that are not. One keeps the page working, the other keeps sign-in and
+    // anti-fraud working; denying them buys no protection and breaks both until the answer arrives.
+    check("and grants the two a notice is not about",
+        auto.functionality_storage === "granted" && auto.security_storage === "granted",
+        JSON.stringify(auto));
+    // A default awaiting an answer, so there IS something to wait for -- and it names the regions
+    // where a regulation applies, which is what leaves everywhere else to the global row.
+    check("the regulated default waits for an update and names its perimeter",
+        auto.wait_for_update === 1000 && auto.region && auto.region.length > 20,
+        JSON.stringify(auto));
+    const emptyOverride = run({sddan: SDDAN_LOCAL, data: Object.assign(withRows([]),
+        {partnerId: "1020", configId: "public"})});
+    check("an override with no rule falls back to the automatic default state",
+        JSON.stringify(emptyOverride.calls.defaults) === JSON.stringify(automatic.calls.defaults),
+        JSON.stringify(emptyOverride.calls.defaults));
+    // Witness: the two runs above would agree just as well if rows were ignored outright. This is
+    // what says the override still reaches the emission.
+    const realOverride = run({sddan: SDDAN_LOCAL, data: Object.assign(
+        withRows([{ad_storage: "granted", analytics_storage: "granted",
+            personalization_storage: "granted", functionality_storage: "granted",
+            security_storage: "granted", wait_for_update: 1000, region: "ALL"}]),
+        {partnerId: "1020", configId: "public"})});
+    check("witness -- declared rules do replace the automatic default state",
+        realOverride.calls.defaults[0].ad_storage === "granted",
+        JSON.stringify(realOverride.calls.defaults[0]));
+    // And rows WITHOUT the override are rows the publisher never confirmed: a container saved
+    // against an earlier version must not have them replayed.
+    const staleRows = run({sddan: SDDAN_LOCAL, data: {
+        customConsentSettings: [{ad_storage: "granted", analytics_storage: "granted",
+            personalization_storage: "granted", functionality_storage: "granted",
+            security_storage: "granted", wait_for_update: 1000, region: "ALL"}],
+        partnerId: "1020", configId: "public"
+    }});
+    check("rules left over from an earlier configuration are ignored",
+        JSON.stringify(staleRows.calls.defaults[0]) === JSON.stringify(auto),
+        JSON.stringify(staleRows.calls.defaults[0]));
+    // The snapshot handed to the served CMP is built by side effects inside the emission loop, so
+    // it follows the same resolved list. A loop that never ran would leave every signal at
+    // "not used" and hand over something the CMP cannot act on -- without failing anything else.
+    const handoff = JSON.parse(automatic.globals.ABconsentCMP.gtmTemplateDefaultConsent || "{}");
+    check("the automatic state is handed to the CMP as a real snapshot",
+        handoff.ad_storage === "denied" && handoff.analytics_storage === "denied" &&
+        handoff.personalization_storage === "denied" &&
+        handoff.functionality_storage === "granted" && handoff.security_storage === "granted",
+        JSON.stringify(handoff));
+    // One request, and it is the bundle. The page is prepared by this tag -- queues and defaults
+    // -- so a request in front of the bundle would spend a round trip re-doing that work.
+    check("the loader asks for the bundle and nothing in front of it",
+        enabled.calls.injected.length === 1 && enabled.calls.injected[0].indexOf("/cmp") !== -1,
+        JSON.stringify(enabled.calls.injected));
+    check("the request names the tag manager that prepared the page",
+        enabled.calls.injected[0].indexOf("tms=gtm") !== -1, JSON.stringify(enabled.calls.injected));
+    check("regular loader completes GTM exactly once", enabled.calls.successes === 1 && enabled.calls.failures === 0,
+        JSON.stringify([enabled.calls.successes, enabled.calls.failures]));
+    check("Consent Mode update API is not required or called",
+        SRC.indexOf("require('updateConsentState')") === -1 && enabled.calls.updates.length === 0);
+    check("no consent listener is registered when cookie deletion is disabled", enabled.listener === null);
+
+    // There is no third state, so a setting left alone is not silence: it publishes an explicit
+    // false. `globals` is deliberately NOT seeded and Google Consent Mode is off, so nothing else
+    // in this run would write `ABconsentCMP` -- the object can only exist here because the
+    // template now writes it unconditionally.
+    const unset = run({sddan: SDDAN_LOCAL, data: {consentMode: false}});
+    check("settings left unset publish explicit false to the page, never absent",
+        !!unset.globals.ABconsentCMP &&
+        unset.globals.ABconsentCMP.gtmFacebookConsentMode === false &&
+        unset.globals.ABconsentCMP.gtmOpenAiConsentMode === false,
+        JSON.stringify(unset.globals.ABconsentCMP));
+    check("settings left unset publish no vendor update ownership marker",
+        !publishesVendorUpdateOwnership(unset.globals.ABconsentCMP));
+    check("settings left unset install no vendor queue", unset.globals.fbq === undefined && unset.globals.oaiq === undefined);
+
+    const disabled = run({sddan: SDDAN_LOCAL, data: {
+        consentMode: false, facebookConsentMode: false, openAiConsentMode: false
+    }});
+    check("disabled publishes false activation overrides",
+        disabled.globals.ABconsentCMP.gtmFacebookConsentMode === false &&
+        disabled.globals.ABconsentCMP.gtmOpenAiConsentMode === false);
+    check("disabled publishes no vendor update ownership marker",
+        !publishesVendorUpdateOwnership(disabled.globals.ABconsentCMP));
+    check("disabled installs no vendor queue", disabled.globals.fbq === undefined && disabled.globals.oaiq === undefined);
+
+    const deletion = run({sddan: SDDAN_LOCAL, data: {
+        handleCookiesDeletion: true, partnerId: "1020", configId: "public"
+    }});
+    check("Sirdata listener remains only for cookie deletion", typeof deletion.listener === "function");
+    // BEFORE the request, not after it. The queue the command waits in is installed by this tag,
+    // so there is nothing left to wait for; registering it on a load event was only ever a
+    // consequence of that queue arriving with the script.
+    check("the cookie listener is registered before the bundle is asked for",
+        deletion.calls.listenerAfterInjections === 0,
+        JSON.stringify([deletion.calls.listenerAfterInjections, deletion.calls.injected]));
+    const beforeUpdates = deletion.calls.updates.length;
+    deletion.listener(purgeEvent("_ga"), true);
+    check("cookie callback emits no Google update", deletion.calls.updates.length === beforeUpdates);
+
+    // The first-party loader is not ours, so the command cannot be issued before it: it goes into
+    // the callback list that loader drains once the script it serves is in place.
+    const deletionFirstParty = run({sddan: SDDAN_LOCAL, data: {
+        handleCookiesDeletion: true, firstPartyHost: "cmp.example.com", partnerId: "1020", configId: "public"
+    }});
+    check("on the first-party path the listener still arrives, through the callback list",
+        typeof deletionFirstParty.listener === "function" &&
+        deletionFirstParty.calls.listenerAfterInjections === 1,
+        JSON.stringify([deletionFirstParty.calls.listenerAfterInjections, deletionFirstParty.calls.injected]));
+
+    const firstParty = run({sddan: SDDAN_LOCAL, data: {
+        firstPartyHost: "cmp.example.com", partnerId: "1020", configId: "public"
+    }});
+    check("first-party loader remains the sole network loader on its success path",
+        firstParty.calls.injected.length === 1 && firstParty.calls.injected[0].indexOf("cmp_loader.js") !== -1,
+        JSON.stringify(firstParty.calls.injected));
+    check("first-party loader completes exactly once", firstParty.calls.successes === 1 && firstParty.calls.failures === 0,
+        JSON.stringify([firstParty.calls.successes, firstParty.calls.failures]));
+    check("the first-party request names the tag manager too",
+        firstParty.calls.injected[0].indexOf("tms=gtm") !== -1, JSON.stringify(firstParty.calls.injected));
+
+    const fallback = run({sddan: SDDAN_LOCAL, failInjection: "cmp_loader.js", data: {
+        firstPartyHost: "cmp.example.com", partnerId: "1020", configId: "public"
+    }});
+    check("first-party failure falls back to the direct bundle request",
+        fallback.calls.injected.length === 2 && fallback.calls.injected[0].indexOf("cmp_loader.js") !== -1 &&
+        fallback.calls.injected[1].indexOf("/cmp") !== -1,
+        JSON.stringify(fallback.calls.injected));
+    check("fallback completes exactly once", fallback.calls.successes === 1 && fallback.calls.failures === 0,
+        JSON.stringify([fallback.calls.successes, fallback.calls.failures]));
+
+    const cmpFailure = run({sddan: SDDAN_LOCAL, failInjection: "/cmp", data: {
+        partnerId: "1020", configId: "public"
+    }});
+    check("CMP bundle failure reports GTM failure exactly once",
+        cmpFailure.calls.successes === 0 && cmpFailure.calls.failures === 1,
+        JSON.stringify([cmpFailure.calls.successes, cmpFailure.calls.failures]));
+}
+
+console.log("\n22. Early vendor defaults preserve files and callbacks produce no updates");
+{
+    // A queue whose methods THROW on any call. This is the case the shared-storage question used
+    // to reach, and the reason it had to stop reaching it: the sandbox cannot contain an exception,
+    // so a single throw stopped the template mid-way and left whatever it had written behind for
+    // the SDK to drain. The mark is a named property now, so these methods are never called and
+    // the case passes because the code cannot get there -- not because it recovers.
+    function throwingMethods(queue) {
+        queue.push = function () { throw new Error("publisher push"); };
+        queue.splice = function () { throw new Error("publisher splice"); };
+        return queue;
+    }
+    function hostileOaiq() {}
+    hostileOaiq.q = throwingMethods([["measure", "survives-throwing-methods"]]);
+    hostileOaiq.queue = throwingMethods([["init", {pixelId: "hostile"}]]);
+    const hostileOpenAi = run({sddan: SDDAN_LOCAL, globals: {oaiq: hostileOaiq},
+        data: {openAiConsentMode: true}});
+    const hostileOpenAiCommands = commandList(hostileOpenAi.globals.oaiq.queue);
+    check("OpenAI survives a queue whose methods throw",
+        Array.isArray(hostileOpenAi.globals.oaiq.queue), JSON.stringify(hostileOpenAiCommands));
+    // The commands are still PRESERVED -- they are preserved somewhere else, which is the whole
+    // point of holding them: under a refusing default the pixel would drain them and DROP them, so
+    // they are parked on the resumption point instead of being handed over to be thrown away.
+    // Both names are read, and both their commands are held: `init` joined the held list when it
+    // turned out to send a diagnostic event of its own before the visitor has answered.
+    const hostileHeld = commandList(hostileOpenAi.globals.ABconsentCMP.openai.preQueue);
+    check("OpenAI preserves business commands from both names when methods throw",
+        hostileHeld.some((command) =>
+            command[0] === "measure" && command[1] === "survives-throwing-methods") &&
+        hostileHeld.some((command) => command[0] === "init"),
+        JSON.stringify([hostileOpenAiCommands, hostileHeld]));
+    check("and nothing held is left in the drained queue as well",
+        !hostileOpenAiCommands.some((command) =>
+            command[0] === "measure" || command[0] === "init"),
+        JSON.stringify(hostileOpenAiCommands));
+    check("OpenAI publishes no mark and no sentinel when methods throw",
+        hostileOpenAiCommands.every((command) => typeof command[0] === "string") &&
+        JSON.stringify(hostileOpenAiCommands).indexOf("__sd") === -1,
+        JSON.stringify(hostileOpenAiCommands));
+    // The run completing at all is what says the throw was never triggered: an exception here
+    // would have stopped the template before the loader.
+    check("the template still completes when a queue method throws",
+        hostileOpenAi.calls.successes + hostileOpenAi.calls.failures >= 0 &&
+        hostileOpenAi.globals.ABconsentCMP !== undefined);
+
+    function hostileFbq() { throw new Error("publisher fbq"); }
+    hostileFbq.queue = throwingMethods([["track", "SurvivesThrowingMethods"]]);
+    hostileFbq.push = hostileFbq;
+    const hostileMeta = run({sddan: SDDAN_LOCAL, globals: {fbq: hostileFbq, _fbq: hostileFbq},
+        data: {facebookConsentMode: true}});
+    const hostileMetaCommands = commandList(hostileMeta.globals.fbq.queue);
+    check("Meta survives a queue whose methods throw",
+        Array.isArray(hostileMeta.globals.fbq.queue), JSON.stringify(hostileMetaCommands));
+    check("Meta preserves business commands when methods throw",
+        hostileMetaCommands.some((command) =>
+            command[0] === "track" && command[1] === "SurvivesThrowingMethods"),
+        JSON.stringify(hostileMetaCommands));
+    check("Meta publishes no mark and no sentinel when methods throw",
+        JSON.stringify(hostileMetaCommands).indexOf("__sd") === -1, JSON.stringify(hostileMetaCommands));
+
+    // The mark never becomes an entry, so it cannot be drained as a command whatever happens
+    // afterwards -- and it is cleared once the question is answered rather than left on the object.
+    function markedOaiq() {}
+    const sharedList = [["measure", "shared"]];
+    markedOaiq.q = sharedList;
+    markedOaiq.queue = sharedList;
+    const marked = run({sddan: SDDAN_LOCAL, globals: {oaiq: markedOaiq}, data: {openAiConsentMode: true}});
+    // Assert on the ORIGINAL array, not on what the template publishes afterwards. The published
+    // list is a fresh array that never carried the mark, so reading it there is a check that
+    // cannot fail -- measured: removing the line that clears the mark left it green.
+    check("the mark is cleared from the publisher's own list",
+        sharedList.__sdSharedStorage === undefined, JSON.stringify(sharedList.__sdSharedStorage));
+    const markedCommands = commandList(marked.globals.oaiq.queue);
+    const markedHeld = commandList(marked.globals.ABconsentCMP.openai.preQueue);
+    check("one shared list is read once, not twice",
+        named(markedHeld, "measure").length === 1 && named(markedCommands, "measure").length === 0,
+        JSON.stringify([markedCommands, markedHeld]));
+
+    // The closed finding stays closed: two DISTINCT lists holding identical commands are two
+    // lists. A publisher who installed the pixel both ways with the same identifier has exactly
+    // that, so collapsing them would drop one real set of pending work.
+    function twinOaiq() {}
+    const twinQ = [["init", {pixelId: "same"}]];
+    const twinQueue = [["init", {pixelId: "same"}]];
+    twinOaiq.q = twinQ;
+    twinOaiq.queue = twinQueue;
+    const twins = run({sddan: SDDAN_LOCAL, globals: {oaiq: twinOaiq}, data: {openAiConsentMode: true}});
+    const twinCommands = commandList(twins.globals.oaiq.queue);
+    const twinHeld = commandList(twins.globals.ABconsentCMP.openai.preQueue);
+    check("distinct lists with identical commands are kept apart",
+        named(twinHeld, "init").length === 2, JSON.stringify([twinCommands, twinHeld]));
+    check("the mark is cleared on distinct lists too",
+        twinQueue.__sdSharedStorage === undefined && twinQ.__sdSharedStorage === undefined,
+        JSON.stringify([twinQueue.__sdSharedStorage, twinQ.__sdSharedStorage]));
+
+    // Meta reads its canonical list alone, so another advertiser's pixel is no longer merged in.
+    function ownFbq() { ownFbq.queue.push(Array.prototype.slice.call(arguments)); }
+    ownFbq.queue = [["track", "Ours"]];
+    ownFbq.push = ownFbq;
+    function strangerFbq() {}
+    strangerFbq.queue = [["track", "TheirsDoNotTake"]];
+    const stranger = run({sddan: SDDAN_LOCAL, globals: {fbq: ownFbq, _fbq: strangerFbq},
+        data: {facebookConsentMode: true}});
+    const strangerCommands = commandList(stranger.globals.fbq.queue);
+    check("witness -- our own pending command is kept",
+        strangerCommands.some((command) => command[1] === "Ours"), JSON.stringify(strangerCommands));
+    check("another advertiser's pending commands are never merged in",
+        !strangerCommands.some((command) => command[1] === "TheirsDoNotTake"),
+        JSON.stringify(strangerCommands));
+
+    function beforeOaiq() { beforeOaiq.queue.push(Array.prototype.slice.call(arguments)); }
+    beforeOaiq.q = [["consent", false], ["init", {pixelId: "pixel"}], ["pixelId", "pixel"]];
+    beforeOaiq.queue = [["consent", "publisher"], ["measure", "page_viewed"], ["set", "user", {id: "user"}]];
+    const openai = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.o:1:1"}, globals: {oaiq: beforeOaiq}, data: {
+        openAiConsentMode: true, handleCookiesDeletion: true,
+        partnerId: "1020", configId: "public"
+    }});
+    let openAiCommands = commandList(openai.globals.oaiq.queue);
+    check("OpenAI unifies q and queue", openai.globals.oaiq.q === openai.globals.oaiq.queue);
+    check("OpenAI default comes from stored o segment and filters only consent",
+        JSON.stringify(named(openAiCommands, "consent")) === JSON.stringify([["consent", true]]),
+        JSON.stringify(openAiCommands));
+    check("OpenAI preserves every pending business command in source order",
+        JSON.stringify(without(openAiCommands, ["consent"])) === JSON.stringify([
+            ["init", {pixelId: "pixel"}], ["pixelId", "pixel"], ["measure", "page_viewed"],
+            ["set", "user", {id: "user"}]
+        ]), JSON.stringify(openAiCommands));
+    openai.globals.oaiq("consent", "third-party");
+    openai.globals.oaiq("measure", "after-default");
+    openAiCommands = commandList(openai.globals.oaiq.queue);
+    check("OpenAI wrapper filters later consent but keeps later business commands",
+        named(openAiCommands, "consent").length === 1 &&
+        JSON.stringify(openAiCommands[openAiCommands.length - 1]) === JSON.stringify(["measure", "after-default"]));
+    const beforeOpenAiCallback = JSON.stringify(openAiCommands);
+    openai.listener(TC_ALL_GRANTED, true);
+    check("OpenAI callback produces no update", JSON.stringify(commandList(openai.globals.oaiq.queue)) === beforeOpenAiCallback);
+
+    [["2.o:1:0", false], ["2.g:1:1111111", false], ["2.o:1:broken", false]].forEach((fixture) => {
+        const result = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": fixture[0]},
+            data: {openAiConsentMode: true}});
+        check("OpenAI conservative default " + fixture[0],
+            commandList(result.globals.oaiq.queue)[0][1] === fixture[1]);
+    });
+
+    function beforeFbq() { beforeFbq.queue.push(Array.prototype.slice.call(arguments)); }
+    beforeFbq.queue = [["consent", "publisher"], ["dataProcessingOptions", ["LDU"], 0, 0],
+        ["init", "pixel", {em: "hash"}], ["track", "PageView"]];
+    beforeFbq.push = beforeFbq;
+    const meta = run({sddan: SDDAN_LOCAL, globals: {fbq: beforeFbq, _fbq: beforeFbq}, data: {
+        facebookConsentMode: true, handleCookiesDeletion: true,
+        partnerId: "1020", configId: "public"
+    }});
+    let metaCommands = commandList(meta.globals.fbq.queue);
+    const temporary = named(metaCommands, "consent").filter((command) => command[2] === "__abconsent_temporary__");
+    check("Meta prepends one precisely identifiable conservative temporary default",
+        temporary.length === 1 && temporary[0][1] === "revoke" && metaCommands[0][2] === "__abconsent_temporary__",
+        JSON.stringify(metaCommands));
+    check("Meta publishes the matching temporary marker",
+        meta.globals.ABconsentCMP.gtmTemplateFacebookTemporaryRevoke === true);
+    // This USED to pin the opposite -- that a publisher's own consent entry survived the rebuild.
+    // It cannot: a second consent authority in the list the pixel drains cancels the pause this
+    // template just installed, and the served script removes those entries for that very reason.
+    // The premise changed; the business commands still survive, which is what matters.
+    check("Meta preserves the DPO, init, and track commands",
+        JSON.stringify(metaCommands.slice(1)) === JSON.stringify([
+            ["dataProcessingOptions", ["LDU"], 0, 0],
+            ["init", "pixel", {em: "hash"}], ["track", "PageView"]
+        ]), JSON.stringify(metaCommands));
+    check("and a consent entry that is not this template's is dropped",
+        named(metaCommands, "consent").length === 1, JSON.stringify(metaCommands));
+    meta.globals.fbq("consent", "after-default");
+    meta.globals.fbq("track", "Purchase");
+    metaCommands = commandList(meta.globals.fbq.queue);
+    check("Meta wrapper preserves later publisher consent and business commands",
+        named(metaCommands, "consent").some((command) => command[1] === "after-default") &&
+        metaCommands.some((command) => command[0] === "track" && command[1] === "Purchase"));
+    const beforeMetaCallback = JSON.stringify(metaCommands);
+    meta.listener(TC_ALL_GRANTED, true);
+    check("Meta callback produces no update", JSON.stringify(commandList(meta.globals.fbq.queue)) === beforeMetaCallback);
+
+    const initializedOpenAiCalls = [];
+    function initializedOaiq() { initializedOpenAiCalls.push(Array.prototype.slice.call(arguments)); }
+    const initializedOpenAiQ = [["init", {pixelId: "initialized"}]];
+    const initializedOpenAiQueue = [["measure", "queued-before-gtm"]];
+    initializedOaiq.q = initializedOpenAiQ;
+    initializedOaiq.queue = initializedOpenAiQueue;
+    initializedOaiq.__oaiqInitialized = true;
+    const initializedOpenAi = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.o:1:1"},
+        globals: {oaiq: initializedOaiq}, data: {
+            openAiConsentMode: true, handleCookiesDeletion: true,
+            partnerId: "1020", configId: "public"
+        }});
+    check("initialized OpenAI SDK function identity is preserved", initializedOpenAi.globals.oaiq === initializedOaiq);
+    check("initialized OpenAI q identity is preserved", initializedOpenAi.globals.oaiq.q === initializedOpenAiQ);
+    check("initialized OpenAI queue identity is preserved", initializedOpenAi.globals.oaiq.queue === initializedOpenAiQueue);
+    check("initialized OpenAI receives the persisted default directly",
+        JSON.stringify(initializedOpenAiCalls) === JSON.stringify([["consent", true]]),
+        JSON.stringify(initializedOpenAiCalls));
+    check("initialized OpenAI business commands are not stranded",
+        JSON.stringify(initializedOpenAiQ) === JSON.stringify([["init", {pixelId: "initialized"}]]) &&
+        JSON.stringify(initializedOpenAiQueue) === JSON.stringify([["measure", "queued-before-gtm"]]));
+    initializedOpenAi.globals.oaiq("measure", "after-default");
+    check("initialized OpenAI keeps receiving later business commands",
+        JSON.stringify(initializedOpenAiCalls[1]) === JSON.stringify(["measure", "after-default"]),
+        JSON.stringify(initializedOpenAiCalls));
+    const initializedOpenAiCallsBeforeCallback = JSON.stringify(initializedOpenAiCalls);
+    initializedOpenAi.listener(TC_ALL_GRANTED, true);
+    check("initialized OpenAI callback emits no update",
+        JSON.stringify(initializedOpenAiCalls) === initializedOpenAiCallsBeforeCallback);
+    const initializedOpenAiWithoutStoredConsentCalls = [];
+    function initializedOaiqWithoutStoredConsent() {
+        initializedOpenAiWithoutStoredConsentCalls.push(Array.prototype.slice.call(arguments));
+    }
+    initializedOaiqWithoutStoredConsent.__oaiqInitialized = true;
+    initializedOaiqWithoutStoredConsent.q = [];
+    initializedOaiqWithoutStoredConsent.queue = [];
+    run({sddan: SDDAN_LOCAL, globals: {oaiq: initializedOaiqWithoutStoredConsent},
+        data: {openAiConsentMode: true}});
+    check("initialized OpenAI receives a conservative false default when storage has no decision",
+        JSON.stringify(initializedOpenAiWithoutStoredConsentCalls) === JSON.stringify([["consent", false]]),
+        JSON.stringify(initializedOpenAiWithoutStoredConsentCalls));
+
+    const initializedMetaCalls = [];
+    function initializedFbq() { initializedMetaCalls.push(Array.prototype.slice.call(arguments)); }
+    initializedFbq.callMethod = function () {};
+    const initializedMetaQueue = [["init", "initialized-pixel"], ["track", "PageView"]];
+    initializedFbq.queue = initializedMetaQueue;
+    function initializedFbqAlias() {}
+    const initializedMetaAliasQueue = [["track", "AliasQueueEvent"]];
+    initializedFbqAlias.queue = initializedMetaAliasQueue;
+    const initializedMeta = run({sddan: SDDAN_LOCAL, globals: {fbq: initializedFbq, _fbq: initializedFbqAlias}, data: {
+        facebookConsentMode: true, handleCookiesDeletion: true,
+        partnerId: "1020", configId: "public"
+    }});
+    check("initialized Meta SDK function identity is preserved", initializedMeta.globals.fbq === initializedFbq);
+    check("initialized Meta _fbq identity is preserved", initializedMeta.globals._fbq === initializedFbqAlias);
+    check("initialized Meta queue identities are preserved",
+        initializedMeta.globals.fbq.queue === initializedMetaQueue &&
+        initializedMeta.globals._fbq.queue === initializedMetaAliasQueue);
+    check("initialized Meta receives the marked temporary revoke directly",
+        JSON.stringify(initializedMetaCalls) ===
+        JSON.stringify([["consent", "revoke", "__abconsent_temporary__"]]),
+        JSON.stringify(initializedMetaCalls));
+    check("initialized Meta publishes the temporary revoke handoff marker",
+        initializedMeta.globals.ABconsentCMP.gtmTemplateFacebookTemporaryRevoke === true);
+    check("initialized Meta business commands are not stranded",
+        JSON.stringify(initializedMetaQueue) ===
+        JSON.stringify([["init", "initialized-pixel"], ["track", "PageView"]]) &&
+        JSON.stringify(initializedMetaAliasQueue) === JSON.stringify([["track", "AliasQueueEvent"]]));
+    initializedMeta.globals.fbq("track", "Purchase");
+    check("initialized Meta keeps receiving later business commands",
+        JSON.stringify(initializedMetaCalls[1]) === JSON.stringify(["track", "Purchase"]),
+        JSON.stringify(initializedMetaCalls));
+    const initializedMetaCallsBeforeCallback = JSON.stringify(initializedMetaCalls);
+    initializedMeta.listener(TC_ALL_GRANTED, true);
+    check("initialized Meta callback emits no update",
+        JSON.stringify(initializedMetaCalls) === initializedMetaCallsBeforeCallback);
+}
+
+console.log("\n23. The privacy marker and the stored bits reach the Meta and OpenAI defaults");
+{
+    const readsOf = (r, name) => (r.calls.cookieReads[name] || 0);
+    const GRANTING_CONTAINER = "2.o:1:1";
+    const OPENAI_ON = {openAiConsentMode: true};
+    const consentOf = (r) => {
+        const consent = named(commandList(r.globals.oaiq.queue), "consent");
+        return consent.length === 1 ? consent[0][1] : JSON.stringify(consent);
+    };
+
+    // Witness: WITHOUT the marker the stored bit decides, and the container IS read. Without it
+    // the two assertions below would also be satisfied by a template that stopped reading the
+    // container at all, or by a harness whose container string says nothing -- a check that
+    // cannot fail checks nothing.
+    const temoin = run({sddan: SDDAN_LOCAL, data: OPENAI_ON,
+        cookies: {"__sdgcm": GRANTING_CONTAINER}});
+    check("witness -- without the marker the stored OpenAI bit is honored",
+        consentOf(temoin) === true, JSON.stringify(consentOf(temoin)));
+    check("witness -- and the container IS read", readsOf(temoin, "__sdgcm") >= 1,
+        String(readsOf(temoin, "__sdgcm")));
+
+    // The marker covers EVERY vendor, not only the ones the container happens to carry a bit
+    // for. The served CMP applies that same precedence to this vendor, so a template that read
+    // the bit here would disagree with it for a whole page view.
+    const court = run({sddan: SDDAN_LOCAL, data: OPENAI_ON,
+        cookies: {"__gpcactive": "1", "__sdgcm": GRANTING_CONTAINER}});
+    check("the marker denies the OpenAI default even when the container grants",
+        consentOf(court) === false, JSON.stringify(consentOf(court)));
+    // Pinned on the READ, exactly as section 14 does for Google: an implementation that reads the
+    // container and then overwrites what it found emits the same value while consulting a cookie
+    // whose answer cannot change the outcome. Only the count separates the two.
+    check("and the container is NOT consulted", readsOf(court, "__sdgcm") === 0,
+        String(readsOf(court, "__sdgcm")));
+
+    // Meta follows the SAME rule, with one asymmetry that decides its shape. The stored Meta bit
+    // does not mean the same thing under both regimes -- a consent under GDPR, the ABSENCE of an
+    // objection under the US one -- and only the GDPR reading calls for a `revoke`, which PAUSES
+    // the pixel outright. A US objection is expressed by limiting data use, which keeps it
+    // sending. So the bit may RAISE this default to a grant and never lower it below the
+    // conservative one: a returning US visitor who objected is limited by the CMP, not paused
+    // here. Reading it symmetrically would cost that visitor their whole measurement.
+    const META_ON = {facebookConsentMode: true};
+    const META_GRANTING_CONTAINER = "2.m:1:1";
+    const metaConsentOf = (r) => {
+        const consent = named(commandList(r.globals.fbq.queue), "consent");
+        return consent.length === 1 ? [consent[0][1], consent[0][2]] : consent;
+    };
+    const MARKED = (verb) => JSON.stringify([verb, "__abconsent_temporary__"]);
+
+    const metaSansEtat = run({sddan: SDDAN_LOCAL, data: META_ON});
+    check("without stored state the Meta default stays a marked revoke",
+        JSON.stringify(metaConsentOf(metaSansEtat)) === MARKED("revoke"),
+        JSON.stringify(metaConsentOf(metaSansEtat)));
+
+    const metaAccorde = run({sddan: SDDAN_LOCAL, data: META_ON,
+        cookies: {"__sdgcm": META_GRANTING_CONTAINER}});
+    check("a granting stored Meta bit raises the default to a marked grant",
+        JSON.stringify(metaConsentOf(metaAccorde)) === MARKED("grant"),
+        JSON.stringify(metaConsentOf(metaAccorde)));
+    check("and the container IS read for Meta", readsOf(metaAccorde, "__sdgcm") >= 1,
+        String(readsOf(metaAccorde, "__sdgcm")));
+
+    // Same precedence as OpenAI above, and pinned on the READ for the same reason.
+    const metaCourt = run({sddan: SDDAN_LOCAL, data: META_ON,
+        cookies: {"__gpcactive": "1", "__sdgcm": META_GRANTING_CONTAINER}});
+    check("the privacy marker denies the Meta default even when the container grants",
+        JSON.stringify(metaConsentOf(metaCourt)) === MARKED("revoke"),
+        JSON.stringify(metaConsentOf(metaCourt)));
+    check("and the container is NOT consulted for Meta", readsOf(metaCourt, "__sdgcm") === 0,
+        String(readsOf(metaCourt, "__sdgcm")));
+
+    // THE FUNCTION INSTALLED FOR A PAGE WITHOUT A PIXEL MUST ROUTE TO THE SDK.
+    //
+    // Meta's SDK attaches `callMethod` to the function already on the page instead of replacing
+    // it, so a function that only appends never reaches the SDK -- and a consent signal sent after
+    // the SDK has loaded lands BEHIND the events it was meant to release. The SDK stops draining at
+    // the provisional denial ahead of them, so the pixel stays paused for the whole page view with
+    // nothing to indicate it. No assertion on the prepared list can see that: the list is correct
+    // either way, and only where a LATER call goes tells the two apart.
+    const neuf = run({sddan: SDDAN_LOCAL, data: META_ON});
+    check("witness -- a page without a pixel gets a function and a list",
+        typeof neuf.globals.fbq === "function" && Array.isArray(neuf.globals.fbq.queue),
+        typeof neuf.globals.fbq);
+    const avantSdk = commandList(neuf.globals.fbq.queue).length;
+    neuf.globals.fbq("track", "BeforeTheSdk");
+    check("before the SDK the call is held in the list",
+        commandList(neuf.globals.fbq.queue).length === avantSdk + 1,
+        JSON.stringify(commandList(neuf.globals.fbq.queue)));
+
+    // The SDK arrives the way it really does: it attaches `callMethod` to the existing function.
+    const recus = [];
+    neuf.globals.fbq.callMethod = function () { recus.push(Array.prototype.slice.call(arguments)); };
+    const apresSdk = commandList(neuf.globals.fbq.queue).length;
+    // The probe is deliberately NOT a consent command: those are gated until the served
+    // controller is installed, and what these three pin is the ROUTING and the arity.
+    neuf.globals.fbq("track", "AfterTheSdk");
+    check("once the SDK is there the call REACHES it",
+        recus.length === 1 && recus[0][0] === "track" && recus[0][1] === "AfterTheSdk",
+        JSON.stringify(recus));
+    check("a short call arrives SHORT, not padded with undefined",
+        recus[0] && recus[0].length === 2, JSON.stringify(recus));
+    check("and it is NOT appended to the list instead",
+        commandList(neuf.globals.fbq.queue).length === apresSdk,
+        JSON.stringify(commandList(neuf.globals.fbq.queue)));
+    neuf.globals.fbq("dataProcessingOptions", ["LDU"], 0, 0);
+    check("the routed call keeps its exact arity",
+        recus.length === 2 && recus[1].length === 4 && recus[1][3] === 0,
+        JSON.stringify(recus));
+
+    // A function already on the page is never replaced: it carries the flags their snippet set and
+    // their own routing, and their snippet exits on `if (f.fbq)` so nothing would put them back.
+    function pixelEditeur() { pixelEditeur.queue.push(Array.prototype.slice.call(arguments)); }
+    pixelEditeur.queue = [["track", "PageView"]];
+    pixelEditeur.push = pixelEditeur;
+    pixelEditeur.loaded = true;
+    pixelEditeur.version = "2.0";
+    function aliasEtranger() {}
+    const garde = run({sddan: SDDAN_LOCAL, globals: {fbq: pixelEditeur, _fbq: aliasEtranger},
+        data: META_ON});
+    check("an existing pixel function is kept, with its own flags",
+        garde.globals.fbq === pixelEditeur && garde.globals.fbq.loaded === true &&
+        garde.globals.fbq.version === "2.0", typeof garde.globals.fbq);
+    check("and another advertiser's alias is not overwritten",
+        garde.globals._fbq === aliasEtranger);
+    check("witness -- the provisional default still comes first on that page",
+        JSON.stringify(metaConsentOf(garde)) === MARKED("revoke"),
+        JSON.stringify(commandList(garde.globals.fbq.queue)));
+}
+
+console.log("\n24. A measurement is held out of the queue the pixel drains while the default refuses");
+{
+    const OPENAI_ON = {openAiConsentMode: true};
+    // The pixel DROPS a measurement received while consent is denied -- it does not hold it and it
+    // never replays it. Handing one over before the visitor has answered therefore loses it for
+    // good, so it is parked on the resumption point the consent script reads instead.
+    const refus = run({sddan: SDDAN_LOCAL, data: OPENAI_ON});
+    check("witness -- a page without a pixel gets a function and a list",
+        typeof refus.globals.oaiq === "function" && Array.isArray(refus.globals.oaiq.queue),
+        typeof refus.globals.oaiq);
+    const avant = commandList(refus.globals.oaiq.queue).length;
+    refus.globals.oaiq("measure", "page_viewed", {type: "contents"});
+    const tenus = commandList(refus.globals.ABconsentCMP.openai.preQueue);
+    check("a measurement is held on the resumption point",
+        named(tenus, "measure").length === 1 && tenus[0][1] === "page_viewed",
+        JSON.stringify(tenus));
+    check("and it is NOT appended to the queue the pixel drains",
+        commandList(refus.globals.oaiq.queue).length === avant,
+        JSON.stringify(commandList(refus.globals.oaiq.queue)));
+    refus.globals.oaiq("measureSingle", "pix", "page_viewed", {type: "contents"});
+    check("the single-pixel form is held too, with its exact arity",
+        named(commandList(refus.globals.ABconsentCMP.openai.preQueue), "measureSingle").length === 1 &&
+        commandList(refus.globals.ABconsentCMP.openai.preQueue)[1].length === 4,
+        JSON.stringify(commandList(refus.globals.ABconsentCMP.openai.preQueue)));
+    // `init` is held too, and this assertion USED to pin the opposite: it read "a command that is
+    // not a measurement still goes to the queue" and named `init` as the example. The premise
+    // changed rather than the code drifting -- initialising the pixel sends a diagnostic event
+    // carrying `consent: false`, so it is not free to hand over before the visitor has answered.
+    refus.globals.oaiq("init", {pixelId: "pix"});
+    check("initialising the pixel is held too, out of the queue it drains",
+        named(commandList(refus.globals.ABconsentCMP.openai.preQueue), "init").length === 1 &&
+        named(commandList(refus.globals.oaiq.queue), "init").length === 0,
+        JSON.stringify([commandList(refus.globals.oaiq.queue),
+            commandList(refus.globals.ABconsentCMP.openai.preQueue)]));
+    // The witness that the held set is a LIST and not "everything that is not consent": a command
+    // nobody has read still goes to the queue, where it is visible, rather than being held with no
+    // trace of why it never ran.
+    refus.globals.oaiq("someLaterCommand", "x");
+    check("a command that is on neither list still goes to the queue",
+        named(commandList(refus.globals.oaiq.queue), "someLaterCommand").length === 1 &&
+        named(commandList(refus.globals.ABconsentCMP.openai.preQueue), "someLaterCommand").length === 0,
+        JSON.stringify([commandList(refus.globals.oaiq.queue),
+            commandList(refus.globals.ABconsentCMP.openai.preQueue)]));
+
+    // THE OTHER DIRECTION, and it is what keeps the change from delaying what already works: under
+    // a stored grant the pixel accepts measurements, so nothing is held back.
+    const accord = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.o:1:1"}, data: OPENAI_ON});
+    accord.globals.oaiq("measure", "page_viewed", {type: "contents"});
+    check("under a stored grant the measurement goes straight to the queue",
+        named(commandList(accord.globals.oaiq.queue), "measure").length === 1,
+        JSON.stringify(commandList(accord.globals.oaiq.queue)));
+    check("and no list is created to hold it",
+        !accord.globals.ABconsentCMP.openai ||
+        commandList(accord.globals.ABconsentCMP.openai.preQueue || []).length === 0,
+        JSON.stringify(accord.globals.ABconsentCMP.openai));
+
+    // A list the consent script already published is KEPT, never replaced: a page that loaded it
+    // first would otherwise lose what it holds.
+    const deja = [["measure", "already-there", {type: "contents"}]];
+    const repris = run({sddan: SDDAN_LOCAL, data: OPENAI_ON,
+        globals: {ABconsentCMP: {openai: {preQueue: deja}}}});
+    repris.globals.oaiq("measure", "page_viewed", {type: "contents"});
+    check("an existing resumption list is kept and appended to",
+        named(commandList(repris.globals.ABconsentCMP.openai.preQueue), "measure").length === 2,
+        JSON.stringify(commandList(repris.globals.ABconsentCMP.openai.preQueue)));
+}
+
+console.log("\n25. A second consent authority never reaches the list the pixel drains");
+{
+    const META_ON = {facebookConsentMode: true};
+
+    // The list exactly as a real page produced it: this template's marked revoke, then ANOTHER
+    // Meta template's unmarked grant, then that template's own business commands. Drained in that
+    // order, every one of them is processed under "granted".
+    function fbqDeLaPage() {
+        function fbq() { fbq.queue.push(Array.prototype.slice.call(arguments)); }
+        fbq.queue = [["consent", "grant"], ["init", "1111", {}], ["track", "PageView"]];
+        return fbq;
+    }
+    const avant = run({sddan: SDDAN_LOCAL, globals: {fbq: fbqDeLaPage()}, data: META_ON});
+    const listeAvant = commandList(avant.globals.fbq.queue);
+    check("a consent already waiting is dropped, whoever wrote it",
+        named(listeAvant, "consent").length === 1 &&
+        listeAvant[0][2] === "__abconsent_temporary__", JSON.stringify(listeAvant));
+    check("witness -- the business commands behind it are untouched",
+        JSON.stringify(listeAvant.slice(1)) ===
+        JSON.stringify([["init", "1111", {}], ["track", "PageView"]]), JSON.stringify(listeAvant));
+
+    // And the other moment: a second template loading AFTER this one pushes through the function
+    // this one installed. The rebuild cannot see that call; the function can.
+    const apres = run({sddan: SDDAN_LOCAL, data: META_ON});
+    const base = commandList(apres.globals.fbq.queue).length;
+    apres.globals.fbq("consent", "grant");
+    check("a consent pushed AFTER the rebuild never lands",
+        commandList(apres.globals.fbq.queue).length === base,
+        JSON.stringify(commandList(apres.globals.fbq.queue)));
+    apres.globals.fbq("track", "Purchase");
+    check("witness -- a business command pushed at the same moment does land",
+        commandList(apres.globals.fbq.queue).length === base + 1,
+        JSON.stringify(commandList(apres.globals.fbq.queue)));
+
+    // THE GATE OPENS for the served controller, and it must: that controller emits its signal
+    // through this same function, unmarked. Without this, its own grant would be dropped and the
+    // pixel would stay paused for the whole page view.
+    apres.globals.ABconsentCMP.facebook = {_installed: true};
+    apres.globals.fbq("consent", "grant");
+    const ouvert = commandList(apres.globals.fbq.queue);
+    check("once the served controller is installed, consent passes again",
+        JSON.stringify(ouvert[ouvert.length - 1]) === JSON.stringify(["consent", "grant"]),
+        JSON.stringify(ouvert));
+
+    // And this template's own entry is never its own victim.
+    const marque = run({sddan: SDDAN_LOCAL, data: META_ON});
+    marque.globals.fbq("consent", "revoke", "__abconsent_temporary__");
+    check("this template's own marked entry always passes",
+        named(commandList(marque.globals.fbq.queue), "consent")
+            .filter((c) => c[2] === "__abconsent_temporary__").length === 2,
+        JSON.stringify(commandList(marque.globals.fbq.queue)));
+}
+
+console.log("\n26. A regional refusal, then a global one that carries the ad signals");
+{
+    // The documented shape: one region-scoped default for the perimeter where a notice is shown,
+    // and one region-less default that is the status for everyone else.
+    const r = run({sddan: SDDAN_LOCAL});
+    const defauts = r.calls.defaults;
+    check("witness -- two defaults", defauts.length === 2,
+        JSON.stringify(defauts.map((d) => d.region)));
+
+    const regional = defauts[0];
+    const global = defauts[1];
+    check("the first names the perimeter, the second names no region",
+        regional.region && regional.region.length > 0 && global.region === undefined,
+        JSON.stringify(defauts.map((d) => d.region)));
+
+    // The regional row refuses what the notice is about, and waits, because an answer is coming
+    // there. It does NOT refuse the other two: one keeps the page working, the other keeps sign-in
+    // and anti-fraud working, and neither is what a notice asks about.
+    check("the regional row denies what the notice is about and waits",
+        regional.ad_storage === "denied" && regional.analytics_storage === "denied" &&
+        regional.personalization_storage === "denied" && regional.wait_for_update === 1000,
+        JSON.stringify(regional));
+    check("and grants the two it is not about",
+        regional.functionality_storage === "granted" && regional.security_storage === "granted",
+        JSON.stringify(regional));
+
+    // THE assertion of this section: the global row GRANTS. That is what the documented region
+    // table says the unnamed case already is -- stating it makes it explicit rather than leaning
+    // on the ambient default. All three advertising signals, because the generator denies the two
+    // v2 ones on any row that does not name them.
+    check("the global row GRANTS advertising",
+        global.ad_storage === "granted" && global.ad_user_data === "granted" &&
+        global.ad_personalization === "granted", JSON.stringify(global));
+    // And it names EVERY signal, not just the advertising ones. Leaving the other four unset was
+    // defensible -- an unset signal behaves as granted -- and it read as an omission beside a
+    // regional command that states all of them. Two commands describing the same seven signals in
+    // two vocabularies is a thing a reader has to check twice.
+    check("the global row names every signal",
+        global.analytics_storage === "granted" && global.personalization_storage === "granted" &&
+        global.functionality_storage === "granted" && global.security_storage === "granted",
+        JSON.stringify(global));
+    check("and does not make gtag wait, there being no answer coming",
+        !global.wait_for_update, JSON.stringify(global));
+
+    // The perimeter is the CMP's own list plus the US, not one invented here.
+    const regule = regional.region || [];
+    check("the perimeter carries the EEA, the UK, Switzerland, Brazil and the US",
+        ["FR", "DE", "IT", "GB", "CH", "BR", "US"].every((c) => regule.indexOf(c) >= 0),
+        JSON.stringify(regule));
+    check("and the overseas territories a country code would not match",
+        ["MQ", "GP", "RE", "YT", "GF"].every((c) => regule.indexOf(c) >= 0), JSON.stringify(regule));
+    // Everywhere else is covered by the global row rather than by being named.
+    check("it does NOT name a country where no regulation applies",
+        regule.indexOf("IL") === -1 && regule.indexOf("JP") === -1, JSON.stringify(regule));
+
+    // The chain still runs per row, and on a denied global row it can only relax -- which is the
+    // property that makes this shape safe where the granted one was not.
+    // The chain still runs per row. A visitor who carries nothing -- which is every first-time
+    // visitor outside the perimeter -- keeps the granted global row, and that is the case the
+    // reported defect was about.
+    const gpc = run({sddan: SDDAN_LOCAL, cookies: {"__gpcactive": "1", "__sdgcm": "2.g:1:1111111"}});
+    check("a privacy marker denies both rows, global one included",
+        gpc.calls.defaults.length === 2 &&
+        gpc.calls.defaults.every((d) => d.ad_storage === "denied"),
+        JSON.stringify(gpc.calls.defaults));
+
+    const stocke = run({sddan: SDDAN_LOCAL,
+        cookies: {"__sdgcm": "1.1111111", "euconsent-v2": "CP..."}});
+    check("a recorded choice is replayed onto both",
+        stocke.calls.defaults.length === 2 &&
+        stocke.calls.defaults.every((d) => d.ad_storage === "granted"),
+        JSON.stringify(stocke.calls.defaults));
+
+    // NOTHING changes for a publisher who declares their own table.
+    const manuel = run({sddan: SDDAN_LOCAL, data: withRows([{ad_storage: "granted",
+        analytics_storage: "granted", personalization_storage: "granted",
+        functionality_storage: "granted", security_storage: "granted",
+        wait_for_update: 1000, region: "ALL"}])});
+    check("a declared table emits its own rows and nothing else",
+        manuel.calls.defaults.length === 1 && manuel.calls.defaults[0].region === undefined,
+        JSON.stringify(manuel.calls.defaults));
+    check("and the two ad signals it cannot name stay denied there",
+        manuel.calls.defaults[0].ad_user_data === "denied" &&
+        manuel.calls.defaults[0].ad_personalization === "denied",
+        JSON.stringify(manuel.calls.defaults[0]));
+}
+
+// Every declared function is called with the number of arguments it declares.
+//
+// WHY: a caller was removed and its callee kept its signature. `generateConsentObject` went on
+// declaring four parameters while the one remaining call passed three, so a whole branch of every
+// ternary in it -- and the comment explaining that branch -- described behaviour no call could
+// reach. Nothing here saw it, because a parameter left `undefined` is not an error in JS: it just
+// makes a test that never fails.
+//
+// This reads the sandboxed body rather than replaying it, so it covers functions no scenario
+// exercises. Its own scanner is pinned first: a scanner that finds nothing reads exactly like a
+// clean template.
+{
+    const code = stripComments(SRC);
+
+    // Walks from the "(" at `start` to its matching ")", following quotes, and returns what is
+    // between them. Returns null on an unterminated call rather than a truncated one -- a partial
+    // argument list would be counted, and counted wrong.
+    function insideParens(text, start) {
+        let depth = 0;
+        let quote = null;
+        for (let j = start; j < text.length; j += 1) {
+            const c = text[j];
+            if (quote) {
+                if (c === "\\") { j += 1; continue; }
+                if (c === quote) { quote = null; }
+                continue;
+            }
+            if (c === "\"" || c === "'" || c === "`") { quote = c; continue; }
+            if (c === "(") { depth += 1; }
+            else if (c === ")") {
+                depth -= 1;
+                if (depth === 0) { return {body: text.slice(start + 1, j), end: j}; }
+            }
+        }
+        return null;
+    }
+
+    // Splits on top-level commas only: `fn(a, g(b, c))` is TWO arguments, not three.
+    function topLevelParts(body) {
+        const parts = [];
+        let cur = "";
+        let depth = 0;
+        let quote = null;
+        for (let i = 0; i < body.length; i += 1) {
+            const c = body[i];
+            if (quote) {
+                cur += c;
+                if (c === "\\") { cur += body[i + 1] || ""; i += 1; continue; }
+                if (c === quote) { quote = null; }
+                continue;
+            }
+            if (c === "\"" || c === "'" || c === "`") { quote = c; cur += c; continue; }
+            if (c === "(" || c === "[" || c === "{") { depth += 1; }
+            if (c === ")" || c === "]" || c === "}") { depth -= 1; }
+            if (c === "," && depth === 0) { parts.push(cur); cur = ""; continue; }
+            cur += c;
+        }
+        if (cur.trim()) { parts.push(cur); }
+        return parts.filter((s) => s.trim().length > 0);
+    }
+
+    // The three declaration forms this template actually uses. The `function` expression form is
+    // the one the defect hid behind: a scanner that only knew arrows and named declarations read
+    // the file clean.
+    function declarations(text) {
+        const found = {};
+        const forms = [
+            [/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\(/g, true],
+            [/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*function\s*\(/g, false],
+            [/function\s+([A-Za-z_$][\w$]*)\s*\(/g, false]
+        ];
+        forms.forEach((form) => {
+            const re = form[0];
+            const mustBeArrow = form[1];
+            let m;
+            while ((m = re.exec(text)) !== null) {
+                const open = m.index + m[0].length - 1;
+                const span = insideParens(text, open);
+                if (!span) { continue; }
+                // `const x = (a + b) * c` is not a function; only an arrow follows the ")".
+                if (mustBeArrow && text.slice(span.end + 1, span.end + 12).replace(/\s/g, "").indexOf("=>") !== 0) {
+                    continue;
+                }
+                found[m[1]] = {at: open, params: topLevelParts(span.body).length};
+            }
+        });
+        return found;
+    }
+
+    function mismatches(text) {
+        const decls = declarations(text);
+        const bad = [];
+        Object.keys(decls).forEach((name) => {
+            const re = new RegExp("(^|[^\\w$.])" + name + "\\s*\\(", "g");
+            let m;
+            while ((m = re.exec(text)) !== null) {
+                const open = m.index + m[0].length - 1;
+                if (open === decls[name].at) { continue; }
+                const span = insideParens(text, open);
+                if (!span) { continue; }
+                const given = topLevelParts(span.body).length;
+                if (given !== decls[name].params) {
+                    bad.push(name + " declares " + decls[name].params + ", called with " + given);
+                }
+            }
+        });
+        return bad;
+    }
+
+    // Pinned on synthetic sources, both ways, because the whole value of this guard is that it
+    // reddens: one that silently finds nothing is indistinguishable from a clean template.
+    [
+        ["an arrow called short", "const f = (a, b) => a; f(1);", 1],
+        ["a function expression called short -- the form that hid the defect",
+            "const g = function(a, b, c, d) { return a; }; g(1, 2, 3);", 1],
+        ["a named declaration called long", "function h(a) { return a; } h(1, 2);", 1],
+        ["a nested call is ONE argument", "const k = function(a, b) { return a; }; k(1, m(2, 3));", 0],
+        ["a comma inside a string is not a separator", "const s = (a, b) => a; s('x,y', 2);", 0],
+        ["a value passed, never called, is not a call site", "const v = (a, b) => a; reg('e', v);", 0],
+        ["matching arities are silent", "const ok = function(a, b) { return a; }; ok(1, 2);", 0]
+    ].forEach((c) => {
+        check("arity scanner: " + c[0], mismatches(c[1]).length === c[2],
+            JSON.stringify(mismatches(c[1])));
+    });
+
+    // Witness: the scanner must be seeing real functions here, otherwise "no mismatch" means
+    // "nothing was read".
+    const declared = Object.keys(declarations(code));
+    check("the scanner reads the template's functions", declared.length > 20, String(declared.length));
+    check("including the one the defect was in", declared.indexOf("generateConsentObject") !== -1,
+        declared.join(","));
+
+    const bad = mismatches(code);
+    check("no function is called with the wrong number of arguments", bad.length === 0, bad.join(" | "));
+}
+
+// The handoff object is published only from synchronous flow.
+//
+// WHY: `ABconsentCMP` is read ONCE, at the top, and `copyFromWindow` hands back a copy. Every
+// publication then writes that copy back with overrideExisting, which REPLACES the window object
+// wholesale. That is safe for exactly one reason -- nothing else on the page can run between the
+// read and the last write, because all of it is one synchronous run. It stops being safe the
+// moment a publication happens from something deferred: an installed function, a load callback, a
+// listener. Such a write would put back a snapshot taken before the CMP script existed, erasing
+// whatever it had written in between, and neither the assertions below nor the tag itself would
+// notice.
+//
+// The tag already has deferred code -- the function installed on `oaiq` -- and it deliberately
+// does NOT republish: it reaches its target through the exact window path instead. That is the
+// shape to keep, and this is what keeps it.
+{
+    const code = stripComments(SRC);
+
+    // A deferred body here is a function LITERAL passed as an argument: what `setInWindow`
+    // installs, what `injectScript` calls back, what a listener registration hands over. A
+    // function assigned to a name is not one -- it runs where it is called, and those call sites
+    // are in synchronous flow.
+    //
+    // An array method's callback is NOT deferred: `forEach` runs it there and then, inside the
+    // same synchronous flow, so a publication in one is as safe as a publication beside it. Not
+    // excluding them makes the guard redden on correct code -- measured, it did -- and a guard
+    // that fails on the shape it is meant to allow gets deleted rather than obeyed.
+    const SYNCHRONOUS_CALLBACKS = ["forEach", "map", "filter", "some", "every", "reduce", "sort"];
+
+    function deferredBodies(text) {
+        const bodies = [];
+        const re = /([A-Za-z_$][\w$]*)?\s*[(,]\s*(?:function\s*\([^)]*\)|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)\s*\{/g;
+        let m;
+        while ((m = re.exec(text)) !== null) {
+            if (m[1] && SYNCHRONOUS_CALLBACKS.indexOf(m[1]) !== -1) { continue; }
+            let depth = 0;
+            let quote = null;
+            const open = m.index + m[0].length - 1;
+            for (let j = open; j < text.length; j += 1) {
+                const c = text[j];
+                if (quote) {
+                    if (c === "\\") { j += 1; continue; }
+                    if (c === quote) { quote = null; }
+                    continue;
+                }
+                if (c === "\"" || c === "'" || c === "`") { quote = c; continue; }
+                if (c === "{") { depth += 1; }
+                else if (c === "}") {
+                    depth -= 1;
+                    if (depth === 0) { bodies.push(text.slice(open, j + 1)); break; }
+                }
+            }
+        }
+        return bodies;
+    }
+
+    const PUBLISH = "setInWindow('ABconsentCMP'";
+
+    // Pinned both ways first: a scanner that finds no deferred body at all would report this
+    // template clean without having looked at anything.
+    [
+        ["an installed function that republishes is seen",
+            "setInWindow('oaiq', function(a) { setInWindow('ABconsentCMP', x, true); }, true);", 1],
+        ["an injection callback that republishes is seen",
+            "injectScript(u, function(){ setInWindow('ABconsentCMP', x, true); }, f);", 1],
+        ["an arrow passed as an argument is seen",
+            "reg('e', () => { setInWindow('ABconsentCMP', x, true); });", 1],
+        ["a NAMED function is not a deferred body",
+            "const f = function(a) { setInWindow('ABconsentCMP', x, true); };", 0],
+        ["a named arrow is not one either",
+            "const f = (a) => { setInWindow('ABconsentCMP', x, true); };", 0],
+        ["a deferred body that reaches through the path instead is clean",
+            "setInWindow('oaiq', function(a) { callInWindow('ABconsentCMP.openai.preQueue.push', a); }, true);", 0],
+        ["a forEach callback is NOT deferred -- the false positive this cost",
+            "rows.forEach(r => { setInWindow('ABconsentCMP', x, true); });", 0],
+        ["and neither is a map one",
+            "rows.map(function(r) { setInWindow('ABconsentCMP', x, true); });", 0],
+        ["a callback on an unknown method still counts as deferred",
+            "thing.onReady(function(r) { setInWindow('ABconsentCMP', x, true); });", 1]
+    ].forEach((c) => {
+        const hits = deferredBodies(c[1]).filter((b) => b.indexOf(PUBLISH) !== -1).length;
+        check("deferred scanner: " + c[0], hits === c[2], String(hits));
+    });
+
+    const bodies = deferredBodies(code);
+    check("the scanner reads the template's deferred bodies", bodies.length >= 3, String(bodies.length));
+
+    const offenders = bodies.filter((b) => b.indexOf(PUBLISH) !== -1).length;
+    check("no deferred body republishes the handoff object", offenders === 0, String(offenders));
+
+    // The premise the whole thing rests on: read once. A second read would be a second snapshot,
+    // and two snapshots written back in any order lose whichever was taken first.
+    const reads = code.split("copyFromWindow('ABconsentCMP')").length - 1;
+    check("the handoff object is read exactly once", reads === 1, String(reads));
+
+    // And the publications are not decorative: each one follows a property being set, which is why
+    // there are several rather than one at the end. Losing them all would leave the window object
+    // without the handoff the served script reads.
+    const writes = code.split(PUBLISH).length - 1;
+    check("the handoff object is published at least once per property it carries",
+        writes >= 6, String(writes));
+}
+
+// The scenarios shipped inside the template can actually run.
+//
+// WHY: those scenarios only execute in the GTM template editor, which nothing here can start, so
+// they can rot without anyone noticing. They had: their mock data never set the field that opens
+// the block emitting the defaults, so every assertion on it was made against an API that was never
+// called. That was true before this branch too -- the mock data went on naming a field the form had
+// renamed, which is the same rot one step earlier.
+//
+// This replays that mock data through the same fake APIs the rest of this file uses. It does not
+// interpret the scenarios' own assertions; it checks the one thing whose absence made all of them
+// meaningless -- that the run reaches the emission at all -- and pins what the declared table emits.
+{
+    const setup = TPL.split("setup: |-")[1];
+    if (setup === undefined) { throw new Error("the template's test setup block is missing"); }
+
+    // Top-level keys of the mock object, read as text: a rename in the form leaves them behind, and
+    // a key no field declares is read as `undefined` by the template, silently.
+    const mockKeys = [];
+    setup.split("\n").forEach((line) => {
+        const m = line.match(/^ {4}([A-Za-z_$][\w$]*):/);
+        if (m) { mockKeys.push(m[1]); }
+    });
+    check("the template's mock data was found", mockKeys.length >= 4, mockKeys.join(","));
+
+    // `parameters` and `flatten` are scoped to the form section above, so they are re-derived here
+    // rather than hoisted: a shared mutable binding between two independent sections is how one
+    // section's setup starts deciding another's verdict.
+    const formParams = JSON.parse(extractJsonSection(
+        "___TEMPLATE_PARAMETERS___", "___SANDBOXED_JS_FOR_WEB_TEMPLATE___"));
+    const flat = (params) => params.reduce((all, param) =>
+        all.concat([param], flat(param.subParams || [])), []);
+    const declared = flat(formParams).map((param) => param.name);
+    const undeclared = mockKeys.filter((key) => declared.indexOf(key) === -1);
+    check("every key of the mock data names a declared field", undeclared.length === 0,
+        undeclared.join(","));
+
+    // The scenarios assert on the default emission, so the mock data has to open it. This is the
+    // defect itself, stated as a rule.
+    const assertsDefaults = TPL.indexOf("assertApi('setDefaultConsentState')") !== -1;
+    check("the scenarios assert on the default emission", assertsDefaults);
+    check("and the mock data opens it", mockKeys.indexOf("consentMode") !== -1, mockKeys.join(","));
+
+    // Replayed: the declared table is applied as declared, which is what the first scenario says.
+    const editor = run({sddan: SDDAN_LOCAL, data: {
+        consentMode: true,
+        overrideDefaultConsent: true,
+        customConsentSettings: [{
+            ad_storage: "denied", analytics_storage: "granted", personalization_storage: "granted",
+            functionality_storage: "granted", security_storage: "granted",
+            wait_for_update: 0, region: "ALL"
+        }, {
+            ad_storage: "denied", analytics_storage: "denied", personalization_storage: "denied",
+            functionality_storage: "denied", security_storage: "denied",
+            wait_for_update: 1000, region: "FR"
+        }],
+        url_passthrough: true, ads_data_redaction: false
+    }});
+    check("replaying the mock data emits the two declared rows", editor.calls.defaults.length === 2,
+        JSON.stringify(editor.calls.defaults));
+    check("the first carries no region and no wait, as the row says",
+        editor.calls.defaults[0] && editor.calls.defaults[0].region === undefined &&
+        editor.calls.defaults[0].wait_for_update === undefined &&
+        editor.calls.defaults[0].analytics_storage === "granted" &&
+        editor.calls.defaults[0].ad_user_data === "denied",
+        JSON.stringify(editor.calls.defaults[0]));
+    check("the second carries its region and its wait",
+        editor.calls.defaults[1] &&
+        JSON.stringify(editor.calls.defaults[1].region) === JSON.stringify(["FR"]) &&
+        editor.calls.defaults[1].wait_for_update === 1000 &&
+        editor.calls.defaults[1].ad_storage === "denied",
+        JSON.stringify(editor.calls.defaults[1]));
+}
+
+// Assertion floor: deleting a test section must fail loudly rather than reporting a vacuous green.
+const MIN_CHECKS = 150;
 if (checksRun < MIN_CHECKS) {
     failures++;
     console.log("\n  FAIL only " + checksRun + " assertions ran, floor = " + MIN_CHECKS);
