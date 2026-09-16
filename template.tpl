@@ -2238,22 +2238,35 @@ const REGULATED_REGIONS = [
 // aupres de vos visiteurs [...] Vous evitez egalement toute perte de mesure lorsqu'aucune banniere
 // de consentement n'est appliquee ou ne s'applique."
 //
-// So there is NO row for the rest of the world, and adding one is the mistake not to make again.
-// Consent Mode starts with no value set -- "Par defaut, aucune valeur n'est definie pour le mode
-// Consentement" -- and an unset signal behaves as granted, which the region table on that page
-// states outright: "Non specifie | granted | Utilise la valeur par defaut de 'granted'". A visitor
-// no regulation covers is therefore served correctly by being told NOTHING.
+// THE ROW FOR THE REST OF THE WORLD IS THE OTHER HALF OF THAT RULE, not a contradiction of it,
+// and this comment claimed the opposite -- "there is NO row for the rest of the world" -- long
+// after the row was here. Read as written it argued against the code twenty lines below it, which
+// is the worst thing a comment can do on a table this small.
+//
+// What the instruction limits is the REFUSAL, and refusing is what a notice is for. Outside those
+// regions nothing is refused: the row GRANTS, which is also what an unset signal already does --
+// the region table on that page says it outright, "Non specifie | granted | Utilise la valeur par
+// defaut de 'granted'". Stating it makes the status explicit instead of leaning on an ambient
+// default, and the two readings agree on what the visitor gets.
 //
 // This got written wrong twice, in opposite directions, and both shapes reached a branch. A single
 // all-denied row with no region denied the whole world with nothing able to lift it, since those
-// visitors are never shown a notice and so never produce an update. Replacing it with an
-// all-GRANTED row with no region looked like the fix and was not: it is still a default outside
-// the banner regions, so it still runs through the chain below -- a stored container or a privacy
-// marker denies it exactly like the others, and the denial is permanent again for want of a notice
-// that could lift it. Emitting nothing is the only shape with no such branch.
+// visitors are never shown a notice and so never produce an update -- measured on a real page from
+// outside both regulated perimeters, every signal denied for the whole page view. Emitting NOTHING
+// was the next answer and it is the one this paragraph froze; the shipped shape is the third, and
+// what separates it from emitting nothing is exactly one thing: a stated row runs through the chain
+// below, so a stored container or a privacy marker can still deny it.
+//
+// THAT IS DELIBERATE, and it is the one place this table is stricter than the served CMP script.
+// That script grants everything outside both perimeters and ignores the container there. Here the
+// container still speaks, so a visitor who refused earlier keeps their refusal in a country where
+// no regulation would have asked them again. It is their own recorded answer rather than a
+// denial invented for them, it errs toward not measuring rather than toward measuring without a
+// basis, and no notice is owed where no regulation applies -- so there is nothing to lift.
 //
 // `wait_for_update` is the same idea seen from the other end: these rows are defaults AWAITING an
-// answer, and an answer is only ever coming where a notice is shown.
+// answer, and an answer is only ever coming where a notice is shown. The global row therefore
+// carries none.
 const AUTOMATIC_CONSENT_SETTINGS = [{
   // THE REGULATED PERIMETER -- the visitors who are shown a notice, so the three signals a notice
   // is about start refused and wait for the answer.
@@ -2790,6 +2803,21 @@ const installQueuedMiniStub = (name) => {
 // `__sdcmpapi` is different in the one way that matters: it is OURS, it is installed by every
 // entry point and withdrawn by none, so it cannot become a lie. It is also what this tag's own
 // cookie-deletion listener registers on, before the request rather than after.
+// THE MARKER IS A BOOLEAN, AND THE SERVED SCRIPT ONLY TRUSTS ONE ON THIS NAME.
+//
+// A function reference would say more: the served script could compare it against what is actually
+// on the window and know the mini-API is still the one that was marked. A boolean cannot -- it
+// says "I installed one", never "it is still mine" -- so on any of the three standard names the
+// served script refuses it and leaves whatever is in place alone. Another consent platform can own
+// `__tcfapi`, and replacing it on an unverifiable claim would destroy its API.
+//
+// `__sdcmpapi` is the one name where the doubt costs nothing, which is why this is the one API
+// prepared here: nobody else installs it, and the full CMP replaces it on arrival with no marker
+// at all. Publishing the reference instead would mean assuming it survives this sandbox unwrapped,
+// which nothing here can establish -- the harness beside this file SIMULATES the sandbox, so a
+// green run would prove the simulation, not the platform. The boolean is what both sides agree on,
+// and the pin in that harness is what keeps this shape from drifting into one the served script
+// would silently ignore.
 const installTemplateMiniStubs = () => {
   const installed = {};
   if (installQueuedMiniStub('__sdcmpapi')) installed.__sdcmpapi = true;
