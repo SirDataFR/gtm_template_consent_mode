@@ -2123,6 +2123,108 @@ console.log("\n25. A regional refusal, then a global one that carries the ad sig
     check("no function is called with the wrong number of arguments", bad.length === 0, bad.join(" | "));
 }
 
+// The handoff object is published only from synchronous flow.
+//
+// WHY: `ABconsentCMP` is read ONCE, at the top, and `copyFromWindow` hands back a copy. Every
+// publication then writes that copy back with overrideExisting, which REPLACES the window object
+// wholesale. That is safe for exactly one reason -- nothing else on the page can run between the
+// read and the last write, because all of it is one synchronous run. It stops being safe the
+// moment a publication happens from something deferred: an installed function, a load callback, a
+// listener. Such a write would put back a snapshot taken before the CMP script existed, erasing
+// whatever it had written in between, and neither the assertions below nor the tag itself would
+// notice.
+//
+// The tag already has deferred code -- the function installed on `oaiq` -- and it deliberately
+// does NOT republish: it reaches its target through the exact window path instead. That is the
+// shape to keep, and this is what keeps it.
+{
+    const code = stripComments(SRC);
+
+    // A deferred body here is a function LITERAL passed as an argument: what `setInWindow`
+    // installs, what `injectScript` calls back, what a listener registration hands over. A
+    // function assigned to a name is not one -- it runs where it is called, and those call sites
+    // are in synchronous flow.
+    //
+    // An array method's callback is NOT deferred: `forEach` runs it there and then, inside the
+    // same synchronous flow, so a publication in one is as safe as a publication beside it. Not
+    // excluding them makes the guard redden on correct code -- measured, it did -- and a guard
+    // that fails on the shape it is meant to allow gets deleted rather than obeyed.
+    const SYNCHRONOUS_CALLBACKS = ["forEach", "map", "filter", "some", "every", "reduce", "sort"];
+
+    function deferredBodies(text) {
+        const bodies = [];
+        const re = /([A-Za-z_$][\w$]*)?\s*[(,]\s*(?:function\s*\([^)]*\)|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)\s*\{/g;
+        let m;
+        while ((m = re.exec(text)) !== null) {
+            if (m[1] && SYNCHRONOUS_CALLBACKS.indexOf(m[1]) !== -1) { continue; }
+            let depth = 0;
+            let quote = null;
+            const open = m.index + m[0].length - 1;
+            for (let j = open; j < text.length; j += 1) {
+                const c = text[j];
+                if (quote) {
+                    if (c === "\\") { j += 1; continue; }
+                    if (c === quote) { quote = null; }
+                    continue;
+                }
+                if (c === "\"" || c === "'" || c === "`") { quote = c; continue; }
+                if (c === "{") { depth += 1; }
+                else if (c === "}") {
+                    depth -= 1;
+                    if (depth === 0) { bodies.push(text.slice(open, j + 1)); break; }
+                }
+            }
+        }
+        return bodies;
+    }
+
+    const PUBLISH = "setInWindow('ABconsentCMP'";
+
+    // Pinned both ways first: a scanner that finds no deferred body at all would report this
+    // template clean without having looked at anything.
+    [
+        ["an installed function that republishes is seen",
+            "setInWindow('oaiq', function(a) { setInWindow('ABconsentCMP', x, true); }, true);", 1],
+        ["an injection callback that republishes is seen",
+            "injectScript(u, function(){ setInWindow('ABconsentCMP', x, true); }, f);", 1],
+        ["an arrow passed as an argument is seen",
+            "reg('e', () => { setInWindow('ABconsentCMP', x, true); });", 1],
+        ["a NAMED function is not a deferred body",
+            "const f = function(a) { setInWindow('ABconsentCMP', x, true); };", 0],
+        ["a named arrow is not one either",
+            "const f = (a) => { setInWindow('ABconsentCMP', x, true); };", 0],
+        ["a deferred body that reaches through the path instead is clean",
+            "setInWindow('oaiq', function(a) { callInWindow('ABconsentCMP.openai.preQueue.push', a); }, true);", 0],
+        ["a forEach callback is NOT deferred -- the false positive this cost",
+            "rows.forEach(r => { setInWindow('ABconsentCMP', x, true); });", 0],
+        ["and neither is a map one",
+            "rows.map(function(r) { setInWindow('ABconsentCMP', x, true); });", 0],
+        ["a callback on an unknown method still counts as deferred",
+            "thing.onReady(function(r) { setInWindow('ABconsentCMP', x, true); });", 1]
+    ].forEach((c) => {
+        const hits = deferredBodies(c[1]).filter((b) => b.indexOf(PUBLISH) !== -1).length;
+        check("deferred scanner: " + c[0], hits === c[2], String(hits));
+    });
+
+    const bodies = deferredBodies(code);
+    check("the scanner reads the template's deferred bodies", bodies.length >= 3, String(bodies.length));
+
+    const offenders = bodies.filter((b) => b.indexOf(PUBLISH) !== -1).length;
+    check("no deferred body republishes the handoff object", offenders === 0, String(offenders));
+
+    // The premise the whole thing rests on: read once. A second read would be a second snapshot,
+    // and two snapshots written back in any order lose whichever was taken first.
+    const reads = code.split("copyFromWindow('ABconsentCMP')").length - 1;
+    check("the handoff object is read exactly once", reads === 1, String(reads));
+
+    // And the publications are not decorative: each one follows a property being set, which is why
+    // there are several rather than one at the end. Losing them all would leave the window object
+    // without the handoff the served script reads.
+    const writes = code.split(PUBLISH).length - 1;
+    check("the handoff object is published at least once per property it carries",
+        writes >= 6, String(writes));
+}
+
 // Assertion floor: deleting a test section must fail loudly rather than reporting a vacuous green.
 const MIN_CHECKS = 150;
 if (checksRun < MIN_CHECKS) {
