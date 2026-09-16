@@ -930,22 +930,41 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
         all.concat([param], flatten(param.subParams || [])), []);
     const byName = (name) => flatten(parameters).filter((param) => param.name === name)[0];
 
-    // The form asks for the CMP first and shows nothing else until it has an answer. The two
-    // identifiers are therefore TOP-LEVEL fields rather than members of a section: a condition
-    // naming a field buried inside another section is the one shape no shipped template uses, and
-    // the shape this form was measured getting wrong in the real editor.
+    // The form asks for the CMP first and shows nothing else until it has an answer. What is
+    // pinned is that ORDER -- the two identifiers before any other field the publisher can set,
+    // then the four sections -- and NOT whether the identifiers sit at the top level or inside the
+    // opening section. Both assertions below cited a literal top-level list and a positional
+    // slice(4), so a presentation pass that wrapped the identifiers in a ZIPPY group reddened them
+    // without touching their object. An assertion that reads a layout is broken by a layout pass;
+    // one that reads the invariant is not.
+    const HOLDS_NO_VALUE = ["LABEL", "GROUP"];
     const topLevel = parameters.map((param) => param.name);
+    const settableOrder = flatten(parameters)
+        .filter((param) => HOLDS_NO_VALUE.indexOf(param.type) === -1).map((param) => param.name);
     check("the form opens on the CMP identifiers, then the three consent modes",
-        JSON.stringify(topLevel) === JSON.stringify(["cmpSection", "partnerId", "configId",
-            "firstPartyHost", "consent Mode", "facebookConsentModeGroup",
-            "openAiConsentModeGroup", "Cookies"]), JSON.stringify(topLevel));
+        settableOrder[0] === "partnerId" && settableOrder[1] === "configId" &&
+        JSON.stringify(topLevel.slice(-4)) === JSON.stringify(["consent Mode",
+            "facebookConsentModeGroup", "openAiConsentModeGroup", "Cookies"]),
+        JSON.stringify({firstFields: settableOrder.slice(0, 3), topLevel: topLevel}));
     const gatedOnCmp = (param) => JSON.stringify((param.enablingConditions || []).map((condition) =>
         [condition.paramName, condition.type, condition.paramValue])) ===
         JSON.stringify([["configId", "NOT_EQUALS", ""]]);
+    // DERIVED, not positional: the opening entries are the ones that CARRY an identifier -- the
+    // section they were moved into, or the fields themselves when they sit at the top level. They
+    // cannot wait for the id they ask for; every entry after the last of them must.
+    const carriesId = (param) => flatten([param]).some((child) => child.name === "partnerId" ||
+        child.name === "configId" || child.name === "firstPartyHost");
+    let firstGated = -1;
+    parameters.forEach((param, index) => { if (carriesId(param)) { firstGated = index + 1; } });
+    const below = firstGated > 0 ? parameters.slice(firstGated) : parameters;
+    const opening = firstGated > 0 ? parameters.slice(0, firstGated) : [];
+    // The witness is firstGated > 0: a tree that lost its identifiers would otherwise satisfy the
+    // rule by having no opening to exempt, and every section would read as correctly gated.
     check("every section below the identifiers waits for the configuration id",
-        parameters.slice(4).every(gatedOnCmp) && parameters.slice(0, 4).every((param) =>
-            param.enablingConditions === undefined),
-        JSON.stringify(parameters.map((param) => [param.name, gatedOnCmp(param)])));
+        firstGated > 0 && below.length === 4 && below.every(gatedOnCmp) &&
+        opening.every((param) => param.enablingConditions === undefined),
+        JSON.stringify(parameters.map((param, index) =>
+            [param.name, index < firstGated, gatedOnCmp(param)])));
 
     // ONE condition per field, everywhere. Multiple conditions are read as "any of these", not
     // "all of these" -- which is how a table that asked for the activation AND the override went
@@ -1108,17 +1127,33 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
     // disappeared from the summary at exactly the moment the feature was on: the reader saw two
     // sub-options under a sub-heading of their own, and no "Google Consent Mode" above them.
     //
+    // What is pinned is THAT defect, not a house style, and the distinction is the whole point:
+    // the rule used to read "every settable field", which is strictly wider than what was
+    // measured. A box that defaults to off, or a table that defaults to empty, is already surfaced
+    // by the panel as soon as the publisher touches it -- so taking the flag off one hides nothing,
+    // and a presentation pass that trims summary noise is not a regression. A field whose default
+    // IS its active state is the only one the panel can hide at the moment it matters.
+    //
     // The rule is DERIVED from the tree rather than written as a list, so a field added later is
     // covered without anyone remembering this: a list would have to be extended by the same person
     // who forgot the flag. LABEL and GROUP are exempt because they hold no value to summarize --
     // they are the heading the flag makes appear.
-    const SUMMARY_EXEMPT = ["LABEL", "GROUP"];
+    const HAS_DEFAULT_ON = (param) => param.defaultValue !== undefined &&
+        param.defaultValue !== false && param.defaultValue !== "" &&
+        !(Array.isArray(param.defaultValue) && param.defaultValue.length === 0);
     const settable = flatten(parameters).filter((param) =>
-        SUMMARY_EXEMPT.indexOf(param.type) === -1);
-    const missingFromSummary = settable.filter((param) => param.alwaysInSummary !== true);
-    check("every field the publisher can set shows in the summary",
+        HOLDS_NO_VALUE.indexOf(param.type) === -1);
+    const missingFromSummary = settable.filter((param) =>
+        HAS_DEFAULT_ON(param) && param.alwaysInSummary !== true);
+    check("every field whose default is its active state shows in the summary",
         missingFromSummary.length === 0,
         JSON.stringify(missingFromSummary.map((param) => [param.name, param.type])));
+    // Witness: such a field exists at all. Without it, a form whose every default was the off
+    // state would satisfy the rule above by having nothing to check -- and the flag could then be
+    // dropped from the one box that needs it without a single assertion moving.
+    check("the form still has a field whose default is its active state",
+        settable.some(HAS_DEFAULT_ON),
+        JSON.stringify(settable.filter(HAS_DEFAULT_ON).map((param) => param.name)));
     // Witness: there are fields to check at all. Without it, a tree reduced to headings would
     // satisfy the check above by having nothing to check.
     check("the form still has fields to summarize", settable.length >= 10, String(settable.length));
