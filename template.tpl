@@ -2219,9 +2219,21 @@ const applyGpcRefusal = (consentObject) => {
 // on the `US-` prefix rather than against a list of states, so a state added to the parameters
 // tomorrow is covered without a second edit here -- and `RU`, which merely contains the letters,
 // is not.
+// A row's region is either one string, as the settings table offers it, or a list -- which is how
+// the automatic rows name a whole perimeter in a single default. Both shapes have to be read here:
+// a list that silently answered "not the US" would leave the US refusal below unreachable without
+// changing a single emitted value, since the rows it guards are already denied. The failure would
+// only surface the day one of the two moved.
 const isUsRegion = (region) => {
-  if (typeof(region) !== 'string') return false;
-  return region === 'US' || region.indexOf('US-') === 0;
+  if (typeof(region) === 'string') {
+    return region === 'US' || region.indexOf('US-') === 0;
+  }
+  if (region) {
+    for (let i = 0; i < region.length; i++) {
+      if (region[i] === 'US' || region[i].indexOf('US-') === 0) return true;
+    }
+  }
+  return false;
 };
 
 // The starting position on that perimeter when NOTHING was ever recorded -- no marker, no
@@ -2255,6 +2267,23 @@ const REGULATED_REGIONS = [
   'AT', 'BE', 'BG', 'BL', 'BR', 'CH', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GB',
   'GF', 'GP', 'GR', 'HR', 'HU', 'IE', 'IS', 'IT', 'LI', 'LT', 'LU', 'LV', 'MF', 'MQ', 'MT',
   'NC', 'NL', 'NO', 'PF', 'PL', 'PM', 'PT', 'RE', 'RO', 'SE', 'SI', 'SK', 'WF', 'YT'
+];
+
+// The US states where the CMP shows a notice -- the same twenty its server-side determination
+// covers, as ISO 3166-2 subdivision codes, which is the format the region parameter takes.
+//
+// NOT the whole country. A single `US` row denied the other thirty states too, where no notice is
+// ever shown and therefore no update is ever pushed: the denial was permanent, which is the very
+// fault the missing global row was removed for, one level down and inside the US.
+//
+// A publisher who extends the regulation to all fifty states is the one case this list is narrower
+// than the notice, and the trade is deliberate: those extra states get no default, so Google leaves
+// them unrestricted until the CMP's update lands -- which it does, because a notice IS shown there.
+// Temporary and self-correcting, against permanent and silent. Under an opt-out regime, unrestricted
+// until the visitor objects is also the regime's own posture.
+const CCPA_US_STATES = [
+  'US-CA', 'US-CO', 'US-CT', 'US-DE', 'US-FL', 'US-IA', 'US-IN', 'US-KY', 'US-MD', 'US-MN',
+  'US-MT', 'US-NE', 'US-NH', 'US-NJ', 'US-OR', 'US-RI', 'US-TN', 'US-TX', 'US-UT', 'US-VA'
 ];
 
 // What the tag emits when the publisher has not taken the defaults over -- that is, the nominal
@@ -2291,16 +2320,16 @@ const AUTOMATIC_CONSENT_SETTINGS = [{
   wait_for_update: 1000,
   region: REGULATED_REGIONS
 }, {
-  // Kept as the STRING 'US', not folded into the list above: `isUsRegion` reads it, so this row
-  // also carries the US refusal of the chain below. Its values are already denied, which makes
-  // that a no-op today -- and keeps the two from disagreeing the day one of them moves.
+  // The twenty covered states, not the country. This row also carries the US refusal of the chain
+  // below, which `isUsRegion` reads off the list -- a no-op while the row is already denied, and
+  // what keeps the two from disagreeing the day one of them moves.
   ad_storage: 'denied',
   analytics_storage: 'denied',
   personalization_storage: 'denied',
   functionality_storage: 'denied',
   security_storage: 'denied',
   wait_for_update: 1000,
-  region: 'US'
+  region: CCPA_US_STATES
 }];
 
 // The override is a CHECKBOX, so "unchecked" and "never set" read the same -- which is what makes

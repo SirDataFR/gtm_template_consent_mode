@@ -1935,11 +1935,26 @@ console.log("\n25. A default is emitted ONLY where a notice is shown");
     check("and no other row names them either",
         defauts.every((d) => !d.region || (d.region.indexOf("IL") === -1 && d.region.indexOf("JP") === -1)),
         JSON.stringify(defauts.map((d) => d.region)));
-    // Kept as a string in the settings so `isUsRegion` still reads it, which is what carries the
-    // US refusal of the chain -- a no-op while the row is already denied.
-    check("the US row names the US and denies",
-        JSON.stringify(defauts[1].region) === JSON.stringify(["US"]) &&
-        defauts[1].ad_storage === "denied", JSON.stringify(defauts[1]));
+    // The US row names the twenty COVERED states, not the country: the other thirty are never shown
+    // a notice, so a default there could never be lifted -- the same fault as a region-less row,
+    // one level down and inside the US.
+    const usRow = defauts[1].region;
+    check("the US row names the covered states, not the country",
+        usRow.indexOf("US") === -1 && usRow.length === 20 &&
+        usRow.every((c) => c.indexOf("US-") === 0), JSON.stringify(usRow));
+    check("it carries California, Texas and Virginia",
+        ["US-CA", "US-TX", "US-VA"].every((c) => usRow.indexOf(c) >= 0), JSON.stringify(usRow));
+    // The states no US privacy regulation covers: a visitor there gets no default at all.
+    check("and NOT a state where no regulation applies",
+        ["US-WI", "US-OH", "US-NY", "US-AK"].every((c) => usRow.indexOf(c) === -1),
+        JSON.stringify(usRow));
+    check("the row still denies", defauts[1].ad_storage === "denied", JSON.stringify(defauts[1]));
+    // NO assertion pins that `isUsRegion` reads the list, and the absence is deliberate rather than
+    // an oversight: the row it guards is already all-denied, so the US refusal is a no-op on every
+    // input that exists today. An assertion here passes whether or not the list is read -- measured,
+    // not assumed: removing the list branch leaves the whole suite GREEN. Reading the list is
+    // defensive, and what it defends against is the day the row stops being denied; a check that
+    // cannot fail would only claim otherwise.
 
     // The chain runs per row. With no region-less row there is nothing for it to deny outside the
     // banner regions -- which is the second half of the fix: the previous shape emitted a granted
