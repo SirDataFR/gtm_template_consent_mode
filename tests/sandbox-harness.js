@@ -192,6 +192,7 @@ function run(opts) {
                 openai: cmp.gtmOpenAiConsentMode,
                 enableConsentMode: cmp.enableConsentMode,
                 googleDefaultSet: cmp.gtmGoogleConsentModeDefaultSet,
+                containerId: cmp.gtmTemplateContainerId,
                 miniStubApis: Object.assign({}, cmp.gtmTemplateMiniStubApis || {})
             });
             if (opts.failInjection && u.indexOf(opts.failInjection) !== -1) {
@@ -1424,6 +1425,25 @@ console.log("\n21. Activation overrides and loader ordering");
         firstState.enableConsentMode === true && firstState.googleDefaultSet === true &&
         JSON.stringify(firstState.miniStubApis) === JSON.stringify({__sdcmpapi: true}),
         JSON.stringify(firstState));
+    // The container identity is published too, and NOTHING pinned it: the three properties could
+    // have gone in a later pass without a single assertion reddening, and the served script has no
+    // other way to know which container loaded it -- the request carries the tag manager's NAME,
+    // never its container.
+    //
+    // It is written on the first run only. That is idempotence, not an omission: `cmpLoaded` is a
+    // re-entry guard, and a second firing has nothing new to say. The one case where it would be
+    // new -- a publisher's own snippet booted the CMP first, then this tag fires -- is a write
+    // after the reader has already run, so it could not be read in time either way.
+    //
+    // The injection snapshot is what makes this an ORDER rather than a value: the identity has to
+    // be on the published object BEFORE the request goes out, or nothing on the served side could
+    // act on it.
+    check("the container identity is published, and visible at the injection",
+        enabled.globals.ABconsentCMP.gtmTemplateContainerId === "GTM-TEST" &&
+        enabled.globals.ABconsentCMP.gtmTemplateContainerVersion === "1" &&
+        enabled.globals.ABconsentCMP.gtmTemplateContainerFirstPartyServing === false &&
+        firstState.containerId === "GTM-TEST",
+        JSON.stringify(enabled.globals.ABconsentCMP) + " | " + JSON.stringify(firstState));
     const noGoogle = run({sddan: SDDAN_LOCAL, data: {
         consentMode: false, partnerId: "1020", configId: "public"
     }});
