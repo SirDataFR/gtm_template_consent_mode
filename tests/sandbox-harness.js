@@ -1200,18 +1200,31 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
     });
     // And nothing may be declared that the sandboxed code never touches: an unused permission is
     // access granted for nothing. `SDDAN` was declared readable and never read.
-    const sandboxed = SRC;
+    const sandboxed = stripComments(SRC);
     rows.forEach((row) => {
         const root = row[0].split(".")[0];
         check("access_globals entry " + row[0] + " is actually reached by the code",
             sandboxed.indexOf(root) !== -1, row[0]);
     });
-    ["__tcfapi", "__sdcmpapi", "__uspapi", "__gpp", "__gpp.queue", "__gpp.events",
+    ["__sdcmpapi", "__uspapi",
         "fbq", "fbq.queue", "fbq.queue.push", "fbq.push", "_fbq",
         "oaiq", "oaiq.q", "oaiq.queue", "oaiq.queue.push",
         "oaiq.queue.__sdSharedStorage", "oaiq.q.__sdSharedStorage"].forEach((key) => {
         check("access_globals includes " + key, rows.some((row) => row[0] === key), JSON.stringify(rows));
     });
+    // THE PERMISSIONS FOLLOW WHAT THE TEMPLATE PREPARES, and these three are the ones it stopped
+    // preparing. A declared permission that nothing uses is access granted for nothing, and the
+    // check above only says what must be present -- the absence needs saying too, or the entries
+    // would linger with no call behind them.
+    ["__tcfapi", "__gpp", "__gpp.queue", "__gpp.events"].forEach((key) => {
+        check("access_globals no longer declares " + key,
+            !rows.some((row) => row[0] === key), JSON.stringify(rows));
+    });
+    // `__uspapi` stays READABLE and nothing more: `readUsOptOut` uses its presence as the witness
+    // that the page is under that regulation. It is never written nor called.
+    check("the US Privacy API is read and nothing else",
+        rows.some((row) => row[0] === "__uspapi" && row[1] === true &&
+            row[2] === false && row[3] === false), JSON.stringify(rows));
     // The shared-storage question is asked for OpenAI ONLY. Meta reads its canonical list alone,
     // because a distinct `_fbq.queue` belongs to another advertiser's pixel rather than to a second
     // copy of this one's pending work.
@@ -1264,8 +1277,14 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
         JSON.stringify(rows));
     check("no vendor SDK domain was added to inject_script",
         permissionsText.indexOf("connect.facebook.net") === -1 && permissionsText.indexOf("bzrcdn.openai.com") === -1);
+    // READ WITH COMMENTS STRIPPED, and that is not a nicety: the comment explaining that the
+    // served stub is what installs the locators and the `postMessage` bridges NAMES both, so the
+    // raw source made this assertion fail on its own documentation -- which invites deleting the
+    // explanation rather than the cause.
+    const withoutComments = stripComments(SRC);
     check("template creates no locator iframe or message listener",
-        SRC.indexOf("Locator") === -1 && SRC.indexOf("postMessage") === -1 && SRC.indexOf("addEventListener('message'") === -1);
+        withoutComments.indexOf("Locator") === -1 && withoutComments.indexOf("postMessage") === -1 &&
+        withoutComments.indexOf("addEventListener('message'") === -1);
 }
 
 console.log("\n20. Same-window mini-stubs and takeover handoff");
@@ -1274,41 +1293,50 @@ console.log("\n20. Same-window mini-stubs and takeover handoff");
     const valid = run({sddan: SDDAN_LOCAL, globals: {__uspapi: thirdPartyUsp}, data: {
         partnerId: "1020", configId: "public"
     }});
-    check("valid loader configuration installs missing mini-stubs",
-        typeof valid.globals.__tcfapi === "function" && typeof valid.globals.__sdcmpapi === "function" &&
-        typeof valid.globals.__gpp === "function");
+    check("only the Sirdata mini-stub is installed", typeof valid.globals.__sdcmpapi === "function");
     check("pre-existing third-party CMP API is never replaced", valid.globals.__uspapi === thirdPartyUsp);
+
+    // THE THREE WITHDRAWABLE APIs ARE LEFT ALONE, and this is the assertion that carries the
+    // decision. The served configuration can take each of them away -- `__uspapi` under GDPR,
+    // `__tcfapi` when the publisher has turned TCF off, `__gpp` when they have turned GPP off --
+    // and this tag runs before any CMP script, so it cannot know which. Preparing one meant
+    // posting an API that the configuration then removes; the GPP one went further and answered
+    // `listenerRegistered` with an id, confirming a registration it could not honour.
+    //
+    // `__sdcmpapi` is the exception BECAUSE it is ours: every entry point installs it and none
+    // withdraws it, so it cannot become a lie. It is also what this tag's own cookie-deletion
+    // listener registers on, before the request rather than after it.
+    ["__tcfapi", "__uspapi", "__gpp"].forEach((apiName) => {
+        const untouched = run({sddan: SDDAN_LOCAL, data: {partnerId: "1020", configId: "public"}});
+        check("the template does not prepare " + apiName,
+            untouched.globals[apiName] === undefined, String(untouched.globals[apiName]));
+    });
+
     check("handoff marks only APIs actually installed by the template",
         JSON.stringify(valid.globals.ABconsentCMP.gtmTemplateMiniStubApis) ===
-        JSON.stringify({__tcfapi: true, __sdcmpapi: true, __gpp: true}),
+        JSON.stringify({__sdcmpapi: true}),
         JSON.stringify(valid.globals.ABconsentCMP.gtmTemplateMiniStubApis));
 
-    const tcfArgs = ["getTCData", 2, function () {}];
-    if (typeof valid.globals.__tcfapi === "function") valid.globals.__tcfapi.apply(null, tcfArgs);
-    const tcfQueue = typeof valid.globals.__tcfapi === "function" ? valid.globals.__tcfapi() : [];
-    check("TCF no-command call returns its recoverable queue",
-        tcfQueue === valid.globals.__tcfapi() && tcfQueue.length === 1);
-    check("TCF queue preserves every named argument", tcfQueue[0] && tcfQueue[0].length === 3 &&
-        tcfQueue[0][0] === tcfArgs[0] && tcfQueue[0][2] === tcfArgs[2]);
-    if (typeof valid.globals.__tcfapi === "function") {
-        valid.globals.__tcfapi("removeEventListener", 2, function () {}, 42);
-    }
-    check("TCF queue preserves the optional parameter without padding calls that omit it",
-        tcfQueue[0] && tcfQueue[0].length === 3 &&
-        tcfQueue[1] && tcfQueue[1].length === 4 && tcfQueue[1][3] === 42,
-        JSON.stringify(tcfQueue));
-    let tcfPing = null;
-    if (typeof valid.globals.__tcfapi === "function") valid.globals.__tcfapi("ping", 2, (value, ok) => { tcfPing = [value, ok]; });
-    check("TCF ping reports a pending stub", tcfPing && tcfPing[1] === true &&
-        tcfPing[0].cmpLoaded === false && tcfPing[0].cmpStatus === "stub" && tcfPing[0].gdprApplies === undefined,
-        JSON.stringify(tcfPing));
+    // Le `ping` du mini-stub, desormais atteignable par le seul `__sdcmpapi` : c'est la meme
+    // branche de `installQueuedMiniStub`, elle change juste de nom d'API.
+    let sdPing = null;
+    if (typeof valid.globals.__sdcmpapi === "function") valid.globals.__sdcmpapi("ping", 2, (value, ok) => { sdPing = [value, ok]; });
+    check("the Sirdata mini-stub ping reports a pending stub", sdPing && sdPing[1] === true &&
+        sdPing[0].cmpLoaded === false && sdPing[0].cmpStatus === "stub" && sdPing[0].gdprApplies === undefined,
+        JSON.stringify(sdPing));
 
     const sdArgs = ["getConfig", 2, function () {}];
     if (typeof valid.globals.__sdcmpapi === "function") valid.globals.__sdcmpapi.apply(null, sdArgs);
     const sdQueue = typeof valid.globals.__sdcmpapi === "function" ? valid.globals.__sdcmpapi() : [];
+    // L'APPEL EST GARDE, et il ne l'etait pas : un appel nu dans l'expression de la verification
+    // faisait CRASHER le harnais quand `__sdcmpapi` manque, au lieu de rendre un FAIL. Les
+    // sections suivantes ne s'executaient alors plus, et l'injection se lisait comme prouvee
+    // alors que rien n'avait tourne apres elle.
     check("Sirdata API queue is recoverable and preserves every named argument",
+        typeof valid.globals.__sdcmpapi === "function" &&
         sdQueue === valid.globals.__sdcmpapi() && sdQueue.length === 1 &&
-        sdQueue[0].length === 3 && sdQueue[0][2] === sdArgs[2]);
+        sdQueue[0] && sdQueue[0].length === 3 && sdQueue[0][2] === sdArgs[2],
+        JSON.stringify(sdQueue));
     if (typeof valid.globals.__sdcmpapi === "function") {
         valid.globals.__sdcmpapi("removeEventListener", 2, function () {}, 42);
     }
@@ -1317,60 +1345,21 @@ console.log("\n20. Same-window mini-stubs and takeover handoff");
         sdQueue[1] && sdQueue[1].length === 4 && sdQueue[1][3] === 42,
         JSON.stringify(sdQueue));
 
-    const usp = run({sddan: SDDAN_LOCAL, data: {partnerId: "1020", configId: "public"}});
-    const uspArgs = ["getUSPData", 1, function () {}];
-    if (typeof usp.globals.__uspapi === "function") usp.globals.__uspapi.apply(null, uspArgs);
-    const uspQueue = typeof usp.globals.__uspapi === "function" ? usp.globals.__uspapi() : [];
-    check("USP queue is recoverable and preserves every named argument",
-        uspQueue.length === 1 && uspQueue[0].length === 3 && uspQueue[0][2] === uspArgs[2]);
-    if (typeof usp.globals.__uspapi === "function") {
-        usp.globals.__uspapi("removeEventListener", 1, function () {}, 42);
-    }
-    check("USP queue preserves the optional parameter without padding calls that omit it",
-        uspQueue[0] && uspQueue[0].length === 3 &&
-        uspQueue[1] && uspQueue[1].length === 4 && uspQueue[1][3] === 42,
-        JSON.stringify(uspQueue));
-    let uspPing = null;
-    if (typeof usp.globals.__uspapi === "function") usp.globals.__uspapi("ping", 1, (value, ok) => { uspPing = [value, ok]; });
-    check("USP ping reports not loaded", uspPing && uspPing[1] === true && uspPing[0].uspapiLoaded === false,
-        JSON.stringify(uspPing));
-    check("USP installation is marked for takeover",
-        usp.globals.ABconsentCMP.gtmTemplateMiniStubApis.__uspapi === true);
+    // `.queue` et `.events` etaient propres au mini-stub GPP -- la seule des quatre a repondre
+    // `addEventListener`. Les deux proprietes partent avec lui, et leur absence se dit : les
+    // declarer sans les ecrire serait une permission accordee pour rien.
+    check("no GPP queue or events property is published",
+        valid.globals["__gpp.queue"] === undefined && valid.globals["__gpp.events"] === undefined &&
+        stripComments(SRC).indexOf("__gpp") === -1, stripComments(SRC).indexOf("__gpp"));
 
-    let gppPing = null;
-    if (typeof valid.globals.__gpp === "function") valid.globals.__gpp("ping", (value, ok) => { gppPing = [value, ok]; });
-    check("GPP ping reports a stub that is not ready",
-        gppPing && gppPing[1] === true && gppPing[0].cmpStatus === "stub" &&
-        gppPing[0].signalStatus === "not ready", JSON.stringify(gppPing));
-
-    let registered = null;
-    if (typeof valid.globals.__gpp === "function") {
-        valid.globals.__gpp("addEventListener", (value, ok) => { registered = [value, ok]; }, "client");
-        valid.globals.__gpp("getGPPData", function () {}, "field");
-    }
-    check("GPP exposes takeover-compatible queue and events arrays",
-        Array.isArray(valid.globals.__gpp.queue) && Array.isArray(valid.globals.__gpp.events));
-    check("GPP addEventListener responds immediately with a stable listener id",
-        registered && registered[1] === true && registered[0].eventName === "listenerRegistered" &&
-        registered[0].listenerId === 1 && registered[0].pingData.signalStatus === "not ready", JSON.stringify(registered));
-    check("GPP event is stored for takeover",
-        valid.globals.__gpp.events[0] && valid.globals.__gpp.events[0].id === 1 &&
-        valid.globals.__gpp.events[0].parameter === "client");
-    check("other GPP commands retain all arguments in .queue",
-        valid.globals.__gpp.queue[0] && valid.globals.__gpp.queue[0].length === 3 &&
-        valid.globals.__gpp.queue[0][0] === "getGPPData" && valid.globals.__gpp.queue[0][2] === "field");
     const replayed = [];
     function replayTarget() {
         replayed.push(Array.prototype.slice.call(arguments));
     }
-    [tcfQueue[0], uspQueue[0], valid.globals.__gpp.queue[0]].forEach((queuedCall) => {
-        if (queuedCall) replayTarget.apply(null, queuedCall);
-    });
-    check("mini-stub queues use arrays replayable via apply",
-        Array.isArray(tcfQueue[0]) && Array.isArray(uspQueue[0]) &&
-        Array.isArray(valid.globals.__gpp.queue[0]) && replayed.length === 3 &&
-        replayed[0][0] === "getTCData" && replayed[1][0] === "getUSPData" &&
-        replayed[2][0] === "getGPPData", JSON.stringify(replayed.map((entry) => entry[0])));
+    if (sdQueue[0]) replayTarget.apply(null, sdQueue[0]);
+    check("the mini-stub queue uses arrays replayable via apply",
+        Array.isArray(sdQueue[0]) && replayed.length === 1 && replayed[0][0] === "getConfig",
+        JSON.stringify(replayed.map((entry) => entry[0])));
 
     const noConfig = run({sddan: SDDAN_LOCAL, data: {partnerId: "1020"}});
     check("mini-stubs are absent when the configuration identifier is missing",
@@ -1427,12 +1416,14 @@ console.log("\n21. Activation overrides and loader ordering");
         enabled.calls.defaults.length > 0 && enabled.calls.defaultStates[0].googleDefaultSet === true,
         JSON.stringify(enabled.calls.defaultStates));
     const firstState = enabled.calls.injectionStates[0] || {};
+    // L'invariant est un ORDRE : le marqueur doit etre visible AU MOMENT de l'injection, donc le
+    // mini-stub est pose avant que la requete ne partre. Les trois autres cles sont assertees
+    // ABSENTES ici aussi, sans quoi un marqueur reintroduit passerait par ce controle-ci.
     check("overrides and handoff are visible at the CMP injection",
         firstState.facebook === true && firstState.openai === true &&
         firstState.enableConsentMode === true && firstState.googleDefaultSet === true &&
-        firstState.miniStubApis.__tcfapi === true &&
-        firstState.miniStubApis.__sdcmpapi === true && firstState.miniStubApis.__uspapi === true &&
-        firstState.miniStubApis.__gpp === true, JSON.stringify(firstState));
+        JSON.stringify(firstState.miniStubApis) === JSON.stringify({__sdcmpapi: true}),
+        JSON.stringify(firstState));
     const noGoogle = run({sddan: SDDAN_LOCAL, data: {
         consentMode: false, partnerId: "1020", configId: "public"
     }});

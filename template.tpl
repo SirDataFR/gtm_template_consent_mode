@@ -2773,60 +2773,26 @@ const installQueuedMiniStub = (name) => {
   return true;
 };
 
-const installUspMiniStub = () => {
-  if (typeof(copyFromWindow('__uspapi')) === 'function') return false;
-  const queue = [];
-  setInWindow('__uspapi', function(command, version, callback, parameter) {
-    if (!command) return queue;
-    if (command === 'ping') {
-      if (typeof(callback) === 'function') callback({uspapiLoaded: false}, true);
-      return;
-    }
-    const args = [command, version, callback];
-    if (typeof(parameter) !== 'undefined') args.push(parameter);
-    queue.push(args);
-  }, true);
-  return true;
-};
-
-const installGppMiniStub = () => {
-  if (typeof(copyFromWindow('__gpp')) === 'function') return false;
-  const queue = [];
-  const events = [];
-  let listenerId = 0;
-  const pingData = () => ({
-    gppVersion: '1.1', cmpStatus: 'stub', cmpDisplayStatus: null,
-    signalStatus: 'not ready', supportedAPIs: [], cmpId: 0,
-    sectionList: [], applicableSections: [-1], gppString: '', parsedSections: {}
-  });
-  setInWindow('__gpp', function(command, callback, parameter) {
-    if (!command) return queue;
-    if (command === 'ping') {
-      if (typeof(callback) === 'function') callback(pingData(), true);
-      return;
-    }
-    if (command === 'addEventListener') {
-      if (typeof(callback) === 'function') {
-        listenerId = listenerId + 1;
-        events.push({id: listenerId, callback: callback, parameter: parameter});
-        callback({eventName: 'listenerRegistered', listenerId: listenerId,
-          data: true, pingData: pingData()}, true);
-      }
-      return;
-    }
-    queue.push([command, callback, parameter]);
-  }, true);
-  setInWindow('__gpp.queue', queue, true);
-  setInWindow('__gpp.events', events, true);
-  return true;
-};
-
+// ONLY `__sdcmpapi` IS PREPARED HERE, and which APIs are NOT is the whole point.
+//
+// The three standard ones -- `__tcfapi`, `__uspapi`, `__gpp` -- are each withdrawable by the
+// served configuration: `__uspapi` is removed under GDPR, `__tcfapi` when the publisher has
+// turned TCF off, `__gpp` when they have turned GPP off. This tag runs before any CMP script, so
+// it cannot know which. Preparing them meant posting an API the configuration then takes away,
+// and the withdrawal is not free: the GPP one answered `listenerRegistered` with an id, so it
+// confirmed a registration it could not honour.
+//
+// The served script installs all three itself, for the regime it has resolved, along with the
+// locator iframes and the `postMessage` bridges that a tag sandbox cannot create -- it has no DOM
+// access at all. It is asked for directly, so the only thing preparing them bought was the
+// request's own flight time, and it bought it at the price of an API that may be a lie.
+//
+// `__sdcmpapi` is different in the one way that matters: it is OURS, it is installed by every
+// entry point and withdrawn by none, so it cannot become a lie. It is also what this tag's own
+// cookie-deletion listener registers on, before the request rather than after.
 const installTemplateMiniStubs = () => {
   const installed = {};
-  if (installQueuedMiniStub('__tcfapi')) installed.__tcfapi = true;
   if (installQueuedMiniStub('__sdcmpapi')) installed.__sdcmpapi = true;
-  if (installUspMiniStub()) installed.__uspapi = true;
-  if (installGppMiniStub()) installed.__gpp = true;
   ABconsentCMP.gtmTemplateMiniStubApis = installed;
   setInWindow('ABconsentCMP', ABconsentCMP, true);
 };
@@ -2984,45 +2950,6 @@ ___WEB_PERMISSIONS___
                 "mapValue": [
                   {
                     "type": 1,
-                    "string": "__tcfapi"
-                  },
-                  {
-                    "type": 8,
-                    "boolean": true
-                  },
-                  {
-                    "type": 8,
-                    "boolean": true
-                  },
-                  {
-                    "type": 8,
-                    "boolean": true
-                  }
-                ]
-              },
-              {
-                "type": 3,
-                "mapKey": [
-                  {
-                    "type": 1,
-                    "string": "key"
-                  },
-                  {
-                    "type": 1,
-                    "string": "read"
-                  },
-                  {
-                    "type": 1,
-                    "string": "write"
-                  },
-                  {
-                    "type": 1,
-                    "string": "execute"
-                  }
-                ],
-                "mapValue": [
-                  {
-                    "type": 1,
                     "string": "ABconsentCMP"
                   },
                   {
@@ -3109,11 +3036,11 @@ ___WEB_PERMISSIONS___
                   },
                   {
                     "type": 8,
-                    "boolean": true
+                    "boolean": false
                   },
                   {
                     "type": 8,
-                    "boolean": true
+                    "boolean": false
                   }
                 ]
               },
@@ -3660,123 +3587,6 @@ ___WEB_PERMISSIONS___
                   {
                     "type": 8,
                     "boolean": true
-                  }
-                ]
-              },
-              {
-                "type": 3,
-                "mapKey": [
-                  {
-                    "type": 1,
-                    "string": "key"
-                  },
-                  {
-                    "type": 1,
-                    "string": "read"
-                  },
-                  {
-                    "type": 1,
-                    "string": "write"
-                  },
-                  {
-                    "type": 1,
-                    "string": "execute"
-                  }
-                ],
-                "mapValue": [
-                  {
-                    "type": 1,
-                    "string": "__gpp"
-                  },
-                  {
-                    "type": 8,
-                    "boolean": true
-                  },
-                  {
-                    "type": 8,
-                    "boolean": true
-                  },
-                  {
-                    "type": 8,
-                    "boolean": true
-                  }
-                ]
-              },
-              {
-                "type": 3,
-                "mapKey": [
-                  {
-                    "type": 1,
-                    "string": "key"
-                  },
-                  {
-                    "type": 1,
-                    "string": "read"
-                  },
-                  {
-                    "type": 1,
-                    "string": "write"
-                  },
-                  {
-                    "type": 1,
-                    "string": "execute"
-                  }
-                ],
-                "mapValue": [
-                  {
-                    "type": 1,
-                    "string": "__gpp.queue"
-                  },
-                  {
-                    "type": 8,
-                    "boolean": true
-                  },
-                  {
-                    "type": 8,
-                    "boolean": true
-                  },
-                  {
-                    "type": 8,
-                    "boolean": false
-                  }
-                ]
-              },
-              {
-                "type": 3,
-                "mapKey": [
-                  {
-                    "type": 1,
-                    "string": "key"
-                  },
-                  {
-                    "type": 1,
-                    "string": "read"
-                  },
-                  {
-                    "type": 1,
-                    "string": "write"
-                  },
-                  {
-                    "type": 1,
-                    "string": "execute"
-                  }
-                ],
-                "mapValue": [
-                  {
-                    "type": 1,
-                    "string": "__gpp.events"
-                  },
-                  {
-                    "type": 8,
-                    "boolean": true
-                  },
-                  {
-                    "type": 8,
-                    "boolean": true
-                  },
-                  {
-                    "type": 8,
-                    "boolean": false
                   }
                 ]
               },
