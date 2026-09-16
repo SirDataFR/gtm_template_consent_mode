@@ -2664,6 +2664,13 @@ if (data.consentMode) {
     // and is already all-denied. And on a row a publisher wrote by hand it OVERRODE them: they
     // stated a value for their own perimeter and this replaced it. A declared table is applied as
     // declared, and nothing here second-guesses it.
+    //
+    // The deeper reason, and the one that should stop it coming back in any shape: THERE IS NO
+    // REGION TO TEST HERE. A row NAMES a perimeter in its `region` list and the consent platform
+    // is what matches the visitor against it -- this code never learns where the visitor is, in
+    // either mode. Which is also why the automatic regional row names `US` whole rather than the
+    // states a US regulation covers: not knowing, it refuses the lot, and the served CMP is what
+    // grants again once the server has resolved the state.
     if (gpcActive) {
       consentModeState = applyGpcRefusal(consentModeState);
     } else {
