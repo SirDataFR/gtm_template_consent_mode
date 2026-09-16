@@ -79,54 +79,73 @@ ___TEMPLATE_PARAMETERS___
 
 [
   {
-    "type": "LABEL",
+    "type": "GROUP",
     "name": "cmpSection",
-    "displayName": "\u003cstrong\u003eSirdata CMP\u003c/strong\u003e\u003cbr\u003eThis tag always loads the Sirdata CMP: it prepares consent defaults that only a CMP can turn into an answer, so there is no option to skip it. Whatever you set below, have your DPO review the result on your own site — settings in a tag do not, by themselves, make a setup compliant."
-  },
-  {
-    "alwaysInSummary": true,
-    "valueValidators": [
+    "displayName": "Sirdata CMP",
+    "groupStyle": "ZIPPY_OPEN",
+    "subParams": [
       {
-        "type": "NON_EMPTY"
+        "type": "LABEL",
+        "name": "cmpSection2",
+        "displayName": "This tag always loads the Sirdata CMP: it prepares consent defaults that only a CMP can turn into an answer, so there is no option to skip it. Whatever you set below, have your DPO review the result on your own site — settings in a tag do not, by themselves, make a setup compliant.\u003cbr\u003e\u003cbr\u003e",
+        "enablingConditions": [
+          {
+            "paramName": "partnerId",
+            "paramValue": "",
+            "type": "NOT_PRESENT"
+          },
+          {
+            "paramName": "configId",
+            "paramValue": "",
+            "type": "NOT_PRESENT"
+          }
+        ]
       },
       {
-        "type": "POSITIVE_NUMBER"
-      }
-    ],
-    "displayName": "Your Partner ID",
-    "simpleValueType": true,
-    "name": "partnerId",
-    "type": "TEXT",
-    "help": "Create a free \u003ca href\u003d\"https://www.abconsent.com\"\u003eSirdata CMP account\u003c/a\u003e or get your Partner ID and Configuration ID from your existing account. Both are required: this tag loads the CMP on every page, and without them it has nothing to load."
-  },
-  {
-    "alwaysInSummary": true,
-    "valueValidators": [
+        "alwaysInSummary": true,
+        "valueValidators": [
+          {
+            "type": "NON_EMPTY"
+          },
+          {
+            "type": "POSITIVE_NUMBER"
+          }
+        ],
+        "displayName": "Your Partner ID",
+        "simpleValueType": true,
+        "name": "partnerId",
+        "type": "TEXT",
+        "help": "Create a free \u003ca href\u003d\"https://www.abconsent.com\"\u003eSirdata CMP account\u003c/a\u003e or get your Partner ID and Configuration ID from your existing account. Both are required: this tag loads the CMP on every page, and without them it has nothing to load."
+      },
       {
-        "type": "NON_EMPTY"
-      }
-    ],
-    "displayName": "Your Configuration ID",
-    "simpleValueType": true,
-    "name": "configId",
-    "type": "TEXT"
-  },
-  {
-    "alwaysInSummary": true,
-    "valueValidators": [
+        "alwaysInSummary": true,
+        "valueValidators": [
+          {
+            "type": "NON_EMPTY"
+          }
+        ],
+        "displayName": "Your Configuration ID",
+        "simpleValueType": true,
+        "name": "configId",
+        "type": "TEXT"
+      },
       {
-        "type": "REGEX",
-        "args": [
-          "[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+(?\u003d[\\/\\s?#]|$)"
-        ]
+        "valueValidators": [
+          {
+            "type": "REGEX",
+            "args": [
+              "[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+(?\u003d[\\/\\s?#]|$)"
+            ]
+          }
+        ],
+        "displayName": "Optionnal : first party host",
+        "simpleValueType": true,
+        "name": "firstPartyHost",
+        "type": "TEXT",
+        "help": "This field is only available if the option is enabled in your account. Enter the first-party hostname declared in your ABConsent (Sirdata CMP) settings. Do not include \u0027http://\u0027 or \u0027https://\u0027. If unsure, leave it empty.",
+        "defaultValue": ""
       }
-    ],
-    "displayName": "Optionnal : first party host",
-    "simpleValueType": true,
-    "name": "firstPartyHost",
-    "type": "TEXT",
-    "help": "This field is only available if the option is enabled in your account. Enter the first-party hostname declared in your ABConsent (Sirdata CMP) settings. Do not include \u0027http://\u0027 or \u0027https://\u0027. If unsure, leave it empty.",
-    "defaultValue": ""
+    ]
   },
   {
     "type": "GROUP",
@@ -157,7 +176,7 @@ ___TEMPLATE_PARAMETERS___
         "name": "overrideDefaultConsent",
         "checkboxText": "Override the automatic configuration",
         "simpleValueType": true,
-        "alwaysInSummary": true,
+        "alwaysInSummary": false,
         "defaultValue": false,
         "enablingConditions": [
           {
@@ -169,7 +188,7 @@ ___TEMPLATE_PARAMETERS___
       },
       {
         "displayName": "Default Consent Mode Settings",
-        "alwaysInSummary": true,
+        "alwaysInSummary": false,
         "name": "customConsentSettings",
         "paramTableColumns": [
           {
@@ -1585,7 +1604,7 @@ ___TEMPLATE_PARAMETERS___
             "checkboxText": "Improve limited attribution by passing ad click parameters via URL when consent is not granted",
             "type": "CHECKBOX",
             "defaultValue": false,
-            "alwaysInSummary": true
+            "alwaysInSummary": false
           },
           {
             "help": "Check to redact ad click identifiers sent in network requests by Google Ads and Floodlight tags when ad_storage is denied. Warning: Enabling this option prevents automatic conversion linking in Google Ads, which impacts performance measurement and bid optimization. To continue tracking the origin of your conversions, you may use manual tagging with UTM parameters (utm_source, utm_campaign, etc.) in your ad URLs.",
@@ -1594,7 +1613,7 @@ ___TEMPLATE_PARAMETERS___
             "name": "ads_data_redaction",
             "checkboxText": "Reduce attribution by redacting ad-related data (e.g. \u0027gclid\u0027) when consent is not granted",
             "type": "CHECKBOX",
-            "alwaysInSummary": true,
+            "alwaysInSummary": false,
             "enablingConditions": [
               {
                 "paramName": "url_passthrough",
@@ -1683,7 +1702,6 @@ ___TEMPLATE_PARAMETERS___
       {
         "displayName": "Cookie Deletion Exceptions",
         "name": "cookieDeletionOptions",
-        "groupStyle": "ZIPPY_OPEN",
         "type": "GROUP",
         "subParams": [
           {
@@ -1735,9 +1753,14 @@ ___TEMPLATE_PARAMETERS___
                 ]
               }
             ],
-            "alwaysInSummary": true,
-            "notSetText": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, the cookies the CMP itself owns (euconsent-v2, sdconsent-v2, usprivacy, __sdgcm, __gpcactive, __sdusnat) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically.",
-            "help": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, the cookies the CMP itself owns (euconsent-v2, sdconsent-v2, usprivacy, __sdgcm, __gpcactive, __sdusnat) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically.By default, the cookies the CMP itself owns are preserved.\nTo exempt additional cookies, define exception rules using one or more of the following match types:\n\n    Exact name\n\n    Starts with\n\n    Ends with\n\n    Contains\n\nAny cookie not matching these rules may be removed automatically."
+            "help": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, the cookies the CMP itself owns (euconsent-v2, sdconsent-v2, usprivacy, __sdgcm, __gpcactive, __sdusnat) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically.By default, the cookies the CMP itself owns are preserved.\nTo exempt additional cookies, define exception rules using one or more of the following match types:\n\n    Exact name\n\n    Starts with\n\n    Ends with\n\n    Contains\n\nAny cookie not matching these rules may be removed automatically.",
+            "enablingConditions": [
+              {
+                "paramName": "handleCookiesDeletion",
+                "paramValue": true,
+                "type": "EQUALS"
+              }
+            ]
           }
         ],
         "enablingConditions": [
@@ -1747,7 +1770,8 @@ ___TEMPLATE_PARAMETERS___
             "type": "EQUALS"
           }
         ],
-        "help": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, the cookies the CMP itself owns (euconsent-v2, sdconsent-v2, usprivacy, __sdgcm, __gpcactive, __sdusnat) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically."
+        "help": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, the cookies the CMP itself owns (euconsent-v2, sdconsent-v2, usprivacy, __sdgcm, __gpcactive, __sdusnat) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically.",
+        "groupStyle": "ZIPPY_CLOSED"
       }
     ],
     "enablingConditions": [
@@ -1759,6 +1783,8 @@ ___TEMPLATE_PARAMETERS___
     ]
   }
 ]
+
+
 ___SANDBOXED_JS_FOR_WEB_TEMPLATE___
 
 const currentVersion = '1.82';
