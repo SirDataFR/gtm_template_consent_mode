@@ -148,13 +148,6 @@ ___TEMPLATE_PARAMETERS___
     "displayName": "Google Consent Mode",
     "help": "A consent mode lets each vendor gate itself: its own SDK reads the signal and decides what it may do, so you do not have to build a trigger, an exception or a blocking rule tag by tag. This section prepares Google\u0027s signal before any other tag on the page runs, and the CMP sends every update afterwards. The box below decides on its own, checked or unchecked alike: the Google Consent Mode setting stored in your Sirdata account is never read from this page.",
     "groupStyle": "ZIPPY_OPEN",
-    "enablingConditions": [
-      {
-        "paramName": "configId",
-        "paramValue": "",
-        "type": "NOT_EQUALS"
-      }
-    ],
     "subParams": [
       {
         "help": "Leave this checked to let the template set the Google Consent Mode default state. Every signal starts denied, and a returning visitor\u0027s recorded choice is replayed as soon as the page loads, so no measurement is lost waiting for the banner. Uncheck it only if Google Consent Mode is already handled elsewhere on the page: unchecked means off here — no default from this tag, no update from the CMP — and not \u0027fall back to the setting stored in my Sirdata account\u0027, which this page never reads.",
@@ -1634,13 +1627,6 @@ ___TEMPLATE_PARAMETERS___
     "displayName": "Facebook Consent Mode",
     "help": "Compatibility requires the official \u003ca href\u003d\"https://github.com/facebook/GoogleTagManager-WebTemplate-For-FacebookPixel\"\u003eFacebook template\u003c/a\u003e. Custom HTML and third-party templates are not guaranteed. This control coordinates consent commands; it does not prevent the SDK from being downloaded by another tag.",
     "groupStyle": "ZIPPY_OPEN",
-    "enablingConditions": [
-      {
-        "paramName": "configId",
-        "paramValue": "",
-        "type": "NOT_EQUALS"
-      }
-    ],
     "subParams": [
       {
         "type": "CHECKBOX",
@@ -1659,13 +1645,6 @@ ___TEMPLATE_PARAMETERS___
     "displayName": "OpenAI/GPT Ads Consent Mode",
     "help": "Compatibility requires the official \u003ca href\u003d\"https://github.com/openai/ads-measurement-pixel-gtm-template\"\u003eOpenAI template\u003c/a\u003e. Custom HTML and third-party templates are not guaranteed. This control coordinates consent commands; it does not prevent the SDK from being downloaded by another tag.",
     "groupStyle": "ZIPPY_OPEN",
-    "enablingConditions": [
-      {
-        "paramName": "configId",
-        "paramValue": "",
-        "type": "NOT_EQUALS"
-      }
-    ],
     "subParams": [
       {
         "type": "CHECKBOX",
@@ -1760,13 +1739,6 @@ ___TEMPLATE_PARAMETERS___
         ],
         "help": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, the cookies the CMP itself owns (euconsent-v2, sdconsent-v2, usprivacy, __sdgcm, __gpcactive, __sdusnat) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically.",
         "groupStyle": "ZIPPY_CLOSED"
-      }
-    ],
-    "enablingConditions": [
-      {
-        "paramName": "configId",
-        "paramValue": "",
-        "type": "NOT_EQUALS"
       }
     ]
   }

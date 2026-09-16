@@ -946,25 +946,32 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
         JSON.stringify(topLevel.slice(-4)) === JSON.stringify(["consent Mode",
             "facebookConsentModeGroup", "openAiConsentModeGroup", "Cookies"]),
         JSON.stringify({firstFields: settableOrder.slice(0, 3), topLevel: topLevel}));
-    const gatedOnCmp = (param) => JSON.stringify((param.enablingConditions || []).map((condition) =>
-        [condition.paramName, condition.type, condition.paramValue])) ===
-        JSON.stringify([["configId", "NOT_EQUALS", ""]]);
+    // The sections below the opening declare NO condition, and that is a DECISION rather than an
+    // omission. They used to wait for the configuration id; the identifiers then moved inside the
+    // opening section, which put that id one level down from the sections keying on it -- and a
+    // condition naming a field outside its own level is the shape measured as non-resolving. So
+    // the declaration had become either redundant or inert, and an inert condition is worse than
+    // none: it READS as a protection that is in place. The sections show from the start.
+    //
+    // What makes that acceptable is asserted further down and not here -- "both CMP identifiers
+    // are unconditional and non-empty": they are required fields, so a tag whose ids are not
+    // filled cannot load anything whatever the form chooses to show. The scenarios pin the same
+    // thing from the other end ("loading is unchanged when the identifiers are missing").
+    //
     // DERIVED, not positional: the opening entries are the ones that CARRY an identifier -- the
-    // section they were moved into, or the fields themselves when they sit at the top level. They
-    // cannot wait for the id they ask for; every entry after the last of them must.
+    // section they were moved into, or the fields themselves when they sit at the top level.
     const carriesId = (param) => flatten([param]).some((child) => child.name === "partnerId" ||
         child.name === "configId" || child.name === "firstPartyHost");
     let firstGated = -1;
     parameters.forEach((param, index) => { if (carriesId(param)) { firstGated = index + 1; } });
     const below = firstGated > 0 ? parameters.slice(firstGated) : parameters;
-    const opening = firstGated > 0 ? parameters.slice(0, firstGated) : [];
     // The witness is firstGated > 0: a tree that lost its identifiers would otherwise satisfy the
-    // rule by having no opening to exempt, and every section would read as correctly gated.
-    check("every section below the identifiers waits for the configuration id",
-        firstGated > 0 && below.length === 4 && below.every(gatedOnCmp) &&
-        opening.every((param) => param.enablingConditions === undefined),
-        JSON.stringify(parameters.map((param, index) =>
-            [param.name, index < firstGated, gatedOnCmp(param)])));
+    // rule by having no opening to locate, and every section would read as correctly declared.
+    check("no section below the identifiers declares a condition it cannot resolve",
+        firstGated > 0 && below.length === 4 &&
+        below.every((param) => param.enablingConditions === undefined),
+        JSON.stringify(parameters.map((param, index) => [param.name, index < firstGated,
+            (param.enablingConditions || []).map((condition) => condition.paramName)])));
 
     // ONE condition per field, everywhere. Multiple conditions are read as "any of these", not
     // "all of these" -- which is how a table that asked for the activation AND the override went
@@ -1002,10 +1009,13 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
         crossLevel.length === 0, crossLevel.join(" | "));
 
     // Witness: conditions exist at all. Without it, a tree that lost every gate would satisfy the
-    // two checks above by having nothing to check.
+    // two checks above by having nothing to check. The floor is SIX since the four section
+    // conditions were removed -- the opening note, three inside the Google section, and the cookie
+    // exception group -- and it is a floor rather than an equality so that adding a field with a
+    // gate does not redden a witness that exists to refuse the empty case.
     const gateCount = flatten(parameters).reduce((n, param) =>
         n + ((param.enablingConditions || []).length), 0);
-    check("the form still carries its gates", gateCount >= 8, String(gateCount));
+    check("the form still carries its gates", gateCount >= 6, String(gateCount));
 
     // Each vendor has its own section, at the level of Google's, and carries the link to the
     // official template it coordinates with -- a single shared section could only name both.
