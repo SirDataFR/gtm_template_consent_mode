@@ -2219,11 +2219,16 @@ const applyGpcRefusal = (consentObject) => {
 // on the `US-` prefix rather than against a list of states, so a state added to the parameters
 // tomorrow is covered without a second edit here -- and `RU`, which merely contains the letters,
 // is not.
-// A row's region is either one string, as the settings table offers it, or a list -- which is how
-// the automatic rows name a whole perimeter in a single default. Both shapes have to be read here:
-// a list that silently answered "not the US" would leave the US refusal below unreachable without
-// changing a single emitted value, since the rows it guards are already denied. The failure would
-// only surface the day one of the two moved.
+//
+// A row's region is either ONE STRING, as the settings table offers it, or a LIST, which is how
+// the automatic row names a whole perimeter in a single default. Both shapes are read: a list that
+// silently answered "not the US" would leave the refusal below unreachable without changing a
+// single emitted value, since the row it guards is already denied.
+//
+// CONSEQUENCE OF THE LIST, and it is not what the name suggests: the automatic perimeter carries
+// `US` alongside the European codes, so this answers TRUE for that row -- a row that also covers
+// forty-four other countries. It is a no-op there, the row being already all-denied, and the
+// function earns its name only on a row a publisher wrote by hand.
 const isUsRegion = (region) => {
   if (typeof(region) === 'string') {
     return region === 'US' || region.indexOf('US-') === 0;
