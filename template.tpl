@@ -2242,16 +2242,6 @@ const applyUsDefaultRefusal = (consentObject) => {
   return consentObject;
 };
 
-// What the tag emits when the publisher has not taken the defaults over -- that is, the nominal
-// case. Every signal starts DENIED and the chain further down raises it: a returning visitor's
-// recorded choice is replayed from the container, a privacy marker short-circuits to denial, and
-// the US perimeter refuses where nothing was ever recorded. These are the values the fine-grained
-// area has always shipped with; what the automatic path removes is the obligation to restate them,
-// never the ability to.
-//
-// `wait_for_update` stays non-zero HERE, and is zeroed by the two functions above: this is a
-// default awaiting an answer, whereas they run only when an answer already exists. Zeroing it here
-// would tell gtag the answer is in when nobody has answered.
 // The regions where a consent regulation applies, and therefore where the default must refuse
 // until the visitor has answered. It is the CMP's OWN perimeter, not a list invented here: the
 // same countries its server-side determination uses, so a visitor never gets a denied default
@@ -2270,19 +2260,28 @@ const REGULATED_REGIONS = [
 // What the tag emits when the publisher has not taken the defaults over -- that is, the nominal
 // case.
 //
-// THE GLOBAL ROW IS THE ONE WITHOUT A REGION, and that is the whole mechanism: a default with no
-// region is the status that applies everywhere, and a region-scoped one overrides it for the
-// regions it names. So the restrictive rows do not have to enumerate the world -- they name where
-// a regulation applies, and everywhere else falls through to the global row.
+// A DEFAULT IS EMITTED ONLY WHERE A NOTICE IS SHOWN, and nowhere else. That is Google's own
+// instruction rather than a reading of the mechanism: "Il est recommande de limiter les
+// parametres de consentement par defaut aux regions ou vous diffusez des bannieres de consentement
+// aupres de vos visiteurs [...] Vous evitez egalement toute perte de mesure lorsqu'aucune banniere
+// de consentement n'est appliquee ou ne s'applique."
 //
-// That global row GRANTS, and it has to. A visitor outside every regulated region is never shown
-// a notice, so no choice is ever recorded and no update is ever pushed: whatever the default says
-// about them, it says forever. Denying there would throttle Google tags for the rest of the world
-// with nothing able to lift it -- which is exactly what a single all-denied row did, because the
-// served tag it replaced had been the one granting outside the GDPR.
+// So there is NO row for the rest of the world, and adding one is the mistake not to make again.
+// Consent Mode starts with no value set -- "Par defaut, aucune valeur n'est definie pour le mode
+// Consentement" -- and an unset signal behaves as granted, which the region table on that page
+// states outright: "Non specifie | granted | Utilise la valeur par defaut de 'granted'". A visitor
+// no regulation covers is therefore served correctly by being told NOTHING.
 //
-// `wait_for_update` follows the same split: the regulated rows are defaults AWAITING an answer,
-// the global row is a default that already is the answer, so it waits for nothing.
+// This got written wrong twice, in opposite directions, and both shapes reached a branch. A single
+// all-denied row with no region denied the whole world with nothing able to lift it, since those
+// visitors are never shown a notice and so never produce an update. Replacing it with an
+// all-GRANTED row with no region looked like the fix and was not: it is still a default outside
+// the banner regions, so it still runs through the chain below -- a stored container or a privacy
+// marker denies it exactly like the others, and the denial is permanent again for want of a notice
+// that could lift it. Emitting nothing is the only shape with no such branch.
+//
+// `wait_for_update` is the same idea seen from the other end: these rows are defaults AWAITING an
+// answer, and an answer is only ever coming where a notice is shown.
 const AUTOMATIC_CONSENT_SETTINGS = [{
   ad_storage: 'denied',
   analytics_storage: 'denied',
@@ -2302,15 +2301,6 @@ const AUTOMATIC_CONSENT_SETTINGS = [{
   security_storage: 'denied',
   wait_for_update: 1000,
   region: 'US'
-}, {
-  ad_storage: 'granted',
-  analytics_storage: 'granted',
-  personalization_storage: 'granted',
-  functionality_storage: 'granted',
-  security_storage: 'granted',
-  ad_user_data: 'granted',
-  ad_personalization: 'granted',
-  wait_for_update: 0
 }];
 
 // The override is a CHECKBOX, so "unchecked" and "never set" read the same -- which is what makes

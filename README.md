@@ -108,27 +108,36 @@ fallback are preserved.
 These controls do not inject a vendor SDK or prevent another tag from downloading one. Custom HTML
 and third-party templates are not guaranteed to use the compatible queue shapes.
 
-## The default consent state is automatic, and geolocated
+## A default is set only where a notice is shown
 
 The template sets the Google Consent Mode default state on its own, and that is the nominal path.
-The state is not one value: it denies where a consent regulation applies and grants everywhere
-else. On top of that, a returning visitor's recorded choice is replayed from the stored container
-before the page runs, a privacy signal short-circuits the whole chain to a denial, and on the US
-perimeter silence is treated as a refusal rather than as agreement. Nothing has to be configured
-for any of that.
+It denies where a consent regulation applies — and sets **nothing at all** everywhere else. On top
+of that, a returning visitor's recorded choice is replayed from the stored container before the
+page runs, a privacy signal short-circuits the chain to a denial, and on the US perimeter silence
+is treated as a refusal rather than as agreement. Nothing has to be configured for any of that.
 
-The split rests on how Google reads these defaults: **a default with no region is the global
-status, and a region-scoped one overrides it only where it names**. So the restrictive rows do not
-have to enumerate the world — they name the regions where a regulation applies, and every other
-visitor falls through to the global row.
+Setting nothing outside those regions is Google's own instruction, not a reading of the mechanism:
 
-That global row grants, and it has to. A visitor outside every regulated region is never shown a
-notice, so no choice is ever recorded and no update is ever pushed: whatever the default says
-about them, it says for the rest of the page. Denying there throttles Google tags for the rest of
-the world with nothing able to lift it — which is what a single all-denied row did, because the
-served tag it replaced had been the one granting outside the GDPR. `wait_for_update` follows the
-same split: the regulated rows are defaults awaiting an answer, the global row is a default that
-already is the answer, so it waits for nothing.
+> Il est recommandé de limiter les paramètres de consentement par défaut aux régions où vous
+> diffusez des bannières de consentement auprès de vos visiteurs. […] Vous évitez également toute
+> perte de mesure lorsqu'aucune bannière de consentement n'est appliquée ou ne s'applique.
+
+And a signal nobody has set is not a signal in limbo. Consent Mode starts with no value set, and
+the region table on that same page says what that means: *Non spécifié | `granted` | Utilise la
+valeur par défaut de `granted`*. A visitor no regulation covers is therefore served correctly by
+being told nothing.
+
+**There is no row for the rest of the world, and adding one is the mistake not to make.** It was
+made twice here, in opposite directions, and both shapes reached a branch. A single all-denied row
+with no region denied the whole world with nothing able to lift it, since those visitors are never
+shown a notice and so never produce an update. Replacing it with an all-*granted* row with no
+region looked like the fix and was not: it is still a default outside the banner regions, so it
+still runs through the chain above — a stored container or a privacy marker denies it exactly like
+the others, and the denial is permanent again for want of a notice that could lift it. Emitting
+nothing is the only shape with no such branch.
+
+`wait_for_update` is the same idea from the other end: these rows are defaults awaiting an answer,
+and an answer is only ever coming where a notice is shown.
 
 The regulated list is the CMP's own perimeter rather than one invented here, so a visitor never
 gets a denied default from one and "no regulation applies" from the other. It is wider than the
@@ -137,11 +146,11 @@ ISO codes and would not be matched by a neighbour's.
 
 Publishers who need their own regional defaults check a single box, which reveals the same
 per-country rules as before and replaces the automatic state with them — a recorded choice still
-takes precedence over whatever they declare. Replacing means replacing all of it, the global row
-included: a table that only names regions sets no default outside them at all, which is the
-publisher's call to make. The box starts unchecked and the rules are stored under a
-new name, so a container upgraded from an earlier version moves to the automatic state instead of
-replaying rules nobody reviewed.
+takes precedence over whatever they declare. A publisher's table is emitted as written, a
+region-less row included: the instruction above is ours to follow in the automatic state, while a
+publisher taking the defaults over is stating their own perimeter. The box starts unchecked and
+the rules are stored under a new name, so a container upgraded from an earlier version moves to
+the automatic state instead of replaying rules nobody reviewed.
 
 ## Loading the CMP is not optional
 
