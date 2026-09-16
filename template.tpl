@@ -1732,13 +1732,6 @@ ___TEMPLATE_PARAMETERS___
               }
             ],
             "alwaysInSummary": true,
-            "enablingConditions": [
-              {
-                "paramName": "handleCookiesDeletion",
-                "paramValue": true,
-                "type": "EQUALS"
-              }
-            ],
             "notSetText": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, the cookies the CMP itself owns (euconsent-v2, sdconsent-v2, usprivacy, __sdgcm, __gpcactive, __sdusnat) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically.",
             "help": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, the cookies the CMP itself owns (euconsent-v2, sdconsent-v2, usprivacy, __sdgcm, __gpcactive, __sdusnat) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically.By default, the cookies the CMP itself owns are preserved.\nTo exempt additional cookies, define exception rules using one or more of the following match types:\n\n    Exact name\n\n    Starts with\n\n    Ends with\n\n    Contains\n\nAny cookie not matching these rules may be removed automatically."
           }

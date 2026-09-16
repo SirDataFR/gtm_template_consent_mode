@@ -929,6 +929,37 @@ console.log("\n19. Vendor selectors, ownership contract, and minimal permissions
         multiGated.length === 0, JSON.stringify(multiGated.map((param) =>
             [param.name, (param.enablingConditions || []).length])));
 
+    // And the condition must name a SIBLING -- a field declared at the same level, in the same
+    // list. That is what every working gate in this file does, and the one that did not was the
+    // measured symptom: a table that went on showing because its gate named a field one level up.
+    //
+    // The cookie exception table carried the same shape, and its own group already gated it from
+    // the right level, so its condition could only be redundant or non-resolving. It is removed
+    // rather than left to be discovered a second time: whichever of the two it was, the field is
+    // hidden by its group exactly as before.
+    const crossLevel = [];
+    (function walkLevels(list) {
+        const siblings = list.filter((param) => param.name).map((param) => param.name);
+        list.forEach((param) => {
+            (param.enablingConditions || []).forEach((condition) => {
+                if (siblings.indexOf(condition.paramName) === -1) {
+                    crossLevel.push(param.name + " -> " + condition.paramName);
+                }
+            });
+            ["subParams", "parameters"].forEach((key) => {
+                if (param[key]) { walkLevels(param[key]); }
+            });
+        });
+    })(parameters);
+    check("every enabling condition names a field at its own level",
+        crossLevel.length === 0, crossLevel.join(" | "));
+
+    // Witness: conditions exist at all. Without it, a tree that lost every gate would satisfy the
+    // two checks above by having nothing to check.
+    const gateCount = flatten(parameters).reduce((n, param) =>
+        n + ((param.enablingConditions || []).length), 0);
+    check("the form still carries its gates", gateCount >= 8, String(gateCount));
+
     // Each vendor has its own section, at the level of Google's, and carries the link to the
     // official template it coordinates with -- a single shared section could only name both.
     const VENDOR_SECTIONS = [
