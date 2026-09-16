@@ -2256,6 +2256,79 @@ console.log("\n25. A regional refusal, then a global one that carries the ad sig
         writes >= 6, String(writes));
 }
 
+// The scenarios shipped inside the template can actually run.
+//
+// WHY: those scenarios only execute in the GTM template editor, which nothing here can start, so
+// they can rot without anyone noticing. They had: their mock data never set the field that opens
+// the block emitting the defaults, so every assertion on it was made against an API that was never
+// called. That was true before this branch too -- the mock data went on naming a field the form had
+// renamed, which is the same rot one step earlier.
+//
+// This replays that mock data through the same fake APIs the rest of this file uses. It does not
+// interpret the scenarios' own assertions; it checks the one thing whose absence made all of them
+// meaningless -- that the run reaches the emission at all -- and pins what the declared table emits.
+{
+    const setup = TPL.split("setup: |-")[1];
+    if (setup === undefined) { throw new Error("the template's test setup block is missing"); }
+
+    // Top-level keys of the mock object, read as text: a rename in the form leaves them behind, and
+    // a key no field declares is read as `undefined` by the template, silently.
+    const mockKeys = [];
+    setup.split("\n").forEach((line) => {
+        const m = line.match(/^ {4}([A-Za-z_$][\w$]*):/);
+        if (m) { mockKeys.push(m[1]); }
+    });
+    check("the template's mock data was found", mockKeys.length >= 4, mockKeys.join(","));
+
+    // `parameters` and `flatten` are scoped to the form section above, so they are re-derived here
+    // rather than hoisted: a shared mutable binding between two independent sections is how one
+    // section's setup starts deciding another's verdict.
+    const formParams = JSON.parse(extractJsonSection(
+        "___TEMPLATE_PARAMETERS___", "___SANDBOXED_JS_FOR_WEB_TEMPLATE___"));
+    const flat = (params) => params.reduce((all, param) =>
+        all.concat([param], flat(param.subParams || [])), []);
+    const declared = flat(formParams).map((param) => param.name);
+    const undeclared = mockKeys.filter((key) => declared.indexOf(key) === -1);
+    check("every key of the mock data names a declared field", undeclared.length === 0,
+        undeclared.join(","));
+
+    // The scenarios assert on the default emission, so the mock data has to open it. This is the
+    // defect itself, stated as a rule.
+    const assertsDefaults = TPL.indexOf("assertApi('setDefaultConsentState')") !== -1;
+    check("the scenarios assert on the default emission", assertsDefaults);
+    check("and the mock data opens it", mockKeys.indexOf("consentMode") !== -1, mockKeys.join(","));
+
+    // Replayed: the declared table is applied as declared, which is what the first scenario says.
+    const editor = run({sddan: SDDAN_LOCAL, data: {
+        consentMode: true,
+        overrideDefaultConsent: true,
+        customConsentSettings: [{
+            ad_storage: "denied", analytics_storage: "granted", personalization_storage: "granted",
+            functionality_storage: "granted", security_storage: "granted",
+            wait_for_update: 0, region: "ALL"
+        }, {
+            ad_storage: "denied", analytics_storage: "denied", personalization_storage: "denied",
+            functionality_storage: "denied", security_storage: "denied",
+            wait_for_update: 1000, region: "FR"
+        }],
+        url_passthrough: true, ads_data_redaction: false
+    }});
+    check("replaying the mock data emits the two declared rows", editor.calls.defaults.length === 2,
+        JSON.stringify(editor.calls.defaults));
+    check("the first carries no region and no wait, as the row says",
+        editor.calls.defaults[0] && editor.calls.defaults[0].region === undefined &&
+        editor.calls.defaults[0].wait_for_update === undefined &&
+        editor.calls.defaults[0].analytics_storage === "granted" &&
+        editor.calls.defaults[0].ad_user_data === "denied",
+        JSON.stringify(editor.calls.defaults[0]));
+    check("the second carries its region and its wait",
+        editor.calls.defaults[1] &&
+        JSON.stringify(editor.calls.defaults[1].region) === JSON.stringify(["FR"]) &&
+        editor.calls.defaults[1].wait_for_update === 1000 &&
+        editor.calls.defaults[1].ad_storage === "denied",
+        JSON.stringify(editor.calls.defaults[1]));
+}
+
 // Assertion floor: deleting a test section must fail loudly rather than reporting a vacuous green.
 const MIN_CHECKS = 150;
 if (checksRun < MIN_CHECKS) {

@@ -4476,7 +4476,14 @@ scenarios:
 
     assertApi('setCookie').wasNotCalled();
 setup: |-
+  // `consentMode` is what opens the block that emits the defaults. Without it the scenarios below
+  // assert on an API that is never called, and every one of them fails -- which is how they stood,
+  // here and before this branch. The identifiers are deliberately left out: supplying them sends
+  // the run down the script-request path, where the editor's stub never fires the success callback,
+  // and the first scenario's `gtmOnSuccess` assertion would fail for a reason that has nothing to
+  // do with what it checks. The request path is covered by the behaviour harness instead.
   const mockData = {
+    consentMode: true,
     overrideDefaultConsent: true,
     customConsentSettings: [{
       ad_storage: 'denied',
@@ -4495,11 +4502,6 @@ setup: |-
       wait_for_update: 1000,
       region: 'FR'
     }],
-    update_analytics_storage: 'granted',
-    update_ad_storage: 'granted',
-    update_personalization_storage: 'granted',
-    update_functionality_storage: 'granted',
-    update_security_storage: 'granted',
     url_passthrough: true,
     ads_data_redaction: false,
   };
