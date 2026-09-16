@@ -4453,10 +4453,25 @@ scenarios:
     // The consent script that serves the page owns this cookie; this template only reads it for
     // its default. Two producers on one segment would flip its value between page views.
     //
-    // setCookie is ONLY reachable from the __sdcmpapi listener, and the editor's test runner never
-    // fires it: a `wasNotCalled` assertion would therefore hold whatever the code did, for the
-    // wrong reason. Mocking callInWindow to call the listener back is what gives this teeth --
-    // the same event that used to write the cookie now has to leave it alone.
+    // THREE things have to be true at once for this to check anything, and the shape before this
+    // revision had only one of them. Writing a cookie is reachable only from the deletion sweep;
+    // the sweep runs only from the consent listener, which the editor's runner never fires on its
+    // own; and it exits immediately unless the deletion option is on, purpose 1 is refused, and a
+    // host and cookie list came with the event. Miss any of those and the assertion holds because
+    // nothing ran -- a check that passes for the wrong reason, which is worse than no check.
+    //
+    // So: the listener is fired by hand, the option is on, purpose 1 is refused, and the event
+    // carries a list naming both an ordinary cookie and this one. The ordinary one MUST be swept,
+    // which is what proves the sweep ran; this one must survive it.
+    const sweptNames = [];
+    mock('setCookie', (name) => {
+      sweptNames.push(name);
+    });
+    mock('getCookieValues', (name) => {
+      if (name === '__sdgcm') return ['1.1111111'];
+      if (name === '_ga') return ['GA1.2.3'];
+      return [];
+    });
     mock('copyFromWindow', (name) => {
       if (name === 'SDDAN') return {cmp: {scope: 'LOCAL', cookieMaxAgeInDays: 390}};
       return undefined;
@@ -4466,15 +4481,24 @@ scenarios:
         callback({
           gdprApplies: true,
           eventStatus: 'useractioncomplete',
-          purpose: {consents: {1: true, 8: true}, legitimateInterests: {}},
-          vendor: {consents: {}, legitimateInterests: {}}
+          purpose: {consents: {8: true}, legitimateInterests: {}},
+          vendor: {consents: {}, legitimateInterests: {}},
+          hostName: 'example.com',
+          cookieList: '_ga,__sdgcm'
         }, true);
       }
     });
 
-    runCode(mockData);
+    runCode({
+      consentMode: true,
+      handleCookiesDeletion: true,
+      overrideDefaultConsent: true,
+      customConsentSettings: mockData.customConsentSettings
+    });
 
-    assertApi('setCookie').wasNotCalled();
+    // The witness: without this the assertion below holds on an empty list.
+    assertThat(sweptNames).contains('_ga');
+    assertThat(sweptNames).doesNotContain('__sdgcm');
 setup: |-
   // `consentMode` is what opens the block that emits the defaults. Without it the scenarios below
   // assert on an API that is never called, and every one of them fails -- which is how they stood,

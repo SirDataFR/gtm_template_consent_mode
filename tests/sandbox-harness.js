@@ -700,6 +700,33 @@ console.log("\n15. Cookie deletion: the four preservation rules");
     check("usprivacy never deleted", d0.indexOf("usprivacy") === -1);
     check("the rest is deleted", d0.indexOf("_ga") !== -1 && d0.indexOf("_fbp") !== -1);
 
+    // The two above were the only exempt names pinned, and the list has six. The one that mattered
+    // most was not among them: the container this template READS for its default. Deleting it would
+    // erase the very choice the default replays, on the page view where the visitor has just
+    // refused -- and the sweep matches by name over everything on the page, so a name missing from
+    // the exempt list is deleted in silence.
+    //
+    // The names are READ FROM THE SOURCE rather than written here. A list written twice diverges,
+    // and the half that diverges is the one nobody re-reads.
+    const exemptSource = stripComments(SRC).split("exemptedCookiesNames = [")[1];
+    if (exemptSource === undefined) { throw new Error("the exempt cookie list was not found"); }
+    const exemptNames = (exemptSource.split("]")[0].match(/'[^']+'/g) || [])
+        .map((quoted) => quoted.slice(1, -1));
+    check("the exempt list was read from the source", exemptNames.length >= 6, exemptNames.join(","));
+
+    const everyCookie = {};
+    exemptNames.forEach((name) => { everyCookie[name] = "1"; });
+    everyCookie._ga = "1";
+    const sweep = run({sddan: SDDAN_LOCAL, data: {handleCookiesDeletion: true}, cookies: everyCookie});
+    sweep.listener(purgeEvent(exemptNames.concat(["_ga"]).join(",")), true);
+    const swept = deletedNames(sweep.calls);
+    // Witness first: without a cookie actually being deleted, the loop below holds on an empty
+    // sweep and every exempt name passes for the wrong reason.
+    check("the sweep ran", swept.indexOf("_ga") !== -1, JSON.stringify(swept));
+    exemptNames.forEach((name) => {
+        check(name + " survives the sweep", swept.indexOf(name) === -1, JSON.stringify(swept));
+    });
+
     const rules = {
         "cookie_equals": {value: "sd_keep", kept: "sd_keep", gone: "_ga"},
         "cookie_begins_with": {value: "sd_", kept: "sd_keep", gone: "_ga"},
