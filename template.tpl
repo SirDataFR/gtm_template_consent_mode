@@ -90,11 +90,6 @@ ___TEMPLATE_PARAMETERS___
         "displayName": "This tag always loads the Sirdata CMP: it prepares consent defaults that only a CMP can turn into an answer, so there is no option to skip it. Whatever you set below, have your DPO review the result on your own site — settings in a tag do not, by themselves, make a setup compliant.\u003cbr\u003e\u003cbr\u003e",
         "enablingConditions": [
           {
-            "paramName": "partnerId",
-            "paramValue": "",
-            "type": "NOT_PRESENT"
-          },
-          {
             "paramName": "configId",
             "paramValue": "",
             "type": "NOT_PRESENT"
@@ -1753,14 +1748,7 @@ ___TEMPLATE_PARAMETERS___
                 ]
               }
             ],
-            "help": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, the cookies the CMP itself owns (euconsent-v2, sdconsent-v2, usprivacy, __sdgcm, __gpcactive, __sdusnat) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically.By default, the cookies the CMP itself owns are preserved.\nTo exempt additional cookies, define exception rules using one or more of the following match types:\n\n    Exact name\n\n    Starts with\n\n    Ends with\n\n    Contains\n\nAny cookie not matching these rules may be removed automatically.",
-            "enablingConditions": [
-              {
-                "paramName": "handleCookiesDeletion",
-                "paramValue": true,
-                "type": "EQUALS"
-              }
-            ]
+            "help": "Specify which cookies should be excluded from automatic deletion when consent is withdrawn. By default, the cookies the CMP itself owns (euconsent-v2, sdconsent-v2, usprivacy, __sdgcm, __gpcactive, __sdusnat) are preserved. To exempt additional cookies, define exception rules using one or more of the following match types: \"Exact name\", \"Starts with\", \"Ends with\", \"Contains\". Any cookie not matching these rules may be removed automatically.By default, the cookies the CMP itself owns are preserved.\nTo exempt additional cookies, define exception rules using one or more of the following match types:\n\n    Exact name\n\n    Starts with\n\n    Ends with\n\n    Contains\n\nAny cookie not matching these rules may be removed automatically."
           }
         ],
         "enablingConditions": [
