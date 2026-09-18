@@ -11,7 +11,7 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_NGJ2P",
-  "version": 1.82,
+  "version": 1.83,
   "securityGroups": [],
   "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
@@ -1747,7 +1747,7 @@ ___TEMPLATE_PARAMETERS___
 
 ___SANDBOXED_JS_FOR_WEB_TEMPLATE___
 
-const currentVersion = '1.82';
+const currentVersion = '1.83';
 
 const callInWindow = require('callInWindow');
 const aliasInWindow = require('aliasInWindow');
@@ -2555,6 +2555,71 @@ const appendMetaCommands = (target, source) => {
   }
 };
 
+// THE ROUTING RULE LIVES IN ONE PLACE. The function installed below and the release that empties
+// the retention list both have to reach the SDK the same way, and a rule written twice is how two
+// copies of it stop agreeing.
+//
+// `null` for the receiver is the vendor's own choice in the same call.
+const forwardMetaCommand = (forwarded) => {
+  if (copyFromWindow('fbq.callMethod.apply')) {
+    callInWindow('fbq.callMethod.apply', null, forwarded);
+  } else {
+    callInWindow('fbq.queue.push', forwarded);
+  }
+};
+
+// WHAT IS HELD BACK -- a LIST rather than "everything that is not consent", the same shape as the
+// OpenAI list above and for the same reason: a command nobody has read is forwarded, which is
+// visible, where one silently held would be a measurement that never runs with no trace of why.
+//
+// `dataProcessingOptions` is deliberately absent. It is a privacy directive, not a measurement:
+// holding it back would delay the very thing that limits what the pixel is allowed to do.
+const isMetaHeldUntilCmp = (command) => {
+  return command === 'init' || command === 'track' || command === 'trackCustom' ||
+      command === 'trackSingle' || command === 'trackSingleCustom';
+};
+
+// NEITHER FILTER ABOVE CAN SEE A DIRECT `fbq.queue.push`, and that is the hole this closes.
+//
+// Two of them exist already: the rebuild drops every consent entry the list already holds, and
+// the function installed below drops every unmarked one that passes through it. Neither sees an
+// entry a third party appends STRAIGHT INTO THE ARRAY -- it goes through no function at all, and
+// it can land after the rebuild has run.
+//
+// On the ordinary container ordering -- this tag, then the vendor's tag, then the consent script
+// -- the SDK loads and drains during the second step, long before the third. An unmarked grant
+// sitting in that list therefore releases the pixel while the CMP still has nothing to say, and
+// the measurements behind it are processed under "granted". Nothing reports it.
+//
+// So those measurements are kept OUT of the list the pixel drains and parked here instead: a
+// grant that slips in has nothing left to release. They are handed over once the consent script
+// lands, which is the moment its own controller takes ownership of the signal.
+//
+// This list is LOCAL to this tag, where the OpenAI one is published on the page. That is not a
+// style difference. The consent script reads the OpenAI resumption point because that pixel DROPS
+// what it receives under a refusal, so only a replay can recover it; Meta's pixel pauses and
+// replays by itself, so nothing on the page needs to read this one. Keeping it local costs no
+// global, no permission, and no agreement between two codebases.
+const metaHeldCommands = [];
+let metaCommandsReleased = false;
+
+// BOUNDED, and every exit of the loading path calls it: a retention with one path that does not
+// end in a release turns the vendor's function into a black hole for the rest of the page view.
+//
+// It is the SHAPE of the code that carries that property rather than an analysis of which paths
+// are reachable, so the release sits at each return and each callback of that path -- including
+// the one whose guard is today its caller's own.
+//
+// Idempotent, and the flag also CLOSES the retention: a command arriving afterwards is forwarded
+// rather than joining a list nobody will empty again.
+const releaseMetaCommands = () => {
+  if (metaCommandsReleased) return;
+  metaCommandsReleased = true;
+  for (let i = 0; i < metaHeldCommands.length; i++) {
+    forwardMetaCommand(metaHeldCommands[i]);
+  }
+};
+
 const prepareFacebookDefault = (granted) => {
   const signal = granted ? 'grant' : 'revoke';
   if (typeof(copyFromWindow('fbq.callMethod')) === 'function') {
@@ -2601,10 +2666,10 @@ const prepareFacebookDefault = (granted) => {
       // indistinguishable by shape from a third party's. Without the gate its own grant would be
       // dropped and the pixel would stay paused for the whole page view.
       //
-      // That is also where this stops being a copy of the OpenAI shim above. There a held command
-      // is released once consent is known; here there is nothing to release -- a third party's
-      // signal replayed after ours would simply override it again. So it is a suppression, which
-      // is what the served script already does, moved earlier.
+      // A CONSENT ENTRY IS SUPPRESSED, NOT HELD, and that is what separates this branch from the
+      // retention below it. A measurement is worth keeping and handing over later; a third
+      // party's consent signal is not -- replayed after ours it would simply override it again.
+      // So this one is the suppression the served script already performs, moved earlier.
       if (command === 'consent' && arg2 !== META_TEMPORARY_MARKER &&
           copyFromWindow('ABconsentCMP.facebook._installed') !== true) {
         return;
@@ -2620,12 +2685,14 @@ const prepareFacebookDefault = (granted) => {
       } else if (typeof(arg1) !== 'undefined') {
         forwarded.push(arg1);
       }
-      // `null` for the receiver is the vendor's own choice in the same call.
-      if (copyFromWindow('fbq.callMethod.apply')) {
-        callInWindow('fbq.callMethod.apply', null, forwarded);
-      } else {
-        callInWindow('fbq.queue.push', forwarded);
+      // Only while the stored default is a refusal, and only until the consent script lands.
+      // Under a stored grant the pixel accepts measurements, so holding them back would delay
+      // what already works -- the same boundary the OpenAI hold above draws.
+      if (!granted && !metaCommandsReleased && isMetaHeldUntilCmp(command)) {
+        metaHeldCommands.push(forwarded);
+        return;
       }
+      forwardMetaCommand(forwarded);
     }, true);
     aliasInWindow('_fbq', 'fbq');
     aliasInWindow('fbq.push', 'fbq');
@@ -2837,10 +2904,15 @@ const registerCookieDeletionListener = () => {
 // in place, so the command waits there and the CMP drains it on arrival. Waiting for a load event
 // to register it was only ever a consequence of the stub being what installed that queue.
 const loadCmp = () => {
-  if (!data.partnerId || !data.configId) return;
+  if (!data.partnerId || !data.configId) {
+    releaseMetaCommands();
+    return;
+  }
   registerCookieDeletionListener();
   const url = 'https://choices.consentframework.com/js/pa/'+encodeUriComponent(data.partnerId)+'/c/'+encodeUriComponent(data.configId)+'/cmp?tms=gtm';
-  injectScript(url, function(){data.gtmOnSuccess();}, function(){data.gtmOnFailure();});
+  // BOTH callbacks release, failure included. A request that does not arrive is not a reason to
+  // keep the vendor's measurements: nobody else will ever hand them over.
+  injectScript(url, function(){releaseMetaCommands();data.gtmOnSuccess();}, function(){releaseMetaCommands();data.gtmOnFailure();});
 };
 
 // A first-party host is served by a loader we do not control, so the listener still goes through
@@ -2854,7 +2926,7 @@ const loadCmpScript = () => {
   sdCmpTemplateCallback.push(registerCookieDeletionListener);
   setInWindow('sdCmpTemplateCallback', sdCmpTemplateCallback);
   const url = 'https://cdn.sirdata.eu/cmp_loader.js?p='+encodeUriComponent(data.partnerId)+'&c='+encodeUriComponent(data.configId)+'&h='+encodeUriComponent(data.firstPartyHost)+'&cb=sdCmpTemplateCallback&tms=gtm';
-  injectScript(url, function(){data.gtmOnSuccess();}, function(){
+  injectScript(url, function(){releaseMetaCommands();data.gtmOnSuccess();}, function(){
     data.firstPartyHost = '';
     loadCmp();
   });
@@ -2866,6 +2938,11 @@ if (!cmpLoaded && data.partnerId && data.configId) {
   installTemplateMiniStubs();
   loadCmpScript();
 } else {
+  // Nothing is requested on this path: the CMP is already on the page, or there is no
+  // configuration to request one for. No injection callback will ever fire, so this is where the
+  // retention ends. The second case is the one that matters -- without this release, a container
+  // with no identifiers would hold the vendor's measurements for the whole page view.
+  releaseMetaCommands();
   registerCookieDeletionListener();
   data.gtmOnSuccess();
 }
