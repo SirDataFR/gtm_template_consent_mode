@@ -120,7 +120,7 @@ function run(opts) {
     // `cookieReads` counts reads PER NAME. Without it a short-circuit can only be checked on the
     // value it produces, and an implementation that reads the container and then overwrites the
     // result would pass while consulting a cookie it must never touch.
-    const calls = {defaults: [], defaultStates: [], updates: [], setCookies: [], injected: [], injectionStates: [], cookieReads: {}, successes: 0, failures: 0, listenerAfterInjections: null};
+    const calls = {defaults: [], defaultStates: [], updates: [], setCookies: [], injected: [], injectionStates: [], cookieReads: {}, successes: 0, failures: 0, listenerAfterInjections: null, pending: []};
     let listener = null;
     const globals = Object.assign({SDDAN: opts.sddan}, opts.globals || {});
 
@@ -195,6 +195,18 @@ function run(opts) {
                 containerId: cmp.gtmTemplateContainerId,
                 miniStubApis: Object.assign({}, cmp.gtmTemplateMiniStubApis || {})
             });
+            // `deferInjection` HOLDS THE LANDING instead of simulating it. The default below
+            // calls `ok` synchronously, which collapses the whole window between the request and
+            // the script arriving -- so anything a test pushes after `run()` returns is already
+            // on the other side of it, and a behaviour that only exists inside that window cannot
+            // be observed at all. Deferring hands the callbacks to the test, which fires them
+            // when it means to.
+            //
+            // It holds the first-party callback list too: draining it is part of the landing.
+            if (opts.deferInjection) {
+                calls.pending.push({url: u, ok: ok, fail: fail});
+                return;
+            }
             if (opts.failInjection && u.indexOf(opts.failInjection) !== -1) {
                 if (fail) fail();
                 return;
@@ -2243,6 +2255,133 @@ console.log("\n26. A regional refusal, then a global one that carries the ad sig
         manuel.calls.defaults[0].ad_user_data === "denied" &&
         manuel.calls.defaults[0].ad_personalization === "denied",
         JSON.stringify(manuel.calls.defaults[0]));
+}
+
+console.log("\n27. Meta measurements are held out of the drained list until the consent script lands");
+{
+    const META_ON = {facebookConsentMode: true};
+    const WITH_IDS = {facebookConsentMode: true, partnerId: "1020", configId: "public"};
+
+    // `deferInjection` is what makes the window observable AT ALL. The fake `injectScript`
+    // otherwise runs its success callback synchronously, so the script has already landed by the
+    // time `run()` returns -- and every command a test pushes is on the far side of the very
+    // window it means to exercise. Without it this whole section would pass on an implementation
+    // that holds nothing.
+    const attente = run({sddan: SDDAN_LOCAL, data: WITH_IDS, deferInjection: true});
+    check("witness -- the script is requested and is still in flight",
+        attente.calls.injected.length === 1 && attente.calls.pending.length === 1 &&
+        attente.calls.successes === 0,
+        JSON.stringify([attente.calls.injected, attente.calls.successes]));
+    check("witness -- a page without a pixel gets a function and a list",
+        typeof attente.globals.fbq === "function" && Array.isArray(attente.globals.fbq.queue),
+        typeof attente.globals.fbq);
+
+    const base = commandList(attente.globals.fbq.queue).length;
+    attente.globals.fbq("init", "1111", {});
+    attente.globals.fbq("track", "PageView");
+    check("neither initialising the pixel nor the page view reaches the drained list",
+        commandList(attente.globals.fbq.queue).length === base,
+        JSON.stringify(commandList(attente.globals.fbq.queue)));
+
+    // THE DEFECT, stated as a rule. A third party appending straight into the array goes through
+    // no function of ours: the rebuild has already run and cannot see it, and it never passes the
+    // installed function that would have dropped it. A pixel draining at this instant is released
+    // by that grant -- and finds nothing behind it to process.
+    attente.globals.fbq.queue.push(["consent", "grant"]);
+    const pendant = commandList(attente.globals.fbq.queue);
+    check("a grant pushed straight into the array has no measurement left to release",
+        named(pendant, "init").length === 0 && named(pendant, "track").length === 0,
+        JSON.stringify(pendant));
+
+    // THE WITNESS THAT THE FUNCTION IS NOT BLOCKED, and it is the point of holding a LIST rather
+    // than everything: a privacy directive is not a measurement, and delaying it would delay the
+    // very thing that limits what the pixel may do.
+    attente.globals.fbq("dataProcessingOptions", ["LDU"], 0, 0);
+    check("a privacy directive still lands immediately, with its exact arity",
+        named(commandList(attente.globals.fbq.queue), "dataProcessingOptions").length === 1 &&
+        named(commandList(attente.globals.fbq.queue), "dataProcessingOptions")[0].length === 4,
+        JSON.stringify(commandList(attente.globals.fbq.queue)));
+    attente.globals.fbq("someLaterCommand", "x");
+    check("and a command that is on no list lands too, where it is visible",
+        named(commandList(attente.globals.fbq.queue), "someLaterCommand").length === 1,
+        JSON.stringify(commandList(attente.globals.fbq.queue)));
+
+    // The script lands. What was held is handed over, in the order it was received.
+    attente.calls.pending[0].ok();
+    const apresAtterrissage = commandList(attente.globals.fbq.queue);
+    const mesures = apresAtterrissage.filter((c) => c[0] === "init" || c[0] === "track");
+    check("the landing hands the measurements over, initialisation first",
+        mesures.length === 2 && mesures[0][0] === "init" && mesures[1][0] === "track" &&
+        mesures[1][1] === "PageView",
+        JSON.stringify(apresAtterrissage));
+    check("and the tag reports its success as before",
+        attente.calls.successes === 1, String(attente.calls.successes));
+
+    // The retention is CLOSED by the release, not merely emptied: a measurement arriving after it
+    // goes straight through instead of joining a list nobody will empty again.
+    const apresBase = commandList(attente.globals.fbq.queue).length;
+    attente.globals.fbq("track", "Purchase");
+    check("a measurement pushed after the landing goes straight to the list",
+        commandList(attente.globals.fbq.queue).length === apresBase + 1,
+        JSON.stringify(commandList(attente.globals.fbq.queue)));
+
+    // EXIT 2 -- the request fails. A script that never arrives is not a reason to keep the
+    // measurements: nobody else will ever hand them over.
+    const echec = run({sddan: SDDAN_LOCAL, data: WITH_IDS, deferInjection: true});
+    echec.globals.fbq("track", "PageView");
+    check("witness -- it is held while the request is in flight",
+        named(commandList(echec.globals.fbq.queue), "track").length === 0,
+        JSON.stringify(commandList(echec.globals.fbq.queue)));
+    echec.calls.pending[0].fail();
+    check("a failed request releases what was held",
+        named(commandList(echec.globals.fbq.queue), "track").length === 1 &&
+        echec.calls.failures === 1,
+        JSON.stringify([commandList(echec.globals.fbq.queue), echec.calls.failures]));
+
+    // EXIT 3, and it is the one that matters most: no identifiers, so no script is ever
+    // requested and no callback will ever fire. Without a release here the function would hold
+    // for the whole page view.
+    const sansCmp = run({sddan: SDDAN_LOCAL, data: META_ON});
+    check("witness -- nothing is requested", sansCmp.calls.injected.length === 0,
+        JSON.stringify(sansCmp.calls.injected));
+    sansCmp.globals.fbq("track", "PageView");
+    check("with no script to wait for, a measurement is not held at all",
+        named(commandList(sansCmp.globals.fbq.queue), "track").length === 1,
+        JSON.stringify(commandList(sansCmp.globals.fbq.queue)));
+
+    // EXIT 4 -- the CMP is already on the page, so this tag requests nothing either.
+    const dejaLa = run({sddan: SDDAN_LOCAL, data: WITH_IDS,
+        globals: {ABconsentCMP: {enableConsentMode: true}}});
+    check("witness -- nothing is requested when the CMP is already there",
+        dejaLa.calls.injected.length === 0, JSON.stringify(dejaLa.calls.injected));
+    dejaLa.globals.fbq("track", "PageView");
+    check("and nothing is held either",
+        named(commandList(dejaLa.globals.fbq.queue), "track").length === 1,
+        JSON.stringify(commandList(dejaLa.globals.fbq.queue)));
+
+    // THE OTHER DIRECTION, which is what keeps this from delaying what already works: under a
+    // stored grant the pixel is not paused, so nothing is held back.
+    const accord = run({sddan: SDDAN_LOCAL, cookies: {"__sdgcm": "2.m:1:1"}, data: WITH_IDS,
+        deferInjection: true});
+    accord.globals.fbq("track", "PageView");
+    check("under a stored grant the measurement goes straight to the list",
+        named(commandList(accord.globals.fbq.queue), "track").length === 1,
+        JSON.stringify(commandList(accord.globals.fbq.queue)));
+
+    // The consent rules of the section above still hold INSIDE the window: the retention is added
+    // to them, it does not replace them.
+    const consentement = run({sddan: SDDAN_LOCAL, data: WITH_IDS, deferInjection: true});
+    const avantConsent = commandList(consentement.globals.fbq.queue).length;
+    consentement.globals.fbq("consent", "grant");
+    check("an unmarked consent is still dropped while the script is in flight",
+        commandList(consentement.globals.fbq.queue).length === avantConsent,
+        JSON.stringify(commandList(consentement.globals.fbq.queue)));
+    consentement.globals.ABconsentCMP.facebook = {_installed: true};
+    consentement.globals.fbq("consent", "grant");
+    const ouvert = commandList(consentement.globals.fbq.queue);
+    check("and the served controller's own signal still passes",
+        JSON.stringify(ouvert[ouvert.length - 1]) === JSON.stringify(["consent", "grant"]),
+        JSON.stringify(ouvert));
 }
 
 // Every declared function is called with the number of arguments it declares.

@@ -76,6 +76,37 @@ and it is created empty rather than replaced, so a page that published one first
 it holds. And the namespace must not be written wholesale after the page starts pushing into that
 list — today every such write happens inside the same synchronous run, before the vendor tag fires.
 
+## Meta measurements are kept out of the drained list until the CMP script lands
+
+The template already drops a third-party consent entry at two moments: when it rebuilds the pending
+list, and when a call passes through the function it installed. Neither of them sees an entry
+appended **straight into the array** — that goes through no function at all, and it can land after
+the rebuild has run.
+
+On the ordinary container ordering — this tag, then the vendor's tag, then the CMP script — Meta's
+SDK loads and drains during the second step, long before the third. An unmarked `grant` sitting in
+that array therefore releases the pixel while the CMP still has nothing to say, and the measurements
+behind it are processed as granted. Nothing reports it.
+
+So while the stored default is a refusal, `init`, `track`, `trackCustom`, `trackSingle` and
+`trackSingleCustom` are held out of the list the pixel drains: a grant that slips in has nothing
+left to release. They are handed over, in the order they were received, once the CMP script lands —
+the moment its own controller takes ownership of the signal. Everything else passes through
+untouched, `dataProcessingOptions` included: that one is a privacy directive rather than a
+measurement, and delaying it would delay the very thing that limits what the pixel may do.
+
+The retention is bounded, and that is what keeps the function from becoming a black hole. The
+release is called at every exit of the loading path — the script landing, the request failing, and
+the branch where no script is requested at all, because the CMP is already on the page or because no
+configuration names one. The flag that empties the list also closes it, so a measurement arriving
+afterwards is forwarded rather than joining a list nobody will empty again.
+
+Unlike OpenAI's, this list is local to the tag rather than published on the page. The CMP script
+reads the OpenAI resumption point because that pixel drops what it receives under a refusal, so only
+a replay can recover it; Meta's pixel pauses and replays by itself, so nothing on the page needs to
+read this one. Under a stored grant nothing is held back either: the pixel is not paused then, and
+holding would delay what already works.
+
 ## No publisher queue method is ever executed
 
 OpenAI keeps two names for its pending-command list — `oaiq.q` for the page snippet, `oaiq.queue`
