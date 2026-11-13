@@ -11,7 +11,7 @@ ___INFO___
 {
   "type": "TAG",
   "id": "cvt_NGJ2P",
-  "version": 1.83,
+  "version": 1.84,
   "securityGroups": [],
   "displayName": "ABconsent (Sirdata CMP) | Google Consent Mode",
   "categories": [
@@ -1747,7 +1747,7 @@ ___TEMPLATE_PARAMETERS___
 
 ___SANDBOXED_JS_FOR_WEB_TEMPLATE___
 
-const currentVersion = '1.83';
+const currentVersion = '1.84';
 
 const callInWindow = require('callInWindow');
 const aliasInWindow = require('aliasInWindow');
@@ -1767,6 +1767,7 @@ const ABconsentCMP = copyFromWindow('ABconsentCMP') || {};
 const cmpLoaded = typeof(ABconsentCMP.enableConsentMode) !== 'undefined';
 const facebookConsentModeEnabled = data.facebookConsentMode === true;
 const openAiConsentModeEnabled = data.openAiConsentMode === true;
+const googleConsentModeEnabled = data.consentMode !== false;
 
 // These settings DECIDE -- the two below and the Consent Mode switch further down. They do not
 // defer to the served CMP configuration, and there is no third state for them to defer WITH --
@@ -1812,7 +1813,7 @@ if (!cmpLoaded) {
 // It also keeps the three activation settings on one rule. This one differs from the two vendor
 // modes only in the property it lands on: that property doubles as "the CMP owns the updates", and
 // the two meanings agree -- ticked delegates them, unticked leaves nothing to delegate.
-ABconsentCMP.enableConsentMode = data.consentMode === true;
+ABconsentCMP.enableConsentMode = googleConsentModeEnabled;
 // Unconditional, because the three settings above are now always written: there is always
 // something here for the CMP to read, including when this tag publishes nothing else. A CMP
 // loaded by another tag would otherwise never see them.
@@ -2742,7 +2743,7 @@ if (facebookConsentModeEnabled) {
   // limiting it. Raising to a grant is safe on both regimes; the CMP resolves the rest.
   prepareFacebookDefault(!gpcActive && readStoredVendorConsent(getCookieSegments(), 'm') === true);
 }
-if (data.consentMode) {
+if (googleConsentModeEnabled) {
   gtagSet('developer_id.dOWE1OT', true);
 
   // Advanced settings
