@@ -1516,6 +1516,14 @@ console.log("\n21. Activation overrides and loader ordering");
         noGoogle.globals.ABconsentCMP.enableConsentMode === false &&
         (noGoogle.calls.injectionStates[0] || {}).enableConsentMode === false,
         JSON.stringify(noGoogle.globals.ABconsentCMP));
+    const neverSaved = run({sddan: SDDAN_LOCAL, data: {
+        consentMode: undefined, partnerId: "1020", configId: "public"
+    }});
+    check("a tag saved before the Google box existed keeps Google Consent Mode on",
+        neverSaved.globals.ABconsentCMP.enableConsentMode === true &&
+        neverSaved.calls.defaults.length === 2 &&
+        JSON.parse(neverSaved.globals.ABconsentCMP.gtmTemplateDefaultConsent || "{}").ad_storage === "denied",
+        JSON.stringify(neverSaved.globals.ABconsentCMP));
     // The nominal path: nothing declared, so the automatic default state is what goes out. A
     // publisher who takes the defaults over but leaves the table empty lands here too -- emitting
     // no default at all would be worse than either mode.
