@@ -15,6 +15,9 @@
 homepage: "https://www.abconsent.com/"
 documentation: "https://cmp.docs.sirdata.net/v/en/script-management/google-consent-mode"
 versions:
+  - sha: 1c5137ac6722ab7f516dabe1ac485b029a35fa84
+    changeNotes: old configs compatibility
+
   - sha: 2f0063e5f0515373dcaf5015fde915fa5db101fd
     changeNotes: improved Facebook Consent Mode
 
